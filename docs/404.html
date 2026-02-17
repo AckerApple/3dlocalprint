@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page Not Found</title>
+    <script>
+      (function redirect() {
+        var path = window.location.pathname || "/";
+        var query = window.location.search || "";
+        var hash = window.location.hash || "";
+
+        if (path === "/404.html") {
+          window.location.replace("/index.html" + query + hash);
+          return;
+        }
+
+        var normalized = path.replace(/\/+$/, "");
+        var candidates = [];
+
+        if (normalized) {
+          if (/\.html$/i.test(normalized)) {
+            candidates.push(normalized);
+          } else {
+            candidates.push(normalized + "/index.html");
+            candidates.push(normalized + ".html");
+          }
+        }
+
+        candidates.push("/index.html");
+
+        var target = candidates[0] || "/index.html";
+        window.location.replace(target + query + hash);
+      })();
+    </script>
+  </head>
+  <body>
+    <p>Redirecting...</p>
+  </body>
+</html>

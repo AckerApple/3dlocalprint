@@ -34,10 +34,11 @@ export default defineConfig({
           locations.map((location) => {
             const slug = slugifyLocation(location);
             return [
-              `fast-edit-${slug}`,
-              resolve(__dirname, `src/filament/${slug}/fast-edit.html`),
+              [`inventory-${slug}`, resolve(__dirname, `src/filament/${slug}/index.html`)],
+              [`fast-edit-${slug}`, resolve(__dirname, `src/filament/${slug}/fast-edit.html`)],
             ];
           })
+          .flat()
         ),
       },
     },
