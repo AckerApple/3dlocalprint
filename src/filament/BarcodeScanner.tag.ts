@@ -33,8 +33,9 @@ const getErrorMessage = (error: unknown) =>
 export const BarcodeScannerPanel = tag(
   ({ onResult, formats }: BarcodeScannerProps = {}) => {
   
-  BarcodeScannerPanel.inputs((args: [BarcodeScannerProps]) => {
-    [{ onResult, formats } = {} as any] = args;
+  BarcodeScannerPanel.inputs((args: [BarcodeScannerProps?]) => {
+    const [next = {}] = args;
+    ({ onResult, formats } = next);
     onResult = output(onResult)
   });
 
@@ -69,8 +70,6 @@ export const BarcodeScannerPanel = tag(
   const setOutput = (text = "", format = "") => {
     lastText = text || "";
     lastFormat = format || "";
-
-    console.log('SET!', { lastText })
   };
 
   const stopScanner = () => {

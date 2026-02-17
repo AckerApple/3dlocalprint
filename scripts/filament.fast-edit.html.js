@@ -24,8 +24,8 @@ export const filamentFastEditPage = ({
         "data-location": location,
         "data-location-slug": locationSlug,
       }),
-      script({ type: "module", src: withPrefix(assetPrefix, "filament-fast-edit.tag.js") }),
+      script({ type: "module", src: withPrefix(assetPrefix, "filament-fast-edit.tag.ts") }),
       versionBadge(),
-      script({ type: "module", src: withPrefix(assetPrefix, "version.js") }),
+      script({ type: "module", src: withPrefix(assetPrefix, "version.ts") }),
     ],
   });

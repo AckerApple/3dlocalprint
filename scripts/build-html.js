@@ -4,8 +4,14 @@ import { renderDocument } from "./html.render.js";
 import { filamentIndexPage } from "./filament.index.html.js";
 import { filamentStandalonePage } from "./filament.standalone.html.js";
 import { filamentFastEditPage } from "./filament.fast-edit.html.js";
-import { locations } from "../src/filament/locations.array.js";
-import { slugifyLocation } from "../src/filament/location-utils.js";
+
+const locations = ["Fireguys", "Apples"];
+
+const slugifyLocation = (location = "") =>
+  location
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
 const rootDir = resolve(".");
 const filamentDir = resolve(rootDir, "src/filament");
@@ -21,7 +27,7 @@ const pages = [
       filamentStandalonePage({
         pageTitle: "Admin Home",
         appId: "adminHomeApp",
-        appScript: "admin-home.tag.js",
+        appScript: "admin-home.tag.ts",
       }),
   },
   {
@@ -39,7 +45,7 @@ const pages = [
       filamentStandalonePage({
         pageTitle: "🏭 Manage Filament Manufacturers",
         appId: "manufacturersApp",
-        appScript: "manufacturers.tag.js",
+        appScript: "manufacturers.tag.ts",
       }),
   },
   {
@@ -48,7 +54,7 @@ const pages = [
       filamentStandalonePage({
         pageTitle: "Ledger",
         appId: "ledgerApp",
-        appScript: "ledger.tag.js",
+        appScript: "ledger/ledger.tag.ts",
       }),
   },
   {
@@ -57,7 +63,7 @@ const pages = [
       filamentStandalonePage({
         pageTitle: "Manage Admins",
         appId: "adminsApp",
-        appScript: "admins.tag.js",
+        appScript: "admins.tag.ts",
       }),
   },
 ];
@@ -77,9 +83,23 @@ const fastEditPages = locations.map((location) => {
   };
 });
 
+const locationInventoryPages = locations.map((location) => {
+  const locationSlug = slugifyLocation(location);
+  return {
+    path: resolve(filamentDir, locationSlug, "index.html"),
+    render: () =>
+      filamentIndexPage({
+        assetPrefix: "../",
+        location,
+        locationSlug,
+        includeFooter: false,
+      }),
+  };
+});
+
 mkdirSync(filamentDir, { recursive: true });
 
-pages.concat(fastEditPages).forEach((page) => {
+pages.concat(fastEditPages, locationInventoryPages).forEach((page) => {
   const dir = resolve(page.path, "..");
   mkdirSync(dir, { recursive: true });
   writeFileSync(page.path, renderDocument(page.render()), "utf-8");

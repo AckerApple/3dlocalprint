@@ -21,6 +21,6 @@ export const filamentStandalonePage = ({
       main({ id: appId }),
       script({ type: "module", src: withPrefix(assetPrefix, appScript) }),
       versionBadge(),
-      script({ type: "module", src: withPrefix(assetPrefix, "version.js") }),
+      script({ type: "module", src: withPrefix(assetPrefix, "version.ts") }),
     ],
   });

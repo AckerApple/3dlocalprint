@@ -16,8 +16,6 @@ import {
 import { materialTypes } from "./materialTypes.array.js";
 import { AdminNav } from "./AdminNav.tag.js";
 import {
-  signIn,
-  signOutUser,
   saveFilamentTypes,
   subscribeFilamentTypes,
   subscribeManufacturers,
@@ -26,29 +24,61 @@ import { normalizeBarcodeList, extractBarcodeToken } from "./barcode-utils.js";
 import { extractQrToken } from "./qr-utils.js";
 import { CodeScannerModal } from "./CodeScannerModal.tag.js";
 import { BarcodeScannerPanel } from "./BarcodeScanner.tag.js";
+import { BarcodeFilterControl } from "./BarcodeFilterControl.tag.js";
 import { filterByManufacturerAndMaterial } from "./filter-utils.js";
 import { withManufacturerEmoji } from "./adminNavItems.js";
-import { mountSsoPanel, replaceMountRoot } from "./ssoMount.js";
+import { replaceMountRoot } from "./ssoMount.js";
 import { toast } from "./toast.js";
-import { startAuthFlow } from "./auth-flow.js";
-import { handleAdminAuthUser } from "./auth-handler.js";
-import { FilamentTypesRowDisplay } from "./filament-types/FilamentTypesRowDisplay.tag.ts";
+import { startAdminAppShell } from "./adminAppShell.js";
+import { FilamentTypesRowDisplay } from "./filament-types/FilamentTypesRowDisplay.tag.js";
+import type { ManufacturerItem } from "../types/filament.js";
+
+export type FilamentType = {
+  filament_type_id: string;
+  number: number;
+  label: string;
+  manufacturer?: string;
+  material_type?: string;
+  sub_material_type?: string;
+  color_name?: string;
+  swatch_code?: string;
+  qr_search_data?: string;
+  barcode_search_data?: string[];
+  hex?: string;
+  url?: string;
+};
+
+type FilamentTypeInput = {
+  filament_type_id?: string;
+  number?: number | string;
+  label?: string;
+  manufacturer?: string;
+  material_type?: string;
+  sub_material_type?: string;
+  color_name?: string;
+  swatch_code?: string;
+  qr_search_data?: string;
+  barcode_search_data?: string[] | string;
+  hex?: string;
+  url?: string;
+};
 
 let app = document.getElementById("filamentTypesApp");
 const appRoot = { current: app };
 
-let types$ = array()
+const types$ = array([] as FilamentType[])
+const manufacturers$ = array([] as ManufacturerItem[])
 let stopTypes = null
 
 let stopManufacturers = null;
-let manufacturers = [];
 let manufacturerFilter = "";
 let materialTypeFilter = "";
+let barcodeFilter = "";
 let activeQrItem = null;
 let activeBarcodeItem = null;
-let isAuthorized = false;
 let appMounted = false;
 let currentUser = null;
+let handleSignOut = () => Promise.resolve();
 const expandedTypeIds = new Set();
 let pendingFocusTypeId = "";
 const editTypeId = typeof window !== "undefined"
@@ -66,12 +96,13 @@ const createFilamentTypeId = () => {
   return `filament_${Date.now().toString(36)}_${rand}`;
 };
 
-const createEmptyFilamentType = () => ({
+const createEmptyFilamentType = (): FilamentType => ({
   filament_type_id: createFilamentTypeId(),
-  number: "",
+  number: null,
   label: "",
   manufacturer: "",
   material_type: "",
+  sub_material_type: "",
   color_name: "",
   swatch_code: "",
   qr_search_data: "",
@@ -122,7 +153,7 @@ export const removeType = (index) => {
 };
 
 const saveList = async () => {
-  if (!isAuthorized) {
+  if (!auth.authState.isAuthorized) {
     toast.error("Sign in to save changes.");
     return false;
   }
@@ -145,12 +176,6 @@ export const saveType = async (item) => {
   if (!id) return;
   expandedTypeIds.delete(id);
 };
-
-const handleSignOut = () =>
-  signOutUser().catch((error) => {
-    console.error("Firebase sign-out failed", error);
-    toast.error("Sign out failed. Try again.");
-  });
 
 export const getBarcodeList = (item) => normalizeBarcodeList(item.barcode_search_data);
 
@@ -200,11 +225,26 @@ const applyBarcodeScan = (text) => {
   activeBarcodeItem = null;
 };
 
+const clearFilters = () => {
+  manufacturerFilter = "";
+  materialTypeFilter = "";
+  barcodeFilter = "";
+};
+
+const matchesBarcodeFilter = (item, filter) => {
+  const token = (filter || "").trim().toLowerCase();
+  if (!token) return true;
+  const barcodeList = normalizeBarcodeList(item?.barcode_search_data);
+  return barcodeList.some((barcode) =>
+    String(barcode || "").toLowerCase().includes(token)
+  );
+};
+
 const filteredTypes = () =>
   filterByManufacturerAndMaterial(types$.value, {
     manufacturerFilter,
     materialTypeFilter,
-  });
+  }).filter((item) => matchesBarcodeFilter(item, barcodeFilter));
 
 export const toggleExpanded = (item) => {
   const id = item?.filament_type_id;
@@ -217,12 +257,6 @@ export const toggleExpanded = (item) => {
 };
 
 export const FilamentTypesApp = tag(() => {
-
-  console.log('stopTypes', {
-    stopTypes, sub: stopTypes.subscribe,
-    // stopTypes2: stopTypes(),
-  })
-
   return [
   AdminNav(handleSignOut, currentUser),
   
@@ -237,12 +271,6 @@ export const FilamentTypesApp = tag(() => {
             .class`add-button`
             .onClick(addType)(
             "➕ Add filament type"
-          ),
-          button
-            .type`button`
-            .class`add-button`
-            .onClick(saveList)(
-            "💾 Save to Firestore"
           )
         ),
         div.class`controls-group`(
@@ -252,9 +280,11 @@ export const FilamentTypesApp = tag(() => {
               manufacturerFilter = event?.target?.value || "";
             })(
             option({ value: "" }, "🏭 Filter by manufacturer"),
-            _=> (manufacturers || []).map((maker) =>
-              option({ value: maker }, maker)
+            subscribe(manufacturers$, manufacturers => {
+              return manufacturers.map((maker) =>
+              option.value(maker.label)(maker.label)
             )
+            })
           ),
           select
             .value(() => materialTypeFilter ?? "")
@@ -266,23 +296,41 @@ export const FilamentTypesApp = tag(() => {
               option({ value: materialType }, materialType)
             )
           ),
-          div.id`count`(_=> `${filteredTypes().length} filament types`)
+          BarcodeFilterControl({
+            value: barcodeFilter,
+            onChange: (value) => {
+              barcodeFilter = value;
+            },
+            scannerName: "bc-filter-scanner",
+          }),
+          button
+            .type`button`
+            .class`ghost-button`
+            .disabled(() =>
+              !manufacturerFilter && !materialTypeFilter && !barcodeFilter
+            )
+            .onClick(clearFilters)(
+            "Clear filters"
+          ),
         )
       )
     ),
     div.class`swatch-grid`(
       subscribe(
         types$,
-        types => FilamentTypesRowDisplay({
-          types,
-          expandedTypeIds,
-          filteredTypes,
-          getBarcodeList,
-          removeBarcode,
-          manufacturers,
-          materialTypes,
-          withManufacturerEmoji,
-        })
+        (types) => {
+          if(!types.length) {
+            return
+          }
+
+          return FilamentTypesRowDisplay({
+            types: filteredTypes(),
+            expandedTypeIds,
+            manufacturers$,
+            materialTypes,
+            withManufacturerEmoji,
+          })
+        }
       ),
     ),
     _=> activeQrItem &&
@@ -305,19 +353,20 @@ export const FilamentTypesApp = tag(() => {
         onApply: applyBarcodeScan,
         applyLabel: "Apply barcode",
         ScannerPanel: BarcodeScannerPanel,
-      })
+      }),
   ),
 ]});
 
-const serializeFilamentTypes = (items) =>
+const serializeFilamentTypes = (items: FilamentTypeInput[]): FilamentType[] =>
   (Array.isArray(items) ? items : []).map((item) => {
-    const cleaned = {
+    const cleaned: FilamentType = {
       filament_type_id: item.filament_type_id || createFilamentTypeId(),
       number: item.number ? Number(item.number) || 0 : 0,
       label: item.label || "",
     };
     if (item.manufacturer) cleaned.manufacturer = item.manufacturer;
     if (item.material_type) cleaned.material_type = item.material_type;
+    if (item.sub_material_type) cleaned.sub_material_type = item.sub_material_type;
     if (item.color_name) cleaned.color_name = item.color_name;
     if (item.swatch_code) cleaned.swatch_code = item.swatch_code;
     if (item.qr_search_data) cleaned.qr_search_data = item.qr_search_data;
@@ -339,103 +388,78 @@ const mountApp = () => {
   appMounted = true;
   app = appRoot.current;
 };
-
-const mountSso = (status, userEmail, reason = "") => {
-  if (!appRoot.current) return;
-  mountSsoPanel({
-    rootRef: appRoot,
-    status,
-    userEmail,
-    adminEmail: "",
-    onSignIn: () =>
-      signIn().catch((error) => {
-        console.error("Firebase sign-in failed", error);
-        toast.error("Sign in failed. Try again.");
-      }),
-    onSignOut: handleSignOut,
-    setAppMounted: (value) => {
-      appMounted = value;
-    },
-  });
-  app = appRoot.current;
-};
-
-mountSso("loading", "", "initial");
-
-const handleAuthUser = async (user, reason = "") => {
-  isAuthorized = false;
-  const isAllowed = await handleAdminAuthUser({
-    user,
-    mountSso,
-    toast,
-    setCurrentUser: (value) => {
-      currentUser = value;
-    },
-    onSignedOut: () => {
-      if (stopTypes) {
-        stopTypes();
-        stopTypes = null;
-      }
-      if (stopManufacturers) {
-        stopManufacturers();
-        stopManufacturers = null;
-      }
-    },
-    onDenied: () => {
-      if (stopTypes) {
-        stopTypes();
-        stopTypes = null;
-      }
-      if (stopManufacturers) {
-        stopManufacturers();
-        stopManufacturers = null;
-      }
-    },
-    onAuthorized: () => {
-      isAuthorized = true;
-      if (!stopTypes) {
-        stopTypes = subscribeFilamentTypes((items) => {
-          console.log('items ++++++', {items})
-          types$.length = 0
-
-          if (Array.isArray(items)) {
-            types$.push( ...items.map((item) => ({ ...item })) )
-          }
-          
-          if (appMounted) {
-            return;
-          }
-          if (isAuthorized) {
-            mountApp("types:update");
-          }
-        });
-
-        console.log('stopTypes ready ---', {stopTypes})
-      }
-      if (!stopManufacturers) {
-        stopManufacturers = subscribeManufacturers((items) => {
-          if (Array.isArray(items) && items.length) {
-            manufacturers = items;
-          } else {
-            manufacturers = [];
-          }
-          if (appMounted) {
-            console.log('✅')
-            return;
-          }
-          if (isAuthorized) {
-            mountApp("manufacturers:update");
-          }
-        });
-      }
-      mountApp("auth:authorized");
-    },
-    reason,
-  });
-  if (!isAllowed) return;
-};
-
-startAuthFlow({
-  onUser: handleAuthUser,
+const auth = startAdminAppShell({
+  rootRef: appRoot,
   toast,
+  setAppMounted: (value) => {
+    appMounted = value;
+  },
+  setCurrentUser: (value) => {
+    currentUser = value;
+  },
+  onAfterSsoMount: () => {
+    app = appRoot.current;
+  },
+  onSignedOut: () => {
+    if (stopTypes) {
+      stopTypes();
+      stopTypes = null;
+    }
+    if (stopManufacturers) {
+      stopManufacturers();
+      stopManufacturers = null;
+    }
+  },
+  onDenied: () => {
+    if (stopTypes) {
+      stopTypes();
+      stopTypes = null;
+    }
+    if (stopManufacturers) {
+      stopManufacturers();
+      stopManufacturers = null;
+    }
+  },
+  onAuthorized: ({ authState }) => {
+    if (!stopTypes) {
+      stopTypes = subscribeFilamentTypes((items) => {
+        types$.length = 0
+
+        if (Array.isArray(items)) {
+          types$.push(...items.map((item) => ({ ...item })))
+        }
+
+        if (appMounted) {
+          return;
+        }
+        if (authState.isAuthorized) {
+          mountApp()
+        }
+      });
+    }
+    if (!stopManufacturers) {
+      stopManufacturers = subscribeManufacturers((items) => {
+        manufacturers$.length = 0
+
+        if (Array.isArray(items) && items.length) {
+          manufacturers$.push(
+            ...items.map((item) => ({
+              label: String(item?.label || "").trim(),
+              iconUrl: String(item?.iconUrl || "").trim(),
+            }))
+          )
+        }
+
+        if (appMounted) {
+          return
+        }
+
+        if (authState.isAuthorized) {
+          mountApp();
+        }
+      });
+    }
+    mountApp("auth:authorized");
+  },
 });
+handleSignOut = auth.handleSignOut;

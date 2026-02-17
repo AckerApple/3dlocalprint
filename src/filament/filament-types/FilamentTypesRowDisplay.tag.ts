@@ -1,14 +1,20 @@
 import {
   tag,
   div,
+  img,
   strong,
   button,
   input,
   label,
   select,
   option,
+  a,
+  SignalArray,
 } from "taggedjs";
-import { addBarcode, getBarcodeList, openBarcodeScanner, openQrScanner, removeBarcode, removeType, saveType, toggleExpanded, updateBarcode } from "../filament-types.tag";
+import { addBarcode, FilamentType, getBarcodeList, openBarcodeScanner, openQrScanner, removeBarcode, removeType, saveType, toggleExpanded, updateBarcode } from "../filament-types.tag";
+import type { ManufacturerItem } from "../../types/filament.js";
+
+const subMaterialTypes = ["silk", "matte"];
 
 const toPickerHex = (value: unknown) => {
   const text = String(value || "").trim();
@@ -17,26 +23,40 @@ const toPickerHex = (value: unknown) => {
   return "#000000";
 };
 
+type FilamentTypeEditorProps = {
+  item: FilamentType;
+  manufacturers$: SignalArray<ManufacturerItem>;
+  materialTypes: string[];
+  withManufacturerEmoji: (text: string) => string;
+};
+
+type FilamentTypesRowDisplayProps = {
+  types: FilamentType[];
+  expandedTypeIds: Set<string>;
+  manufacturers$: SignalArray<ManufacturerItem>;
+  materialTypes?: string[];
+  withManufacturerEmoji?: (text: string) => string;
+};
+
 export const FilamentTypesRowDisplay = tag(({
   types = [],
   expandedTypeIds = new Set(),
-  manufacturers = [],
+  manufacturers$,
   materialTypes = [],
   withManufacturerEmoji = (text) => text,
-} = {}) => {
-  let groupTypesByManufacturer = []
+}: FilamentTypesRowDisplayProps) => {
+  let groupTypesByManufacturer: [string, {manufacturer: ManufacturerItem, types: FilamentType[]}][] = []
 
   FilamentTypesRowDisplay.inputs((args) => {
     [{
       types = [],
       expandedTypeIds,
-      groupTypesByManufacturer,
-      manufacturers = [],
+      manufacturers$,
       materialTypes = [],
       withManufacturerEmoji = (text) => text,
     }] = args;
 
-    groupTypesByManufacturer = getGroupTypesByManufacturer(types)
+    groupTypesByManufacturer = getGroupTypesByManufacturer(types, manufacturers$.value)
   });
 
   const isExpanded = (item) => {
@@ -44,12 +64,18 @@ export const FilamentTypesRowDisplay = tag(({
     return expandedTypeIds.has(item.filament_type_id);
   };
 
-  return [_=> groupTypesByManufacturer.map(([maker, items]) => {
+  return [_=> groupTypesByManufacturer.map(([, {manufacturer, types}]) => {
     return div.class`filament-type-group`(
       strong.class`filament-type-group-title`(
-        maker === "Unknown" ? "🏭 Unknown" : `🏭 ${maker}`
+        _=> manufacturer.iconUrl &&
+          img({
+            class: "filament-type-group-title-icon",
+            src: manufacturer.iconUrl,
+            alt: `${manufacturer.label} icon`,
+          }),
+        manufacturer.label === "Unknown" ? "🏭 Unknown" : manufacturer.label
       ),
-      _=> items.map((item, index) =>
+      _=> types.map((item, index) =>
         div({
           class: "swatch-card",
           id: `filament-type-card-${item.filament_type_id || index}`,
@@ -60,203 +86,272 @@ export const FilamentTypesRowDisplay = tag(({
               .style(_=> `background:${item.hex || ""};`)(),
             div(
               strong(_=> item.label),
-              div.class`filament-type-color`(_=> item.color_name || "")
+              div.class`filament-type-color`(
+                _=> [item.color_name, item.material_type, item.sub_material_type]
+                  .filter(Boolean)
+                  .join(" • ")
+              )
             ),
             div.class`filament-type-actions`(
+              _=> item.url
+                ? a
+                    .class`ghost-button`
+                    .href(item.url)
+                    .attr("target", "_blank")
+                    .attr("rel", "noopener noreferrer")(
+                    "🔗 Link"
+                  )
+                : null,
               button
                 .type`button`
                 .class`ghost-button`
                 .onClick(() => toggleExpanded(item))(
-                isExpanded(item) ? "Hide" : "View"
+                _=> isExpanded(item) ? "Hide" : "✏️ Edit"
               ),
               button
                 .type`button`
-                .class`ghost-button`
+                .class`ghost-button delete-button`
                 .onClick(() => removeType(index))(
-                "Remove"
+                "🗑️ Remove"
               )
             )
           ),
           _=> isExpanded(item) &&
-            div.class`filament-type-editor`(
-              div.class`fields`(
-                label(
-                  "Number",
-                  input
-                    .type`number`
-                    .value(_=> item.number ?? "")
-                    .onInput((event) => {
-                      item.number = event.target.value;
-                    })()
-                ),
-                label(
-                  "Label",
-                  input
-                    .value(_=> item.label ?? "")
-                    .onInput((event) => {
-                      item.label = event.target.value;
-                    })()
-                ),
-                label(
-                  "🏭 Manufacturer",
-                  select
-                    .onChange((event) => {
-                      item.manufacturer = event?.target?.value || "";
-                    })(
-                    option
-                      .value``
-                      .selected(_=> !item.manufacturer)(
-                      withManufacturerEmoji("Select manufacturer")
-                    ),
-                    _=> (manufacturers || []).map((makerValue) =>
-                      option
-                        .value(makerValue)
-                        .selected(_=> item.manufacturer === makerValue)(makerValue)
-                        .key(makerValue)
-                    )
-                  )
-                ),
-                label(
-                  "Material Type",
-                  select
-                    .onChange((event) => {
-                      item.material_type = event?.target?.value || "";
-                    })(
-                    option
-                      .value``
-                      .selected(_=> !item.material_type)("Select material"),
-                    _=> materialTypes.map((materialType) =>
-                      option
-                        .value(materialType)
-                        .selected(_=> item.material_type === materialType)(materialType)
-                    )
-                  )
-                ),
-                label(
-                  "Color name",
-                  input
-                    .value(_=> item.color_name ?? "")
-                    .onInput((event) => {
-                      item.color_name = event.target.value;
-                    })()
-                ),
-                label(
-                  "Hex Color",
-                  div.class`hex-input-row`(
-                    input
-                      .value(_=> item.hex ?? "")
-                      .onInput((event) => {
-                        item.hex = event.target.value;
-                      })(),
-                    input
-                      .type`color`
-                      .value(_=> toPickerHex(item.hex))
-                      .onChange((event) => {
-                        item.hex = event.target.value;
-                      })()
-                  )
-                ),
-                label(
-                  "Filament code",
-                  input
-                    .value(_=> item.swatch_code ?? "")
-                    .onInput((event) => {
-                      item.swatch_code = event.target.value;
-                    })()
-                ),
-                label(
-                  "QR Search Data",
-                  div.class`qr-input-row`(
-                    input
-                      .class`qr-edit-input`
-                      .value(_=> item.qr_search_data ?? "")
-                      .onInput((event) => {
-                        item.qr_search_data = event.target.value;
-                      })(),
-                    button
-                      .type`button`
-                      .class`qr-scan-button`
-                      .onClick(() => openQrScanner(item))(
-                      "Scan QR"
-                    )
-                  )
-                ),
-                label(
-                  "Bar Codes",
-                  div.class`barcode-inputs`(
-                    _=> {
-                      const barcodes = getBarcodeList(item);
-                      return barcodes.map((barcode, barcodeIndex) =>
-                        div.class`barcode-entry`(
-                          input
-                            .class`qr-edit-input`
-                            .value(barcode ?? "")
-                            .onInput((event) => updateBarcode(item, barcodeIndex, event.target.value))(),
-                          button
-                            .type`button`
-                            .class`ghost-button barcode-remove`
-                            .onClick(() => removeBarcode(item, barcodeIndex))(
-                            "−"
-                          )
-                        ).key(`${item.filament_type_id}-${barcodeIndex}`)
-                      );
-                    },
-                    div.class`barcode-actions`(
-                      button
-                        .type`button`
-                        .class`ghost-button`
-                        .onClick(() => addBarcode(item))(
-                        "➕ Add barcode"
-                      ),
-                      button
-                        .type`button`
-                        .class`qr-scan-button`
-                        .onClick(() => openBarcodeScanner(item))(
-                        "Scan barcode"
-                      )
-                    )
-                  )
-                ),
-                label(
-                  "URL",
-                  input
-                    .type`url`
-                    .value(_=> item.url ?? "")
-                    .onInput((event) => {
-                      item.url = event.target.value;
-                    })()
-                ),
-                label(
-                  "Type ID",
-                  input
-                    .attr("readonly", true)
-                    .value(_=> item.filament_type_id || "")()
-                )
-              ),
-              div.class`edit-card-footer`(
-                button
-                  .type`button`
-                  .class`add-button`
-                  .onClick(() => saveType(item))(
-                  "💾 Save changes"
-                )
-              )
-            )
+            FilamentTypeEditor({
+              item,
+              manufacturers$,
+              materialTypes,
+              withManufacturerEmoji,
+            })
         ).key(item.filament_type_id || index)
       )
-    ).key(maker)
+    ).key(manufacturer.label)
   })]
 })
 
-const getGroupTypesByManufacturer = (items) => {
-  const groups = new Map();
+const FilamentTypeEditor = tag(({
+  item,
+  manufacturers$,
+  materialTypes = [],
+  withManufacturerEmoji = (text) => text,
+}: FilamentTypeEditorProps) => {
+  FilamentTypeEditor.updates((args) => {
+    [{
+      item,
+      manufacturers$,
+      materialTypes = [],
+      withManufacturerEmoji = (text) => text,
+    }] = args;
+  });
+
+  return div.class`filament-type-editor`(
+    div.class`fields`(
+      label(
+        "Number",
+        input
+          .type`number`
+          .value(_=> item.number ?? "")
+          .onInput((event) => {
+            item.number = Number(event.target.value);
+          })()
+      ),
+      label(
+        "Label",
+        input
+          .placeholder`optional`
+          .value(_=> item.label ?? "")
+          .onInput((event) => {
+            item.label = event.target.value;
+          })()
+      ),
+      label(
+        "🏭 Manufacturer",
+        select
+          .onChange((event) => {
+            item.manufacturer = event?.target?.value || "";
+          })(
+          option
+            .value``
+            .selected(_=> !item.manufacturer)(
+            withManufacturerEmoji("Select manufacturer")
+          ),
+          _=> manufacturers$.value.map((maker) => {
+            const makerLabel = String(maker?.label || "").trim();
+            return option
+              .value(makerLabel)
+              .selected(_=> item.manufacturer === makerLabel)(makerLabel)
+              .key(makerLabel);
+          })
+        )
+      ),
+      label(
+        "Material Type",
+        select
+          .onChange((event) => {
+            item.material_type = event?.target?.value || "";
+          })(
+          option
+            .value``
+            .selected(_=> !item.material_type)("Select material"),
+          _=> materialTypes.map((materialType) =>
+            option
+              .value(materialType)
+              .selected(_=> item.material_type === materialType)(materialType)
+          )
+        )
+      ),
+      label(
+        "Sub Material Type",
+        select
+          .onChange((event) => {
+            item.sub_material_type = event?.target?.value || "";
+          })(
+          option
+            .value``
+            .selected(_=> !item.sub_material_type)("Select sub material (optional)"),
+          _=> subMaterialTypes.map((subMaterialType) =>
+            option
+              .value(subMaterialType)
+              .selected(_=> item.sub_material_type === subMaterialType)(subMaterialType)
+          )
+        )
+      ),
+      label(
+        "Color name",
+        input
+          .value(_=> item.color_name ?? "")
+          .onInput((event) => {
+            item.color_name = event.target.value;
+          })()
+      ),
+      label(
+        "Hex Color",
+        div.class`hex-input-row`(
+          input
+            .value(_=> item.hex ?? "")
+            .onInput((event) => {
+              item.hex = event.target.value;
+            })(),
+          input
+            .type`color`
+            .value(_=> toPickerHex(item.hex))
+            .onChange((event) => {
+              item.hex = event.target.value;
+            })()
+        )
+      ),
+      label(
+        "Filament code",
+        input
+          .value(_=> item.swatch_code ?? "")
+          .onInput((event) => {
+            item.swatch_code = event.target.value;
+          })()
+      ),
+      label(
+        "QR Search Data",
+        div.class`qr-input-row`(
+          input
+            .class`qr-edit-input`
+            .value(_=> item.qr_search_data ?? "")
+            .onInput((event) => {
+              item.qr_search_data = event.target.value;
+            })(),
+          button
+            .type`button`
+            .class`qr-scan-button`
+            .onClick(() => openQrScanner(item))(
+            "Scan QR"
+          )
+        )
+      ),
+      label(
+        "Bar Codes",
+        div.class`barcode-inputs`(
+          _=> {
+            const barcodes = getBarcodeList(item);
+            return barcodes.map((barcode, barcodeIndex) =>
+              div.class`barcode-entry`(
+                input
+                  .class`qr-edit-input`
+                  .value(barcode ?? "")
+                  .onInput((event) => updateBarcode(item, barcodeIndex, event.target.value))(),
+                button
+                  .type`button`
+                  .class`ghost-button barcode-remove`
+                  .onClick(() => removeBarcode(item, barcodeIndex))(
+                  "−"
+                )
+              ).key(`${item.filament_type_id}-${barcodeIndex}`)
+            );
+          },
+          div.class`barcode-actions`(
+            button
+              .type`button`
+              .class`ghost-button`
+              .onClick(() => addBarcode(item))(
+              "➕ Add barcode"
+            ),
+            button
+              .type`button`
+              .class`qr-scan-button`
+              .onClick(() => openBarcodeScanner(item))(
+              "Scan barcode"
+            )
+          )
+        )
+      ),
+      label(
+        "URL",
+        input
+          .type`url`
+          .value(_=> item.url ?? "")
+          .onInput((event) => {
+            item.url = event.target.value;
+          })()
+      ),
+      label(
+        "Type ID",
+        input
+          .attr("readonly", true)
+          .value(_=> item.filament_type_id || "")()
+      )
+    ),
+    div.class`edit-card-footer`(
+      button
+        .type`button`
+        .class`add-button`
+        .onClick(() => saveType(item))(
+        "💾 Save changes"
+      )
+    )
+  );
+});
+
+const getGroupTypesByManufacturer = (
+  items: FilamentType[],
+  manufacturers: ManufacturerItem[],
+) => {
+  const groups = new Map<string, {
+    manufacturer: ManufacturerItem,
+    types: FilamentType[],
+  }>()
+  
   items.forEach((item) => {
     const key = item.manufacturer || "Unknown";
-    if (!groups.has(key)) {
-      groups.set(key, []);
+    const manufacturer = manufacturers.find(m => m.label === item.manufacturer) || {
+      label: key,
+      iconUrl: "",
     }
-    groups.get(key).push(item);
+
+    if (!groups.has(key)) {
+      groups.set(key, {types: [], manufacturer});
+    }
+    const x = groups.get(key)
+    x.manufacturer = manufacturer
+    x.types.push(item)
   });
+
   return Array.from(groups.entries()).sort(([a], [b]) => {
     const aUnknown = a === "Unknown";
     const bUnknown = b === "Unknown";
