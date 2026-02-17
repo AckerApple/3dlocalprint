@@ -3,6 +3,8 @@ import {
   div,
   pre,
   span,
+  input,
+  button,
   onDestroy,
   htmlTag,
   output,
@@ -29,6 +31,16 @@ type BarcodeDetectorCtor = new (options: {
 const video = htmlTag("video");
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+const getErrorDetails = (error: unknown) => {
+  if (!error) return "";
+  if (error instanceof DOMException) {
+    return `${error.name}: ${error.message}`;
+  }
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
+};
 
 export const BarcodeScannerPanel = tag(
   ({ onResult, formats }: BarcodeScannerProps = {}) => {
@@ -60,11 +72,18 @@ export const BarcodeScannerPanel = tag(
   let detector: BarcodeDetectorLike | null = null;
   let stream: MediaStream | null = null;
   let rafId: number | null = null;
+  let supportsBarcodeDetector = true;
+  let manualValue = "";
+  let debugDetails = "";
   const previewId = `barcodePreview-${Math.random().toString(36).slice(2, 9)}`;
 
   const setStatus = (message: string) => {
     console.log("[barcode] status:", message);
     status = message;
+  };
+
+  const setDebugDetails = (details = "") => {
+    debugDetails = String(details || "").trim();
   };
 
   const setOutput = (text = "", format = "") => {
@@ -109,6 +128,7 @@ export const BarcodeScannerPanel = tag(
             onDetected(rawValue);
           }
           setOutput(rawValue || "(no data)", format);
+          setDebugDetails("");
           setStatus("Barcode detected.");
         } else {
           setStatus("Scanning...");
@@ -117,6 +137,7 @@ export const BarcodeScannerPanel = tag(
     } catch (error) {
       const stack = new Error("Barcode scan loop error").stack;
       console.error("[barcode] scan loop stack trace", stack);
+      setDebugDetails(getErrorDetails(error));
       setStatus(`Scan error: ${getErrorMessage(error)}`);
     }
 
@@ -128,7 +149,9 @@ export const BarcodeScannerPanel = tag(
       window as Window & { BarcodeDetector?: BarcodeDetectorCtor }
     ).BarcodeDetector;
     if (!BarcodeDetector) {
-      setStatus("BarcodeDetector API is not supported in this browser.");
+      supportsBarcodeDetector = false;
+      setStatus("Camera barcode scanning is not supported in this browser.");
+      setDebugDetails(`BarcodeDetector missing in this browser.\nUser-Agent: ${navigator.userAgent || "unknown"}`);
       return;
     }
 
@@ -172,6 +195,7 @@ export const BarcodeScannerPanel = tag(
       void scanLoop(preview);
     } catch (error) {
       console.error("[barcode] camera error:", error);
+      setDebugDetails(getErrorDetails(error));
       setStatus(`Camera error: ${getErrorMessage(error)}`);
       stopScanner();
     }
@@ -190,21 +214,54 @@ export const BarcodeScannerPanel = tag(
     return `${lastText}\n\nformat: ${lastFormat}`;
   };
 
+  const applyManualValue = () => {
+    const value = String(manualValue || "").trim();
+    if (!value) return;
+    setOutput(value, "manual");
+    onDetected(value);
+    setDebugDetails("");
+    setStatus("Manual barcode applied.");
+  };
+
   return div(
     { class: "qr-panel" },
-    div(
-      { class: "qr-preview" },
-      video({
-        id: previewId,
-        playsInline: true,
-        muted: true,
-      })
-    ),
+    _=> supportsBarcodeDetector
+      ? div(
+          { class: "qr-preview" },
+          video({
+            id: previewId,
+            playsInline: true,
+            muted: true,
+          })
+        )
+      : div(
+          { class: "qr-output" },
+          span({ class: "qr-label" }, "Manual Barcode Entry"),
+          input
+            .value(_=> manualValue)
+            .attr("placeholder", "Type or paste barcode value")
+            .onInput((event) => {
+              manualValue = event?.target?.value || "";
+            })(),
+          button
+            .type`button`
+            .class`ghost-button`
+            .onClick(applyManualValue)(
+            "Use barcode"
+          )
+        ),
     div(
       { class: "qr-output" },
       span({ class: "qr-label" }, "Barcode Data"),
       pre({ class: "qr-text" }, _ => formatLabel() || "(no scan yet)")
     ),
+    _=> debugDetails
+      ? div(
+          { class: "qr-output" },
+          span({ class: "qr-label" }, "Scanner Debug Details"),
+          pre({ class: "qr-text" }, _=> debugDetails)
+        )
+      : null,
     div({ class: "qr-status" }, _ => status)
   );
 });
