@@ -9,6 +9,7 @@ import {
   htmlTag,
   output,
 } from "taggedjs";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 
 type BarcodeScannerProps = {
   onResult?: (value: string) => void;
@@ -70,9 +71,12 @@ export const BarcodeScannerPanel = tag(
   let lastText = "";
   let lastFormat = "";
   let detector: BarcodeDetectorLike | null = null;
+  let zxingReader: BrowserMultiFormatReader | null = null;
+  let zxingControls: { stop: () => void } | null = null;
   let stream: MediaStream | null = null;
   let rafId: number | null = null;
-  let supportsBarcodeDetector = true;
+  let supportsCameraScanner = true;
+  let activeScannerEngine = "native";
   let manualValue = "";
   let debugDetails = "";
   const previewId = `barcodePreview-${Math.random().toString(36).slice(2, 9)}`;
@@ -99,6 +103,14 @@ export const BarcodeScannerPanel = tag(
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
       stream = null;
+    }
+    if (zxingControls) {
+      zxingControls.stop();
+      zxingControls = null;
+    }
+    if (zxingReader) {
+      zxingReader.reset();
+      zxingReader = null;
     }
     detector = null;
     setStatus("Camera stopped.");
@@ -148,12 +160,6 @@ export const BarcodeScannerPanel = tag(
     const BarcodeDetector = (
       window as Window & { BarcodeDetector?: BarcodeDetectorCtor }
     ).BarcodeDetector;
-    if (!BarcodeDetector) {
-      supportsBarcodeDetector = false;
-      setStatus("Camera barcode scanning is not supported in this browser.");
-      setDebugDetails(`BarcodeDetector missing in this browser.\nUser-Agent: ${navigator.userAgent || "unknown"}`);
-      return;
-    }
 
     try {
       setStatus("Requesting camera access...");
@@ -178,6 +184,39 @@ export const BarcodeScannerPanel = tag(
         return;
       }
 
+      if (!BarcodeDetector) {
+        activeScannerEngine = "zxing";
+        setDebugDetails(`BarcodeDetector missing in this browser.\nUser-Agent: ${navigator.userAgent || "unknown"}`);
+        setStatus("Using ZXing fallback scanner...");
+        zxingReader = new BrowserMultiFormatReader();
+        zxingControls = await zxingReader.decodeFromVideoDevice(
+          undefined,
+          preview,
+          (result, error) => {
+            if (result) {
+              const rawValue = result.getText() || "";
+              const format = String(result.getBarcodeFormat() || "").toLowerCase();
+              if (rawValue) {
+                onDetected(rawValue);
+              }
+              setOutput(rawValue || "(no data)", format);
+              setStatus("Barcode detected.");
+              return;
+            }
+            if (error) {
+              const message = getErrorMessage(error).toLowerCase();
+              if (!message.includes("not found")) {
+                setDebugDetails(getErrorDetails(error));
+                setStatus(`Scan error: ${getErrorMessage(error)}`);
+              }
+            }
+          }
+        );
+        setStatus("Scanning...");
+        return;
+      }
+
+      activeScannerEngine = "native";
       detector = new BarcodeDetector({
         formats: activeFormats,
       });
@@ -196,7 +235,8 @@ export const BarcodeScannerPanel = tag(
     } catch (error) {
       console.error("[barcode] camera error:", error);
       setDebugDetails(getErrorDetails(error));
-      setStatus(`Camera error: ${getErrorMessage(error)}`);
+      setStatus(`Camera error: ${getErrorMessage(error)} (fallback to manual input)`);
+      supportsCameraScanner = false;
       stopScanner();
     }
   };
@@ -225,7 +265,7 @@ export const BarcodeScannerPanel = tag(
 
   return div(
     { class: "qr-panel" },
-    _=> supportsBarcodeDetector
+    _=> supportsCameraScanner
       ? div(
           { class: "qr-preview" },
           video({
@@ -254,6 +294,10 @@ export const BarcodeScannerPanel = tag(
       { class: "qr-output" },
       span({ class: "qr-label" }, "Barcode Data"),
       pre({ class: "qr-text" }, _ => formatLabel() || "(no scan yet)")
+    ),
+    div({ class: "qr-output" },
+      span({ class: "qr-label" }, "Scanner Engine"),
+      pre({ class: "qr-text" }, _=> activeScannerEngine)
     ),
     _=> debugDetails
       ? div(

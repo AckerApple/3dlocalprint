@@ -49,6 +49,15 @@ const pages = [
       }),
   },
   {
+    path: resolve(filamentDir, "camera-test.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Camera Test",
+        appId: "cameraTestApp",
+        appScript: "camera-test.tag.ts",
+      }),
+  },
+  {
     path: resolve(filamentDir, "ledger.html"),
     render: () =>
       filamentStandalonePage({

@@ -18,6 +18,12 @@ export const adminNavItems = [
     emoji: "🏭",
   },
   {
+    label: "Camera test",
+    details: "Practice barcode scanning and review debug output.",
+    href: "./camera-test.html",
+    emoji: "📷",
+  },
+  {
     label: "Ledger",
     details: "Track incoming and outgoing money entries.",
     href: "./ledger.html",

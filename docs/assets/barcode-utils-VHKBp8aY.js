@@ -1,0 +1,1 @@
+const s=/\d+/g,c=r=>Array.isArray(r)?r.map(n=>String(n).trim()):r==null||r===""?[]:[String(r).trim()].filter(Boolean),a=r=>{if(!r)return"";const n=r.split("#").filter(Boolean),o=r.match(s)||[],i=[...n,...o].filter(t=>t);return i.length?i.reduce((t,e)=>e.length>t.length?e:t,""):""};export{a as e,c as n};

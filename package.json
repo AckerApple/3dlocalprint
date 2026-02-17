@@ -30,6 +30,7 @@
     "vite": "^6.4.1"
   },
   "dependencies": {
+    "@zxing/browser": "^0.1.5",
     "firebase": "^12.7.0",
     "qr-scanner": "^1.4.2",
     "taggedjs": "file:../../web/taggedjs/main/dist"

@@ -28,6 +28,7 @@ export default defineConfig({
         admin: resolve(__dirname, "src/filament/admin.html"),
         filamentTypes: resolve(__dirname, "src/filament/filament-types.html"),
         manufacturers: resolve(__dirname, "src/filament/manufacturers.html"),
+        cameraTest: resolve(__dirname, "src/filament/camera-test.html"),
         ledger: resolve(__dirname, "src/filament/ledger.html"),
         admins: resolve(__dirname, "src/filament/admins.html"),
         ...Object.fromEntries(

@@ -368,6 +368,37 @@ main {
   align-items: center;
 }
 
+.camera-test-list {
+  display: grid;
+  gap: 10px;
+}
+
+.camera-test-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fffdf9;
+}
+
+.camera-test-row-index {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.camera-test-row-main {
+  display: grid;
+  gap: 4px;
+}
+
+.camera-test-row-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .manufacturer-icon-link {
   display: inline-flex;
   align-items: center;
