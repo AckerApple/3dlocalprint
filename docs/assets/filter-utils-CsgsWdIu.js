@@ -1,1 +1,0 @@
-const a=(e,t)=>!t||(e||"").toLowerCase()===t.toLowerCase(),c=(e,t,r)=>t?t===r?!e:(e||"").toLowerCase()===t.toLowerCase():!0,s=(e,t)=>e.filter(r=>{const o=a(r.manufacturer,t.manufacturerFilter),n=a(r.material_type,t.materialTypeFilter);return o&&n});export{s as f,c as m};
