@@ -24,13 +24,40 @@ import {
 import { slugifyLocation } from "./location-utils.js";
 import type { ManufacturerItem } from "../types/filament.js";
 
+const REQUIRED_FIREBASE_ENV_KEYS = [
+  "VITE_FIREBASE_API_KEY",
+  "VITE_FIREBASE_AUTH_DOMAIN",
+  "VITE_FIREBASE_PROJECT_ID",
+  "VITE_FIREBASE_STORAGE_BUCKET",
+  "VITE_FIREBASE_MESSAGING_SENDER_ID",
+  "VITE_FIREBASE_APP_ID",
+] as const;
+
+if (import.meta.env.DEV) {
+  const envStatus = Object.fromEntries(
+    REQUIRED_FIREBASE_ENV_KEYS.map((key) => {
+      const value = import.meta.env[key];
+      const isSet = typeof value === "string" && value.trim().length > 0;
+      return [key, isSet ? "set" : "missing"];
+    })
+  );
+  console.info("[firebase] env status", envStatus);
+}
+
+const getRequiredEnv = (name: string, value: string | boolean | undefined): string => {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  throw new Error(`Missing required environment variable: ${name}`);
+};
+
 const firebaseConfig = {
-  apiKey: "AIzaSyC8oBLWyTpzWLLjWdZxo8YgQ1IcYICxdcU",
-  authDomain: "auth.3dlocalprint.com",
-  projectId: "threedlocalprint",
-  storageBucket: "threedlocalprint.firebasestorage.app",
-  messagingSenderId: "770972495364",
-  appId: "1:770972495364:web:b1015eaaf0de32d9b84f51",
+  apiKey: getRequiredEnv("VITE_FIREBASE_API_KEY", import.meta.env.VITE_FIREBASE_API_KEY),
+  authDomain: getRequiredEnv("VITE_FIREBASE_AUTH_DOMAIN", import.meta.env.VITE_FIREBASE_AUTH_DOMAIN),
+  projectId: getRequiredEnv("VITE_FIREBASE_PROJECT_ID", import.meta.env.VITE_FIREBASE_PROJECT_ID),
+  storageBucket: getRequiredEnv("VITE_FIREBASE_STORAGE_BUCKET", import.meta.env.VITE_FIREBASE_STORAGE_BUCKET),
+  messagingSenderId: getRequiredEnv("VITE_FIREBASE_MESSAGING_SENDER_ID", import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID),
+  appId: getRequiredEnv("VITE_FIREBASE_APP_ID", import.meta.env.VITE_FIREBASE_APP_ID),
 };
 
 const app = initializeApp(firebaseConfig);

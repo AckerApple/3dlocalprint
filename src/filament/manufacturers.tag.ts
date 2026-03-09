@@ -85,36 +85,32 @@ export const ManufacturersApp = tag(() => [
                   iconClassName: "manufacturer-icon",
                   linkClassName: "manufacturer-icon-link",
                 }),
-              input({
-                class: "manufacturer-input",
-                type: "text",
-                placeholder: "Manufacturer label",
-                value: () => item?.label ?? "",
-                onInput: (event) => {
+              input
+                .class`manufacturer-input`
+                .type`text`
+                .attr("placeholder", "Manufacturer label")
+                .value(() => item?.label ?? "")
+                .onInput((event) => {
                   manufacturers$[index] = {
                     ...manufacturers$[index],
                     label: event.target.value,
                   };
-                },
-              }),
-              input({
-                class: "manufacturer-input",
-                type: "url",
-                placeholder: "Icon URL (optional)",
-                value: () => item?.iconUrl ?? "",
-                onInput: (event) => {
+                })(),
+              input
+                .class`manufacturer-input`
+                .type`url`
+                .attr("placeholder", "Icon URL (optional)")
+                .value(() => item?.iconUrl ?? "")
+                .onInput((event) => {
                   manufacturers$[index] = {
                     ...manufacturers$[index],
                     iconUrl: event.target.value,
                   };
-                },
-              }),
-              button(
-                {
-                  type: "button",
-                  class: "ghost-button",
-                  onClick: () => removeManufacturer(index),
-                },
+                })(),
+              button
+                .type`button`
+                .class`ghost-button`
+                .onClick(() => removeManufacturer(index))(
                 "Remove"
               )
             )
@@ -122,24 +118,22 @@ export const ManufacturersApp = tag(() => [
       )
     ),
     div.class`manufacturer-add`(
-      input({
-        class: "manufacturer-input",
-        type: "text",
-        placeholder: "New 🏭 manufacturer label",
-        value: () => newManufacturerLabel,
-        onInput: (event) => {
+      input
+        .class`manufacturer-input`
+        .type`text`
+        .attr("placeholder", "New 🏭 manufacturer label")
+        .value(() => newManufacturerLabel)
+        .onInput((event) => {
           newManufacturerLabel = event.target.value;
-        },
-      }),
-      input({
-        class: "manufacturer-input",
-        type: "url",
-        placeholder: "New icon URL (optional)",
-        value: () => newManufacturerIconUrl,
-        onInput: (event) => {
+        })(),
+      input
+        .class`manufacturer-input`
+        .type`url`
+        .attr("placeholder", "New icon URL (optional)")
+        .value(() => newManufacturerIconUrl)
+        .onInput((event) => {
           newManufacturerIconUrl = event.target.value;
-        },
-      }),
+        })(),
       _=> newManufacturerIconUrl &&
         ManufacturerLabel({
           label: "New manufacturer",
@@ -149,22 +143,18 @@ export const ManufacturersApp = tag(() => [
           iconClassName: "manufacturer-icon",
           linkClassName: "manufacturer-icon-link",
         }),
-      button(
-        {
-          type: "button",
-          class: "add-button",
-          onClick: addManufacturer,
-        },
+      button
+        .type`button`
+        .class`add-button`
+        .onClick(addManufacturer)(
         "➕ Add 🏭 manufacturer"
       )
     ),
     div.class`auth-actions`(
-      button(
-        {
-          type: "button",
-          class: "add-button",
-          onClick: saveList,
-        },
+      button
+        .type`button`
+        .class`add-button`
+        .onClick(saveList)(
         "💾 Save to Firestore"
       )
     )

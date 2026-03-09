@@ -1,5 +1,5 @@
-import { link, main } from "taggedjs";
-import { htmlPage, script, versionBadge } from "./html.core.js";
+import { link, main, script } from "taggedjs";
+import { htmlPage, versionBadge } from "./html.core.js";
 
 const withPrefix = (prefix, path) => {
   if (!prefix) return path;
@@ -16,11 +16,22 @@ export const filamentStandalonePage = ({
   htmlPage({
     pageTitle,
     bodyClass: "standalone-page",
-    headItems: [link({ rel: "stylesheet", href: withPrefix(assetPrefix, "styles.css") })],
+    headItems: [
+      link
+        .rel`stylesheet`
+        .href(withPrefix(assetPrefix, "styles.css"))
+    ],
     bodyItems: [
-      main({ id: appId }),
-      script({ type: "module", src: withPrefix(assetPrefix, appScript) }),
-      versionBadge(),
-      script({ type: "module", src: withPrefix(assetPrefix, "version.ts") }),
+      main.id(appId)(
+        script
+          .type`module`
+          .src( withPrefix(assetPrefix, appScript) ),
+
+        versionBadge(),
+
+        script
+          .type`module`
+          .src( withPrefix(assetPrefix, "version.ts") ),
+      )
     ],
   });

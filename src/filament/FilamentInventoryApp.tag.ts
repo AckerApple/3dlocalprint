@@ -244,7 +244,7 @@ export const FilamentInventoryApp = tag(
 
     return [
       header(
-        AdminNav(onSignOut, user),
+        _=> AdminNav(onSignOut, user),
         h1(`Filament Inventory: 📍 ${selectedLocation}`),
         p("Edit filament inventory in place. Changes are saved directly to Firestore.")
       ),

@@ -68,62 +68,67 @@ export const FilamentTypesRowDisplay = tag(({
     return div.class`filament-type-group`(
       strong.class`filament-type-group-title`(
         _=> manufacturer.iconUrl &&
-          img({
-            class: "filament-type-group-title-icon",
-            src: manufacturer.iconUrl,
-            alt: `${manufacturer.label} icon`,
-          }),
+          img
+            .class("filament-type-group-title-icon")
+            .src(manufacturer.iconUrl)
+            .alt(`${manufacturer.label} icon`)
+,
         manufacturer.label === "Unknown" ? "🏭 Unknown" : manufacturer.label
       ),
-      _=> types.map((item, index) =>
-        div({
-          class: "swatch-card",
-          id: `filament-type-card-${item.filament_type_id || index}`,
-        },
-          div.class`filament-type-header`(
-            div
-              .class`summary-chip filament-type-swatch`
-              .style(_=> `background:${item.hex || ""};`)(),
-            div(
-              strong(_=> item.label),
-              div.class`filament-type-color`(
-                _=> [item.color_name, item.material_type, item.sub_material_type]
-                  .filter(Boolean)
-                  .join(" • ")
-              )
-            ),
-            div.class`filament-type-actions`(
-              _=> item.url
-                ? a
-                    .class`ghost-button`
-                    .href(item.url)
-                    .attr("target", "_blank")
-                    .attr("rel", "noopener noreferrer")(
-                    "🔗 Link"
+      div.class`filament-type-group-grid`(
+        _=> types.map((item, index) =>
+          div.id(`filament-type-card-${item.filament_type_id || index}`)
+            .class("swatch-card")
+            (
+              div.class`filament-type-header`(
+                div
+                  .class`summary-chip filament-type-swatch`
+                  .style(_=> `background:${item.hex || ""};`)(),
+                div(
+                  div.class`filament-type-number`(_=> `#${item.number ?? "-"}`),
+                  strong(_=> item.label),
+                  div.class`filament-type-color`(
+                    _=> [item.color_name, item.material_type, item.sub_material_type]
+                      .filter(Boolean)
+                      .join(" • ")
                   )
-                : null,
-              button
-                .type`button`
-                .class`ghost-button`
-                .onClick(() => toggleExpanded(item))(
-                _=> isExpanded(item) ? "Hide" : "✏️ Edit"
+                ),
+                div.class`filament-type-actions`(
+                  _=> item.url
+                    ? a
+                        .class`ghost-button`
+                        .href(item.url)
+                        .attr("aria-label", "Open filament link")
+                        .attr("target", "_blank")
+                        .attr("rel", "noopener noreferrer")(
+                        "🔗"
+                      )
+                    : null,
+                  button
+                    .type`button`
+                    .class`ghost-button`
+                    .attr("aria-label", _=> isExpanded(item) ? "Hide editor" : "Edit filament type")
+                    .onClick(() => toggleExpanded(item))(
+                    _=> isExpanded(item) ? "🙈" : "✏️"
+                  ),
+                  button
+                    .type`button`
+                    .class`ghost-button delete-button`
+                    .attr("aria-label", "Remove filament type")
+                    .onClick(() => removeType(index))(
+                    "🗑️"
+                  )
+                )
               ),
-              button
-                .type`button`
-                .class`ghost-button delete-button`
-                .onClick(() => removeType(index))(
-                "🗑️ Remove"
-              )
-            )
-          ),
-          _=> isExpanded(item) &&
-            FilamentTypeEditor({
-              item,
-              manufacturers$,
-              materialTypes,
-              withManufacturerEmoji,
-            })
-        ).key(item.filament_type_id || index)
+              _=> isExpanded(item) &&
+                FilamentTypeEditor({
+                  item,
+                  manufacturers$,
+                  materialTypes,
+                  withManufacturerEmoji,
+                })
+            ).key(item.filament_type_id || index)
+        )
       )
     ).key(manufacturer.label)
   })]

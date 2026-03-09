@@ -1,5 +1,5 @@
-import { link, main } from "taggedjs";
-import { htmlPage, script, versionBadge } from "./html.core.js";
+import { link, main, script } from "taggedjs";
+import { htmlPage, versionBadge } from "./html.core.js";
 
 const withPrefix = (prefix, path) => {
   if (!prefix) return path;
@@ -17,15 +17,22 @@ export const filamentFastEditPage = ({
   htmlPage({
     pageTitle,
     bodyClass: "standalone-page",
-    headItems: [link({ rel: "stylesheet", href: withPrefix(assetPrefix, "styles.css") })],
+    headItems: [
+      link
+        .rel`stylesheet`
+        .href(withPrefix(assetPrefix, "styles.css"))(),
+    ],
     bodyItems: [
-      main({
-        id: appId,
-        "data-location": location,
-        "data-location-slug": locationSlug,
-      }),
-      script({ type: "module", src: withPrefix(assetPrefix, "filament-fast-edit.tag.ts") }),
+      main
+        .id(appId)
+        .attr("data-location", location)
+        .attr("data-location-slug", locationSlug)(),
+      script
+        .type`module`
+        .src(withPrefix(assetPrefix, "filament-fast-edit.tag.ts"))(),
       versionBadge(),
-      script({ type: "module", src: withPrefix(assetPrefix, "version.ts") }),
+      script
+        .type`module`
+        .src(withPrefix(assetPrefix, "version.ts"))(),
     ],
   });

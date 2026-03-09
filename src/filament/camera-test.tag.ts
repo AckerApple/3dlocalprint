@@ -7,6 +7,8 @@ import {
   p,
   button,
   strong,
+  select,
+  option,
   array,
   subscribe,
 } from "taggedjs";
@@ -28,6 +30,14 @@ const scans$ = array([] as ScanRecord[]);
 let appMounted = false;
 let currentUser = null;
 let handleSignOut = () => Promise.resolve();
+let scannerEngine: "native" | "zxing" =
+  typeof window !== "undefined" &&
+  typeof (window as Window & { BarcodeDetector?: unknown }).BarcodeDetector ===
+    "function"
+    ? "native"
+    : "zxing";
+let showScanner = true;
+let scannerMountVersion = 0;
 
 const addScan = (value: string) => {
   const normalized = String(value || "").trim();
@@ -60,6 +70,27 @@ export const CameraTestApp = tag(() => [
     div.class`meta`(
       div.class`controls`(
         div.class`controls-group`(
+          select
+            .value(_=> scannerEngine)
+            .onChange((event) => {
+              const nextValue = String(event?.target?.value || "");
+              scannerEngine = nextValue === "zxing" ? "zxing" : "native";
+              scannerMountVersion += 1;
+            })(
+            option.value`native`("Native scanner"),
+            option.value`zxing`("ZXing scanner")
+          ),
+          button
+            .type`button`
+            .class`ghost-button`
+            .onClick(() => {
+              showScanner = !showScanner;
+              if (showScanner) {
+                scannerMountVersion += 1;
+              }
+            })(
+            _=> showScanner ? "Stop camera" : "Start camera"
+          ),
           button
             .type`button`
             .class`ghost-button`
@@ -72,9 +103,19 @@ export const CameraTestApp = tag(() => [
       )
     ),
     section.class`panel`(
-      BarcodeScannerPanel({
-        onResult: onBarcodeResult,
-      })
+      _=> showScanner
+        ? div(
+            scannerEngine === "zxing"
+              ? BarcodeScannerPanel({
+                  onResult: onBarcodeResult,
+                  engine: "zxing",
+                })
+              : BarcodeScannerPanel({
+                  onResult: onBarcodeResult,
+                  engine: "native",
+                })
+          )
+        : p.class`ledger-empty`("Camera stopped. Click Start camera to resume.")
     ),
     section.class`panel`(
       p("Recent scans"),

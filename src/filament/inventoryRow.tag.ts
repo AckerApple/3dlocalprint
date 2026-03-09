@@ -44,7 +44,13 @@ export const InventoryRow = tag(
             updateEditingLocation,
             fixedLocation
           )
-        : inventorySummaryRow(item, type, index, toggleRowEdit, onSave)
+        : inventorySummaryRow(
+            item,
+            type,
+            index,
+            toggleRowEdit,
+            onSave,
+          )
     );
   }
 );

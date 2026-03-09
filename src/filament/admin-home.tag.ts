@@ -25,12 +25,11 @@ let handleSignOut = () => Promise.resolve();
 const renderUser = (user) => {
   if (!user?.email) return null;
   const avatar = user.photoURL
-    ? img({
-        class: "user-avatar-image",
-        src: user.photoURL,
-        alt: user.email,
-        referrerPolicy: "no-referrer",
-      })
+    ? img
+        .class`user-avatar-image`
+        .src(user.photoURL)
+        .alt(user.email)
+        .attr("referrerpolicy", "no-referrer")()
     : span.class`user-avatar-fallback`(
         (user.email || "?")[0].toUpperCase()
       );

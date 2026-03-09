@@ -23,13 +23,12 @@ export const QrScannerPanel = tag(({onResult}) => {
     onResult = output(onResult);
   });
 
-  let scanner = null;
+  let scanner: any = null;
   let status = "Idle.";
   let lastText = "";
   const previewId = `qrPreview-${Math.random().toString(36).slice(2, 9)}`;
 
-  const setStatus = (message) => {
-    console.log("[qr] status:", message);
+  const setStatus = (message: string) => {
     status = message;
   };
 
@@ -80,7 +79,7 @@ export const QrScannerPanel = tag(({onResult}) => {
       await scanner.start();
 
       setStatus("Scanning...");
-    } catch (error) {
+    } catch (error: any) {
       console.error("[qr] camera error:", error);
       setStatus(`Camera error: ${error.message || error}`);
     }
@@ -88,28 +87,23 @@ export const QrScannerPanel = tag(({onResult}) => {
 
   tag.onDestroy(() => {
     stopScanner()
-    console.log('🔴 stop scanner')
   });
   
   onInit(() => {
     startScanner();
   });
 
-  return div(
-    { class: "qr-panel" },
-    div(
-      { class: "qr-preview" },
-      video({
-        id: previewId,
-        playsInline: true,
-        muted: true,
-      })
+  return div.class`qr-panel`(
+    div.class`qr-preview`(
+      video
+        .id(previewId)
+        .attr("playsInline", true)
+        .attr("muted", true)()
     ),
-    div(
-      { class: "qr-output" },
-      span({ class: "qr-label" }, "QR Text"),
-      pre({ class: "qr-text" }, () => lastText || "(no scan yet)")
+    div.class`qr-output`(
+      span.class`qr-label`("QR Text"),
+      pre.class`qr-text`(() => lastText || "(no scan yet)")
     ),
-    div({ class: "qr-status" }, () => status)
+    div.class`qr-status`(() => status)
   );
 });

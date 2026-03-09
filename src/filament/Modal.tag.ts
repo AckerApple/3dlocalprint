@@ -29,32 +29,25 @@ export const Modal = tag(({ title, onClose, content }) => {
     }
   };
 
-  return dialog(
-    {
-      id: dialogId,
-      class: "qr-modal",
-      open: true,
-      onClick: onBackdropClick,
-    },
-    div(
-      { class: "qr-modal-card" },
-      div(
-        { class: "qr-modal-header" },
-        h2({ class: "qr-modal-title" }, title),
-        div(
-          { class: "qr-modal-actions" },
-          button(
-            {
-              type: "button",
-              class: "qr-modal-close",
-              "aria-label": "Close",
-              onClick: () => closeDialog(),
-            },
+  return dialog
+    .id(dialogId)
+    .class`qr-modal`
+    .attr("open", true)
+    .onClick(onBackdropClick)(
+    div.class`qr-modal-card`(
+      div.class`qr-modal-header`(
+        h2.class`qr-modal-title`(title),
+        div.class`qr-modal-actions`(
+          button
+            .type`button`
+            .class`qr-modal-close`
+            .attr("aria-label", "Close")
+            .onClick(() => closeDialog())(
             "Close"
           )
         )
       ),
-      div({ class: "qr-modal-body" }, _=> content())
+      div.class`qr-modal-body`(_=> content())
     )
   );
 });

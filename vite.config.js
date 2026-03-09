@@ -11,6 +11,7 @@ const pkg = JSON.parse(
 export default defineConfig({
   base: "./",
   root: "src",
+  envDir: "..",
   publicDir: "../public",
   server: {
     allowedHosts: ["ackers-macbook.local"],

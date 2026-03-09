@@ -240,11 +240,13 @@ const matchesBarcodeFilter = (item, filter) => {
   );
 };
 
-const filteredTypes = () =>
-  filterByManufacturerAndMaterial(types$.value, {
+const filteredTypesFrom = (types: FilamentType[]) =>
+  filterByManufacturerAndMaterial(types, {
     manufacturerFilter,
     materialTypeFilter,
   }).filter((item) => matchesBarcodeFilter(item, barcodeFilter));
+
+const filteredTypes = () => filteredTypesFrom(types$.value);
 
 export const toggleExpanded = (item) => {
   const id = item?.filament_type_id;
@@ -261,8 +263,10 @@ export const FilamentTypesApp = tag(() => {
   AdminNav(handleSignOut, currentUser),
   
   section.class`panel`(
-    h1("Filament Types"),
-    p("Manage filament type details used by inventory."),
+    div.class`filament-types-header`(
+      h1("Filament Types"),
+      p("Manage filament type details used by inventory."),
+    ),
     div.class`meta`(
       div.class`controls`(
         div.class`controls-group`(
@@ -271,15 +275,13 @@ export const FilamentTypesApp = tag(() => {
             .class`add-button`
             .onClick(addType)(
             "➕ Add filament type"
-          )
-        ),
-        div.class`controls-group`(
+          ),
           select
             .value(() => manufacturerFilter ?? "")
             .onChange((event) => {
               manufacturerFilter = event?.target?.value || "";
             })(
-            option({ value: "" }, "🏭 Filter by manufacturer"),
+            option.value``("🏭 Filter by manufacturer"),
             subscribe(manufacturers$, manufacturers => {
               return manufacturers.map((maker) =>
               option.value(maker.label)(maker.label)
@@ -291,9 +293,9 @@ export const FilamentTypesApp = tag(() => {
             .onChange((event) => {
               materialTypeFilter = event?.target?.value || "";
             })(
-            option({ value: "" }, "Filter by material type"),
+            option.value``("Filter by material type"),
             _=> materialTypes.map((materialType) =>
-              option({ value: materialType }, materialType)
+              option.value(materialType)(materialType)
             )
           ),
           BarcodeFilterControl({
@@ -314,6 +316,14 @@ export const FilamentTypesApp = tag(() => {
           ),
         )
       )
+    ),
+    div.class`filament-types-count-line`(
+      subscribe(types$, (types) => {
+        const displayed = filteredTypesFrom(types).length;
+        const total = types.length;
+        const noun = displayed === 1 ? "type" : "types";
+        return `Showing ${displayed} filament ${noun}${displayed === total ? "" : ` of ${total}`}`;
+      })
     ),
     div.class`swatch-grid`(
       subscribe(
@@ -426,7 +436,12 @@ const auth = startAdminAppShell({
         types$.length = 0
 
         if (Array.isArray(items)) {
-          types$.push(...items.map((item) => ({ ...item })))
+          types$.push(
+            ...items.map((item) => ({
+              ...item,
+              barcode_search_data: normalizeBarcodeList(item?.barcode_search_data).filter(Boolean),
+            }))
+          )
         }
 
         if (appMounted) {

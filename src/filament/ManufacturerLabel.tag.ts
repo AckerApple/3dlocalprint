@@ -37,21 +37,19 @@ export const ManufacturerLabel = tag(({
   return span.class(_=> className || "")(
     _=> {
       const icon = iconUrl
-        && img({
-            class: iconClassName,
-            src: iconUrl,
-            alt: `${label || "Manufacturer"} icon`,
-            loading: "lazy",
-          });
+        && img
+            .class(_=> iconClassName)
+            .src(iconUrl)
+            .alt(`${label || "Manufacturer"} icon`)
+            .attr("loading", "lazy")();
 
       const iconElement =  iconUrl && linkIcon
-        ? a({
-            class: linkClassName,
-            href: iconUrl,
-            target: "_blank",
-            rel: "noopener noreferrer",
-            title: "Open icon URL",
-          }, icon)
+        ? a
+            .class(_=> linkClassName)
+            .href(iconUrl)
+            .attr("target", "_blank")
+            .attr("rel", "noopener noreferrer")
+            .attr("title", "Open icon URL")(icon)
         : icon
       
       return iconElement

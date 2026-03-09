@@ -42,7 +42,6 @@ export const inventorySummaryRow = tag(
     };
 
     return div.class`summary-row`(
-      div(_=> type?.number || "-"),
       div.class`summary-swatch`(
         div
           .class`summary-chip`
@@ -55,11 +54,10 @@ export const inventorySummaryRow = tag(
           button
             .type`button`
             .class`summary-edit-button`
+            .ariaLabel`Edit inventory entry`
             .onClick(() => {
               toggleRowEdit(index, item?.location ?? "");
-            })({
-              "aria-label": "Edit inventory entry",
-            }, "✏️")
+            })("✏️")
         ),
         _=> {
           const parts = [];
