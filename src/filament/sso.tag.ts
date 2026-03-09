@@ -26,12 +26,10 @@ export const SsoPanel = tag(
           " is not authorized.",
         ),
         div.class`auth-actions`(
-          button(
-            {
-              type: "button",
-              class: "add-button",
-              onClick: onSignOut,
-            },
+          button
+            .type`button`
+            .class`add-button`
+            .onClick(onSignOut)(
             "Sign out"
           )
         )
@@ -42,12 +40,10 @@ export const SsoPanel = tag(
       h2("Sign in"),
       p("Use Google to access the filament inventory."),
       div.class`auth-actions`(
-        button(
-          {
-            type: "button",
-            class: "add-button",
-            onClick: onSignIn,
-          },
+        button
+          .type`button`
+          .class`add-button`
+          .onClick(onSignIn)(
           "Sign in with Google"
         )
       )

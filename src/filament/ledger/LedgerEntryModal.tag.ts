@@ -238,33 +238,27 @@ export const LedgerEntryModal = tag(({
       ),
       div.class`ledger-modal-actions`(
         modalMode === "edit"
-          ? button(
-              {
-                type: "button",
-                class: "ghost-button delete-button",
-                disabled: isDeleting || isSaving,
-                onClick: onDelete,
-              },
+          ? button
+              .type`button`
+              .class`ghost-button delete-button`
+              .disabled(() => isDeleting || isSaving)
+              .onClick(onDelete)(
               isDeleting ? "Deleting..." : "Delete"
             )
           : null,
-        button(
-          {
-            type: "button",
-            class: "ghost-button",
-            disabled: isDeleting || isSaving,
-            onClick: onClose,
-          },
+        button
+          .type`button`
+          .class`ghost-button`
+          .disabled(() => isDeleting || isSaving)
+          .onClick(onClose)(
           "Cancel"
         ),
-        button(
-          {
-            id: "ledgerSaveButton",
-            type: "button",
-            class: "add-button",
-            disabled: !isValid || isSaving || isDeleting,
-            onClick: onSave,
-          },
+        button
+          .id`ledgerSaveButton`
+          .type`button`
+          .class`add-button`
+          .disabled(() => !isValid || isSaving || isDeleting)
+          .onClick(onSave)(
           isSaving ? "Saving..." : "Save"
         )
       )

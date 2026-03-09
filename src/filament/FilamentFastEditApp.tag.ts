@@ -234,11 +234,7 @@ export const FilamentFastEditApp = tag((location, locationSlug) => {
 
   return div.class`fast-edit-page`(
     header.class`fast-edit-header`(
-      a(
-        {
-          class: "ghost-button fast-edit-back",
-          href: "./index.html",
-        },
+      a.class`ghost-button fast-edit-back`.href`./index.html`(
         "← BACK"
       ),
       div(
