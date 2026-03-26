@@ -1,5 +1,9 @@
 import { tag, div, span, button, strong, a, output } from "taggedjs";
 import { describeFilamentType } from "./filament-match-utils.js";
+import {
+  describeStorageLocations,
+  normalizeStorageLocations,
+} from "./storage-locations.js";
 
 const isValidHex = (value) =>
   /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
@@ -109,6 +113,14 @@ export const inventorySummaryRow = tag(
                   .attr("rel", "noopener noreferrer")(
                   domainLabel || type.url
                 )
+              )
+            );
+          }
+          const storageLocations = normalizeStorageLocations(item?.storage_locations);
+          if (storageLocations.length) {
+            parts.push(
+              span.class`summary-meta-item`(
+                `Storage: ${describeStorageLocations(storageLocations)}`
               )
             );
           }

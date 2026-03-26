@@ -13,6 +13,7 @@ export const InventoryRow = tag(
     filamentTypes,
     onSave,
     onDuplicate,
+    onDelete,
     fixedLocation = ""
   ) => {
     InventoryRow.inputs((args) => {
@@ -25,11 +26,13 @@ export const InventoryRow = tag(
         filamentTypes,
         onSave,
         onDuplicate,
+        onDelete,
         fixedLocation,
       ] = args;
       toggleRowEdit = output(toggleRowEdit)
       onSave = output(onSave)
       onDuplicate = output(onDuplicate)
+      onDelete = output(onDelete)
     });
 
     return noElement(
@@ -41,6 +44,7 @@ export const InventoryRow = tag(
             toggleRowEdit,
             onSave,
             onDuplicate,
+            onDelete,
             updateEditingLocation,
             fixedLocation
           )

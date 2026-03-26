@@ -1,4 +1,4 @@
-import { tag, div, h1, p, button } from "taggedjs";
+import { tag, div, h1, p, button, output } from "taggedjs";
 import type { LedgerTotals } from "./types.js";
 
 type LedgerHeaderProps = {
@@ -14,13 +14,16 @@ export const LedgerHeader = tag(({
   onOpenCreateModal = () => {},
   toDisplayNet = (value: number) => String(value),
 }: LedgerHeaderProps = {}) => {
-  LedgerHeader.updates((args) => {
+  LedgerHeader.inputs((args) => {
     [{
       totals = null,
       onCalculateTotals = () => {},
       onOpenCreateModal = () => {},
       toDisplayNet = (value: number) => String(value),
     }] = args;
+
+    onCalculateTotals = output(onCalculateTotals);
+    onOpenCreateModal = output(onOpenCreateModal);
   });
 
   return div.class`ledger-header`(
@@ -38,7 +41,9 @@ export const LedgerHeader = tag(({
       button
         .type`button`
         .class`add-button`
-        .onClick(onOpenCreateModal)(
+        .onClick((e) => {
+          onOpenCreateModal(e)
+        })(
         "+ Add Entry"
       ),
       _=> {

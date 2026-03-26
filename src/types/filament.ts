@@ -1,7 +1,13 @@
+export interface InventoryStorageLocation {
+  name: string;
+  quantity: number;
+}
+
 export interface FilamentInventoryItem {
   filament_type_id: string;
   location: string;
   spool_inventory: number;
+  storage_locations?: InventoryStorageLocation[];
 }
 
 export interface ManufacturerItem {

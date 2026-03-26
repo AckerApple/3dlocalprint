@@ -10,6 +10,7 @@ import {
   option,
   textarea,
   p,
+  output,
 } from "taggedjs";
 import type { LedgerEntry } from "../../types/ledger.js";
 import type {
@@ -58,7 +59,7 @@ export const LedgerEntryModal = tag(({
   onDelete,
   onSyncSaveState,
 }: LedgerEntryModalProps) => {
-  LedgerEntryModal.updates((args) => {
+  LedgerEntryModal.inputs((args) => {
     [{
       modalOpen = false,
       modalMode = "create",
@@ -74,6 +75,11 @@ export const LedgerEntryModal = tag(({
       onDelete,
       onSyncSaveState,
     }] = args
+
+    onClose = output(onClose);
+    onSave = output(onSave);
+    onDelete = output(onDelete);
+    onSyncSaveState = output(onSyncSaveState);
   })
 
   const errors = validateDraft(draft);
@@ -104,17 +110,17 @@ export const LedgerEntryModal = tag(({
   return [
     _=> {
       if(!modalOpen) return null
-      return dialog(
-    {
-      class: "qr-modal ledger-modal",
-      open: true,
-      onClick: onBackdropClick,
-      onCancel: (event) => {
-        event.preventDefault();
-        onClose();
-      },
-      onKeyDown: onModalKeyDown,
-    },
+
+      return dialog
+        .class`qr-modal ledger-modal`
+        .open(true)
+        .onClick(onBackdropClick)
+        .onCancel((event) => {
+          event.preventDefault();
+          onClose();
+        })
+        .onKeyDown(onModalKeyDown)
+      (
     div.class`qr-modal-card ledger-modal-card`(
       div.class`qr-modal-header`(
         h2(modalMode === "edit" ? "Edit Ledger Entry" : "Add Ledger Entry"),

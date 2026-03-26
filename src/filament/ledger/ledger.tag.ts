@@ -3,7 +3,6 @@ import {
   tagElement,
   array,
   subscribe,
-  p,
 } from "taggedjs";
 import {
   saveLedgerEntries,
@@ -42,13 +41,14 @@ let submitted = false;
 let totals: LedgerTotals | null = null;
 let handleSignOut = () => Promise.resolve();
 
-const filters: LedgerFilterState = {
+const createFilters = (): LedgerFilterState => ({
   search: "",
   status: "",
   category: "",
   startDate: "",
   endDate: "",
-};
+});
+const filters = createFilters()
 let showAdvancedFilters = false;
 
 const LOCAL_STORAGE_KEYS = {
@@ -109,6 +109,11 @@ const sortLedgerEntries = (items: LedgerEntry[]) =>
     }
     return (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
   });
+
+const replaceEntries = (items: LedgerEntry[]) => {
+  const next = sortLedgerEntries(Array.isArray(items) ? items : []);
+  entries$.splice(0, entries$.length, ...next);
+};
 
 const toDisplayAmount = (value) => currency.format(Number(value) || 0);
 
@@ -224,8 +229,11 @@ const getFilterCategories = (entries: LedgerEntry[]) => {
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 };
 
-const getFilteredEntries = (entries: LedgerEntry[]): LedgerEntry[] => {
-  const search = filters.search.trim().toLowerCase();
+const getFilteredEntries = (
+  entries: LedgerEntry[],
+  filters: LedgerFilterState
+): LedgerEntry[] => {
+  const search = String(filters.search || "").trim().toLowerCase();
   return sortLedgerEntries(Array.isArray(entries) ? entries : []).filter((entry) => {
     const matchesSearch = !search
       || entry.title.toLowerCase().includes(search)
@@ -341,6 +349,7 @@ const handleSave = async () => {
 
   try {
     await saveLedgerEntries(sortLedgerEntries(nextEntries));
+    replaceEntries(nextEntries);
     setLocalStorageValue(LOCAL_STORAGE_KEYS.category, normalized.billingCategory);
     toast.success(modalMode === "edit" ? "Ledger entry updated." : "Ledger entry added.");
     closeModal();
@@ -361,7 +370,8 @@ const handleDelete = async () => {
   isDeleting = true;
   try {
     const nextEntries = entries$.value.filter((entry) => entry.id !== activeEntryId);
-    await saveLedgerEntries(nextEntries);
+    await saveLedgerEntries(sortLedgerEntries(nextEntries));
+    replaceEntries(nextEntries);
     toast.success("Ledger entry deleted.");
     closeModal();
   } catch (error) {
@@ -401,9 +411,9 @@ const renderModal = (entries: LedgerEntry[]) => {
 export const LedgerApp = tag(() => {
   return [
     AdminNav(handleSignOut, currentUser),
-    subscribe(entries$, entries => {
-      const filteredEntries = getFilteredEntries(entries);
-      const filterCategories = getFilterCategories(entries);
+    subscribe(entries$, (entries) => {
+      const filteredEntries = getFilteredEntries(entries, filters)
+      const filterCategories = getFilterCategories(entries)
 
       return LedgerPanel({
         entries,
@@ -414,6 +424,9 @@ export const LedgerApp = tag(() => {
         setShowAdvancedFilters: (value: boolean) => {
           showAdvancedFilters = value;
         },
+        onFiltersChanged: (nextFilters: LedgerFilterState) => {
+          Object.assign(filters, nextFilters)
+        },
         totals,
         calculateTotals,
         openCreateModal,
@@ -423,7 +436,7 @@ export const LedgerApp = tag(() => {
         renderModal,
         isLoading,
       });
-    }),
+    })
   ];
 });
 
@@ -472,12 +485,7 @@ const auth = startAdminAppShell({
     if (!stopLedger) {
       stopLedger = subscribeLedgerEntries((items) => {
         isLoading = false;
-        entries$.value.length = 0;
-        entries$.push(
-          ...sortLedgerEntries(
-            (Array.isArray(items) ? items : []).map(normalizeLoadedEntry)
-          )
-        );
+        replaceEntries((Array.isArray(items) ? items : []).map(normalizeLoadedEntry));
         if (authState.isAuthorized) {
           if (appMounted) {
             return;

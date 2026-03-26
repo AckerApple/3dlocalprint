@@ -1,4 +1,4 @@
-import { tag, section, p } from "taggedjs";
+import { output, tag, section, p } from "taggedjs";
 import type { LedgerEntry } from "../../types/ledger.js";
 import { LedgerHeader } from "./LedgerHeader.tag.js";
 import { LedgerFilters } from "./LedgerFilters.tag.js";
@@ -12,6 +12,7 @@ type LedgerPanelProps = {
   filters: LedgerFilterState;
   showAdvancedFilters?: boolean;
   setShowAdvancedFilters?: (value: boolean) => void;
+  onFiltersChanged?: (next: LedgerFilterState) => void;
   totals?: LedgerTotals | null;
   calculateTotals?: () => void;
   openCreateModal?: () => void;
@@ -37,6 +38,7 @@ export const LedgerPanel = tag(({
   filters = defaultFilters,
   showAdvancedFilters = false,
   setShowAdvancedFilters = () => {},
+  onFiltersChanged = () => {},
   totals = null,
   calculateTotals = () => {},
   openCreateModal = () => {},
@@ -46,7 +48,7 @@ export const LedgerPanel = tag(({
   renderModal = () => null,
   isLoading = false,
 }: LedgerPanelProps) => {
-  LedgerPanel.updates((args) => {
+  LedgerPanel.inputs((args) => {
     [{
       entries = [],
       filteredEntries = [],
@@ -54,6 +56,7 @@ export const LedgerPanel = tag(({
       filters = defaultFilters,
       showAdvancedFilters = false,
       setShowAdvancedFilters = () => {},
+      onFiltersChanged = () => {},
       totals = null,
       calculateTotals = () => {},
       openCreateModal = () => {},
@@ -63,6 +66,9 @@ export const LedgerPanel = tag(({
       renderModal = () => null,
       isLoading = false,
     }] = args;
+
+    openCreateModal = output(openCreateModal)
+    onFiltersChanged = output(onFiltersChanged)
   });
 
   return [
@@ -73,12 +79,15 @@ export const LedgerPanel = tag(({
         onOpenCreateModal: openCreateModal,
         toDisplayNet,
       }),
+      
       _=> LedgerFilters({
         filters,
         filterCategories,
         showAdvancedFilters,
         setShowAdvancedFilters,
+        onFiltersChanged,
       }),
+
       _=> {
         if (isLoading) {
           return p("Loading...");

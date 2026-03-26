@@ -32,6 +32,7 @@ import { ManufacturerLabel } from "./ManufacturerLabel.tag.js";
 import { getManufacturerDisplayLabel, normalizeManufacturerLabel } from "./manufacturer-utils.js";
 import { normalizeBarcodeList } from "./barcode-utils.js";
 import { BarcodeFilterControl } from "./BarcodeFilterControl.tag.js";
+import { normalizeStorageLocations } from "./storage-locations.js";
 import type {
   FilamentInventoryItem,
   FilamentType,
@@ -63,6 +64,7 @@ type SerializedFilamentInventoryItem = {
   filament_type_id?: string;
   location?: string;
   spool_inventory?: number;
+  storage_locations?: { name: string; quantity: number }[];
 };
 
 type InventoryUser = {
@@ -100,7 +102,7 @@ export const FilamentInventoryApp = tag(
     let barcodeFilter: string = "";
 
     const addFilamentForLocation = (location: string): void => {
-      data.unshift(createEmptyInventoryItem(location || locations[0] || "", filamentTypes));
+      data.unshift(createEmptyInventoryItem(location || locations[0] || ""));
       setEditingIndex(0, data[0]?.location || "");
     };
 
@@ -119,6 +121,15 @@ export const FilamentInventoryApp = tag(
       };
       data.splice(index + 1, 0, clone);
       setEditingIndex(index + 1, clone.location || "");
+    };
+
+    const removeFilamentAt = (index: number): void => {
+      const target = data[index];
+      if (!target) return;
+      if (!confirm("Remove this inventory entry?")) return;
+      data.splice(index, 1);
+      setEditingIndex(null);
+      tag.promise = saveFilamentInventoryToFirestore(data);
     };
 
     const zeroOutLocationInventory = (location: string): void => {
@@ -308,7 +319,7 @@ export const FilamentInventoryApp = tag(
                   .type`button`
                   .class`add-button`
                   .onClick(() => addFilamentForLocation(selectedLocation))(
-                  "➕ Add filament"
+                  "➕ Add inventory"
                 ),
                 button
                   .type`button`
@@ -338,6 +349,7 @@ export const FilamentInventoryApp = tag(
                       filamentTypes,
                       saveCurrentFilaments,
                       duplicateFilamentAt,
+                      removeFilamentAt,
                       selectedLocation
                     ).key(item.filament_type_id || `item-${index}`)
                   )
@@ -361,6 +373,7 @@ const prepareFilamentInventory = (
     .map((item) => ({
       ...item,
       location: normalizeLocation(item.location),
+      storage_locations: normalizeStorageLocations(item?.storage_locations),
     }));
 
 const serializeFilamentInventory = (
@@ -375,15 +388,16 @@ const serializeFilamentInventory = (
     if (item.spool_inventory !== undefined && item.spool_inventory !== "") {
       cleaned.spool_inventory = Number(item.spool_inventory) || 0;
     }
+    const storageLocations = normalizeStorageLocations(item?.storage_locations);
+    if (storageLocations.length) cleaned.storage_locations = storageLocations;
 
     return cleaned;
   });
 
 const createEmptyInventoryItem = (
-  defaultLocation: string = "",
-  filamentTypes: FilamentType[] = []
+  defaultLocation: string = ""
 ): FilamentInventoryItem => ({
-  filament_type_id: filamentTypes?.[0]?.filament_type_id || "",
+  filament_type_id: "",
   spool_inventory: 1,
   location: defaultLocation,
 });
@@ -463,7 +477,11 @@ const groupLocationEntriesByManufacturer = (
     }
     grouped.get(key).entries.push(entry);
   });
-  return Array.from(grouped.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return Array.from(grouped.values()).sort((a, b) => {
+    if (a.key === "unspecified" && b.key !== "unspecified") return -1;
+    if (b.key === "unspecified" && a.key !== "unspecified") return 1;
+    return a.label.localeCompare(b.label);
+  });
 };
 
 const getMaterialTypeOptions = (filamentTypes: FilamentType[]): string[] => {

@@ -1,4 +1,4 @@
-import { tag, div, table, thead, tbody, tr, th, td, span, p } from "taggedjs";
+import { tag, div, table, thead, tbody, tr, th, td, span, p, output } from "taggedjs";
 import type { LedgerEntry } from "../../types/ledger.js";
 
 type LedgerEntriesTableProps = {
@@ -12,12 +12,14 @@ export const LedgerEntriesTable = tag(({
   onOpenEditModal = () => {},
   toDisplayAmount = (value: number) => String(value),
 }: LedgerEntriesTableProps = {}) => {
-  LedgerEntriesTable.updates((args) => {
+  LedgerEntriesTable.inputs((args) => {
     [{
       filteredEntries = [],
       onOpenEditModal = () => {},
       toDisplayAmount = (value: number) => String(value),
     }] = args;
+
+    onOpenEditModal = output(onOpenEditModal);
   });
 
   return [
@@ -34,7 +36,7 @@ export const LedgerEntriesTable = tag(({
             )
           ),
           tbody(
-            ...filteredEntries.map((entry) =>
+            _=> filteredEntries.map((entry) =>
               tr
                 .class`ledger-row`
                 .onClick(() => onOpenEditModal(entry.id))(
