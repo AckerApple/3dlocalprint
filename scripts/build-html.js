@@ -67,6 +67,15 @@ const pages = [
       }),
   },
   {
+    path: resolve(filamentDir, "money-accounts.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Money Accounts",
+        appId: "moneyAccountsApp",
+        appScript: "money-accounts.tag.ts",
+      }),
+  },
+  {
     path: resolve(filamentDir, "admins.html"),
     render: () =>
       filamentStandalonePage({

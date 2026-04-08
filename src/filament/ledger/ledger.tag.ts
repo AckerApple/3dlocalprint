@@ -7,6 +7,7 @@ import {
 import {
   saveLedgerEntries,
   subscribeLedgerEntries,
+  subscribeMoneyAccounts,
 } from "../firebase.js";
 import { AdminNav } from "../AdminNav.tag.js";
 import { ledgerCategories } from "../ledger-categories.array.js";
@@ -15,7 +16,7 @@ import { toast } from "../toast.js";
 import { startAdminAppShell } from "../adminAppShell.js";
 import { LedgerPanel } from "./LedgerPanel.tag.js";
 import { LedgerEntryModal } from "./LedgerEntryModal.tag.js";
-import type { LedgerEntry, LedgerStatus } from "../../types/ledger.js";
+import type { LedgerEntry, LedgerStatus, MoneyAccount } from "../../types/ledger.js";
 import type {
   LedgerFilterState,
   LedgerTotals,
@@ -27,7 +28,9 @@ import type {
 let app = document.getElementById("ledgerApp");
 const appRoot = { current: app };
 const entries$ = array<LedgerEntry>([]);
+const moneyAccounts$ = array<MoneyAccount>([]);
 let stopLedger = null;
+let stopMoneyAccounts = null;
 let isAuthorized = false;
 let appMounted = false;
 let currentUser = null;
@@ -53,6 +56,7 @@ let showAdvancedFilters = false;
 
 const LOCAL_STORAGE_KEYS = {
   category: "ledger:lastCategory",
+  moneyAccountTitle: "ledger:lastMoneyAccountTitle",
 };
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -89,6 +93,10 @@ const createEntryId = () => {
 const createDraft = () => ({
   title: "",
   amount: "",
+  moneyAccountTitle: getLocalStorageValue(
+    LOCAL_STORAGE_KEYS.moneyAccountTitle,
+    ""
+  ),
   billingCategory: getLocalStorageValue(
     LOCAL_STORAGE_KEYS.category,
     "" // ledgerCategories[0] || "" // "Other"
@@ -142,6 +150,7 @@ const normalizeLoadedEntry = (
     return amount;
   })(),
   title: String(item?.title || ""),
+  moneyAccountTitle: String((item as any)?.moneyAccountTitle || ""),
   billingCategory: String(item?.billingCategory || ""),
   applicableDate: String(item?.applicableDate || ""),
   notes: String(item?.notes || ""),
@@ -155,6 +164,7 @@ const normalizeLoadedEntry = (
 const entryToDraft = (entry: LedgerEntry): LedgerDraft => ({
   title: String(entry.title || ""),
   amount: Number(entry.amount).toFixed(2),
+  moneyAccountTitle: String(entry.moneyAccountTitle || ""),
   billingCategory: String(entry.billingCategory || ""),
   applicableDate: String(entry.applicableDate || getTodayIso()),
   notes: String(entry.notes || ""),
@@ -182,6 +192,9 @@ const validateDraft = (source: LedgerDraft): LedgerValidationErrors => {
   if (!decimalRule.test(amountRaw) || !Number.isFinite(amount) || amount === 0) {
     next.amount = "Amount must be a non-zero number (up to 2 decimals).";
   }
+  if (!String(source.moneyAccountTitle || "").trim()) {
+    next.moneyAccountTitle = "Money account is required.";
+  }
   if (!String(source.billingCategory || "").trim()) {
     next.billingCategory = "Billing category is required.";
   }
@@ -198,10 +211,12 @@ const validateDraft = (source: LedgerDraft): LedgerValidationErrors => {
 const normalizedDraft = (): Omit<LedgerEntry, "id" | "createdAt" | "updatedAt"> => {
   const title = String(draft.title || "").trim();
   const notes = String(draft.notes || "").trim();
+  const moneyAccountTitle = String(draft.moneyAccountTitle || "").trim();
   const billingCategory = String(draft.billingCategory || "").trim();
   return {
     title,
     notes,
+    moneyAccountTitle,
     billingCategory: billingCategory || "",
     amount: Number(draft.amount),
     applicableDate: draft.applicableDate,
@@ -237,6 +252,7 @@ const getFilteredEntries = (
   return sortLedgerEntries(Array.isArray(entries) ? entries : []).filter((entry) => {
     const matchesSearch = !search
       || entry.title.toLowerCase().includes(search)
+      || String(entry.moneyAccountTitle || "").toLowerCase().includes(search)
       || String(entry.notes || "").toLowerCase().includes(search);
     const matchesStatus = !filters.status || entry.status === filters.status;
     const matchesCategory = !filters.category || entry.billingCategory === filters.category;
@@ -252,10 +268,32 @@ const getFilteredEntries = (
   });
 };
 
+const normalizeLoadedMoneyAccount = (item: MoneyAccount): MoneyAccount => {
+  const title = String(item?.title || "").trim();
+  return {
+    id: String(item?.id || ""),
+    title,
+    notes: String(item?.notes || "").trim(),
+    createdAt: Number(item?.createdAt) || Date.now(),
+    updatedAt: Number(item?.updatedAt) || Date.now(),
+  };
+};
+
+const getMoneyAccountTitles = (items: MoneyAccount[]) =>
+  (Array.isArray(items) ? items : [])
+    .map((item) => String(item?.title || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
 const openCreateModal = () => {
   modalMode = "create";
   activeEntryId = "";
   draft = createDraft();
+  const titles = getMoneyAccountTitles(moneyAccounts$.value);
+  const currentMoneyAccountTitle = String(draft.moneyAccountTitle || "").trim();
+  if (currentMoneyAccountTitle && !titles.includes(currentMoneyAccountTitle)) {
+    draft.moneyAccountTitle = "";
+  }
   submitted = false;
   modalOpen = true;
 };
@@ -268,6 +306,11 @@ const openEditModal = (id: string) => {
   modalMode = "edit";
   activeEntryId = id;
   draft = entryToDraft(entry);
+  const titles = getMoneyAccountTitles(moneyAccounts$.value);
+  const currentMoneyAccountTitle = String(draft.moneyAccountTitle || "").trim();
+  if (currentMoneyAccountTitle && !titles.includes(currentMoneyAccountTitle)) {
+    draft.moneyAccountTitle = "";
+  }
   submitted = false;
   modalOpen = true;
 };
@@ -350,6 +393,7 @@ const handleSave = async () => {
   try {
     await saveLedgerEntries(sortLedgerEntries(nextEntries));
     replaceEntries(nextEntries);
+    setLocalStorageValue(LOCAL_STORAGE_KEYS.moneyAccountTitle, normalized.moneyAccountTitle);
     setLocalStorageValue(LOCAL_STORAGE_KEYS.category, normalized.billingCategory);
     toast.success(modalMode === "edit" ? "Ledger entry updated." : "Ledger entry added.");
     closeModal();
@@ -389,12 +433,14 @@ const syncModalSaveState = () => {
 };
 
 const renderModal = (entries: LedgerEntry[]) => {
+  const moneyAccountTitles = getMoneyAccountTitles(moneyAccounts$.value);
   return LedgerEntryModal(
     {
       modalOpen,
       modalMode,
       draft,
       entries,
+      moneyAccountTitles,
       submitted,
       isSaving,
       isDeleting,
@@ -470,6 +516,10 @@ const auth = startAdminAppShell({
       stopLedger();
       stopLedger = null;
     }
+    if (stopMoneyAccounts) {
+      stopMoneyAccounts();
+      stopMoneyAccounts = null;
+    }
     isLoading = true;
   },
   onDenied: () => {
@@ -477,6 +527,10 @@ const auth = startAdminAppShell({
     if (stopLedger) {
       stopLedger();
       stopLedger = null;
+    }
+    if (stopMoneyAccounts) {
+      stopMoneyAccounts();
+      stopMoneyAccounts = null;
     }
     isLoading = true;
   },
@@ -493,6 +547,14 @@ const auth = startAdminAppShell({
             mountApp();
           }
         }
+      });
+    }
+    if (!stopMoneyAccounts) {
+      stopMoneyAccounts = subscribeMoneyAccounts((items) => {
+        const normalized = (Array.isArray(items) ? items : [])
+          .map(normalizeLoadedMoneyAccount)
+          .filter((item) => item.id && item.title);
+        moneyAccounts$.splice(0, moneyAccounts$.length, ...normalized);
       });
     }
     mountApp();

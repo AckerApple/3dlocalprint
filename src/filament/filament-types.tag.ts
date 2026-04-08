@@ -37,6 +37,8 @@ export type FilamentType = {
   filament_type_id: string;
   number: number;
   label: string;
+  single_rating?: number;
+  comments?: FilamentComment[];
   manufacturer?: string;
   material_type?: string;
   sub_material_type?: string;
@@ -48,10 +50,19 @@ export type FilamentType = {
   url?: string;
 };
 
+export type FilamentComment = {
+  id: string;
+  text: string;
+  user_email: string;
+  user_photo_url: string;
+};
+
 type FilamentTypeInput = {
   filament_type_id?: string;
   number?: number | string;
   label?: string;
+  single_rating?: number | string;
+  comments?: unknown;
   manufacturer?: string;
   material_type?: string;
   sub_material_type?: string;
@@ -100,6 +111,8 @@ const createEmptyFilamentType = (): FilamentType => ({
   filament_type_id: createFilamentTypeId(),
   number: null,
   label: "",
+  single_rating: 0,
+  comments: [],
   manufacturer: "",
   material_type: "",
   sub_material_type: "",
@@ -110,6 +123,21 @@ const createEmptyFilamentType = (): FilamentType => ({
   hex: "",
   url: "",
 });
+
+const normalizeComments = (value: unknown): FilamentComment[] =>
+  (Array.isArray(value) ? value : [])
+    .map((comment) => {
+      if (!comment || typeof comment !== "object") return null;
+      const text = String((comment as { text?: unknown }).text || "").trim();
+      if (!text) return null;
+      return {
+        id: String((comment as { id?: unknown }).id || "").trim() || createFilamentTypeId(),
+        text,
+        user_email: String((comment as { user_email?: unknown }).user_email || "").trim(),
+        user_photo_url: String((comment as { user_photo_url?: unknown }).user_photo_url || "").trim(),
+      };
+    })
+    .filter((comment): comment is FilamentComment => Boolean(comment));
 
 /*
 const rerender = () => {
@@ -337,6 +365,7 @@ export const FilamentTypesApp = tag(() => {
             types: filteredTypes(),
             expandedTypeIds,
             manufacturers$,
+            currentUser,
             materialTypes,
             withManufacturerEmoji,
           })
@@ -369,10 +398,14 @@ export const FilamentTypesApp = tag(() => {
 
 const serializeFilamentTypes = (items: FilamentTypeInput[]): FilamentType[] =>
   (Array.isArray(items) ? items : []).map((item) => {
+    const rating = Math.max(0, Math.min(5, Math.round(Number(item.single_rating) || 0)));
+    const comments = normalizeComments(item.comments);
     const cleaned: FilamentType = {
       filament_type_id: item.filament_type_id || createFilamentTypeId(),
       number: item.number ? Number(item.number) || 0 : 0,
       label: item.label || "",
+      single_rating: rating,
+      comments,
     };
     if (item.manufacturer) cleaned.manufacturer = item.manufacturer;
     if (item.material_type) cleaned.material_type = item.material_type;
@@ -439,6 +472,8 @@ const auth = startAdminAppShell({
           types$.push(
             ...items.map((item) => ({
               ...item,
+              single_rating: Math.max(0, Math.min(5, Math.round(Number(item?.single_rating) || 0))),
+              comments: normalizeComments(item?.comments),
               barcode_search_data: normalizeBarcodeList(item?.barcode_search_data).filter(Boolean),
             }))
           )

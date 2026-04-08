@@ -30,6 +30,7 @@ export const LedgerEntriesTable = tag(({
             tr(
               th("Applicable Date"),
               th("Title"),
+              th("Account"),
               th("Category"),
               th("Status"),
               th("Amount")
@@ -48,6 +49,7 @@ export const LedgerEntriesTable = tag(({
                     entry.title || "—"
                   )
                 ),
+                td(entry.moneyAccountTitle || "—"),
                 td(entry.billingCategory || "—"),
                 td(
                   span.class`pill ledger-status-pill ${

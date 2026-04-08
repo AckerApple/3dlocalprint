@@ -206,15 +206,60 @@ main {
 
 .filament-type-actions {
   display: inline-flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 0;
   justify-content: flex-end;
+  flex-wrap: nowrap;
   margin-left: auto;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.filament-type-action-pill {
+  border-radius: 0;
+  margin-left: 0;
+  position: relative;
+  z-index: 0;
+}
+
+.filament-type-action-pill:hover,
+.filament-type-action-pill:focus-visible {
+  z-index: 1;
+}
+
+.filament-type-action-first {
+  border-radius: 999px 0 0 999px;
+}
+
+.filament-type-action-middle {
+  border-radius: 0;
+}
+
+.filament-type-action-last {
+  border-radius: 0 999px 999px 0;
+}
+
+.filament-type-actions .ghost-button.filament-type-action-pill {
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  text-decoration: none;
+}
+
+.filament-type-actions .filament-type-action-first {
+  border-left: 0;
 }
 
 .filament-type-color {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.filament-type-single-rating {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .filament-type-number {
@@ -237,6 +282,95 @@ main {
 .filament-type-editor {
   display: grid;
   gap: 12px;
+}
+
+.single-rating-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.single-rating-star {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+  opacity: 0.45;
+}
+
+.single-rating-star.is-active {
+  opacity: 1;
+  border-color: #f2b544;
+  background: rgba(242, 181, 68, 0.12);
+}
+
+.filament-comments-block {
+  display: grid;
+  gap: 8px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.filament-comments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.filament-comment-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.filament-comment-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+.filament-comment-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.filament-comment-text {
+  font-size: 0.9rem;
+}
+
+.filament-comment-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.filament-comment-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.url-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.url-go-link {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .filament-type-group-title {

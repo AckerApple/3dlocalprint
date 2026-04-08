@@ -15,10 +15,19 @@ export interface ManufacturerItem {
   iconUrl: string;
 }
 
+export interface FilamentComment {
+  id: string;
+  text: string;
+  user_email: string;
+  user_photo_url: string;
+}
+
 export interface FilamentType {
   filament_type_id: string;
   number?: number | string;
   label?: string;
+  single_rating?: number;
+  comments?: FilamentComment[];
   manufacturer?: string;
   material_type?: string;
   sub_material_type?: string;

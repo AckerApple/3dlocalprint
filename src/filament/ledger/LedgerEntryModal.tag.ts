@@ -29,6 +29,7 @@ type LedgerEntryModalProps = {
   isDeleting?: boolean;
   validateDraft: (source: LedgerDraft) => LedgerValidationErrors;
   getAllCategoryOptions: (entries: LedgerEntry[]) => string[];
+  moneyAccountTitles?: string[];
   onClose: () => void;
   onSave: () => void;
   onDelete: () => void;
@@ -54,6 +55,7 @@ export const LedgerEntryModal = tag(({
   isDeleting = false,
   validateDraft,
   getAllCategoryOptions,
+  moneyAccountTitles = [],
   onClose,
   onSave,
   onDelete,
@@ -70,6 +72,7 @@ export const LedgerEntryModal = tag(({
       isDeleting = false,
       validateDraft,
       getAllCategoryOptions,
+      moneyAccountTitles = [],
       onClose,
       onSave,
       onDelete,
@@ -158,6 +161,22 @@ export const LedgerEntryModal = tag(({
               onSyncSaveState();
             }),
           renderFieldError(submitted, errors, "amount")
+        ),
+        label(
+          "Money Account",
+          select
+            .value(() => draft.moneyAccountTitle)
+            .onChange((event) => {
+              draft.moneyAccountTitle = event.target.value;
+              onSyncSaveState();
+            })(
+            option.value``("Select account"),
+            ...moneyAccountTitles.map((title) => option.value(title)(title))
+          ),
+          _=> !moneyAccountTitles.length
+            ? p.class`ledger-field-error`("No money accounts yet. Add one in Money Accounts first.")
+            : null,
+          renderFieldError(submitted, errors, "moneyAccountTitle")
         ),
         label(
           "Applicable Date",

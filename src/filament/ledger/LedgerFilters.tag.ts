@@ -87,7 +87,7 @@ export const LedgerFilters = tag(({
     div.class`ledger-filters-primary`(
       input
         .type`search`
-        .placeholder`Search title or notes`
+        .placeholder`Search title, account, or notes`
         .value(() => filters.search)
         .onInput((event) => {
           const next = { ...filters, search: event.target.value };

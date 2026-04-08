@@ -31,6 +31,7 @@ export default defineConfig({
         manufacturers: resolve(__dirname, "src/filament/manufacturers.html"),
         cameraTest: resolve(__dirname, "src/filament/camera-test.html"),
         ledger: resolve(__dirname, "src/filament/ledger.html"),
+        moneyAccounts: resolve(__dirname, "src/filament/money-accounts.html"),
         admins: resolve(__dirname, "src/filament/admins.html"),
         ...Object.fromEntries(
           locations.map((location) => {

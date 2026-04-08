@@ -30,6 +30,12 @@ export const adminNavItems = [
     emoji: "📒",
   },
   {
+    label: "Money Accounts",
+    details: "Manage bank/cash accounts used by ledger entries.",
+    href: "./money-accounts.html",
+    emoji: "🏦",
+  },
+  {
     label: "Manage admins",
     details: "Control who can access the admin tools.",
     href: "./admins.html",

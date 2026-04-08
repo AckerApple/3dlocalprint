@@ -70,6 +70,7 @@ const FILAMENT_TYPES_DOC = doc(db, "filament_types", "list");
 const MANUFACTURERS_DOC = doc(db, "manufacturers", "list");
 const ADMINS_DOC = doc(db, "admins", "list");
 const LEDGER_DOC = doc(db, "ledger", "entries");
+const MONEY_ACCOUNTS_DOC = doc(db, "ledger", "moneyAccounts");
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
 const normalizeManufacturerItems = (items: unknown): ManufacturerItem[] =>
@@ -375,6 +376,7 @@ const serializeLedgerEntries = (items = []) =>
       id,
       amount,
       title,
+      moneyAccountTitle: String(item.moneyAccountTitle || "").trim(),
       billingCategory: String(item.billingCategory || "").trim() || "",
       applicableDate,
       notes: String(item.notes || "").trim(),
@@ -413,6 +415,62 @@ const subscribeLedgerEntries = (callback) =>
     }
   );
 
+const loadMoneyAccounts = async () => {
+  const snapshot = await getDoc(MONEY_ACCOUNTS_DOC);
+  if (!snapshot.exists()) {
+    return [];
+  }
+  const data = snapshot.data();
+  return Array.isArray(data.items) ? data.items : [];
+};
+
+const serializeMoneyAccounts = (items = []) =>
+  (Array.isArray(items) ? items : []).map((item) => {
+    const id = String(item.id || "").trim();
+    if (!id) {
+      throw new Error("Money account id is required.");
+    }
+    const title = String(item.title || "").trim();
+    if (!title) {
+      throw new Error("Money account title is required.");
+    }
+
+    return {
+      id,
+      title,
+      notes: String(item.notes || "").trim(),
+      createdAt: Number(item.createdAt) || Date.now(),
+      updatedAt: Number(item.updatedAt) || Date.now(),
+    };
+  });
+
+const saveMoneyAccounts = (items) =>
+  setDoc(
+    MONEY_ACCOUNTS_DOC,
+    {
+      items: serializeMoneyAccounts(items),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+const subscribeMoneyAccounts = (callback) =>
+  onSnapshot(
+    MONEY_ACCOUNTS_DOC,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        callback([]);
+        return;
+      }
+      const data = snapshot.data();
+      callback(Array.isArray(data.items) ? data.items : []);
+    },
+    (error) => {
+      console.error("Failed to subscribe to money accounts", error);
+      callback([]);
+    }
+  );
+
 export {
   db,
   auth,
@@ -436,4 +494,7 @@ export {
   loadLedgerEntries,
   saveLedgerEntries,
   subscribeLedgerEntries,
+  loadMoneyAccounts,
+  saveMoneyAccounts,
+  subscribeMoneyAccounts,
 };

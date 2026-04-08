@@ -19,6 +19,7 @@ export type LedgerModalMode = "create" | "edit";
 export type LedgerDraft = {
   title: string;
   amount: string;
+  moneyAccountTitle: string;
   billingCategory: string;
   applicableDate: string;
   notes: string;
@@ -28,6 +29,7 @@ export type LedgerDraft = {
 export type LedgerValidationErrors = {
   title?: string;
   amount?: string;
+  moneyAccountTitle?: string;
   billingCategory?: string;
   applicableDate?: string;
   status?: string;
