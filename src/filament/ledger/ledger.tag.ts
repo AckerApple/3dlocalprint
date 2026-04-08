@@ -41,7 +41,7 @@ let activeEntryId = "";
 let isSaving = false;
 let isDeleting = false;
 let submitted = false;
-let totals: LedgerTotals | null = null;
+let accountTotals: Record<string, LedgerTotals> = {};
 let handleSignOut = () => Promise.resolve();
 
 const createFilters = (): LedgerFilterState => ({
@@ -121,6 +121,7 @@ const sortLedgerEntries = (items: LedgerEntry[]) =>
 const replaceEntries = (items: LedgerEntry[]) => {
   const next = sortLedgerEntries(Array.isArray(items) ? items : []);
   entries$.splice(0, entries$.length, ...next);
+  accountTotals = {};
 };
 
 const toDisplayAmount = (value) => currency.format(Number(value) || 0);
@@ -285,11 +286,15 @@ const getMoneyAccountTitles = (items: MoneyAccount[]) =>
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
 
-const openCreateModal = () => {
+const openCreateModal = (accountTitle = "") => {
   modalMode = "create";
   activeEntryId = "";
   draft = createDraft();
   const titles = getMoneyAccountTitles(moneyAccounts$.value);
+  const requestedAccountTitle = String(accountTitle || "").trim();
+  if (requestedAccountTitle && titles.includes(requestedAccountTitle)) {
+    draft.moneyAccountTitle = requestedAccountTitle;
+  }
   const currentMoneyAccountTitle = String(draft.moneyAccountTitle || "").trim();
   if (currentMoneyAccountTitle && !titles.includes(currentMoneyAccountTitle)) {
     draft.moneyAccountTitle = "";
@@ -327,30 +332,40 @@ const getSignedAmount = (entry: LedgerEntry): number => {
   return Number(entry.amount) || 0;
 };
 
-const calculateTotals = () => {
-  const reconciledTotal = entries$.value.reduce((acc, entry) => {
+const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
+  const reconciledTotal = source.reduce((acc, entry) => {
     if (entry.status !== "reconciled") return acc;
     return acc + getSignedAmount(entry);
   }, 0);
 
-  const postedTotal = entries$.value.reduce((acc, entry) => {
+  const postedTotal = source.reduce((acc, entry) => {
     if (!["posted", "reconciled"].includes(entry.status)) return acc;
     return acc + getSignedAmount(entry);
   }, 0);
 
-  const pendingTotal = entries$.value.reduce((acc, entry) => {
+  const pendingTotal = source.reduce((acc, entry) => {
     return acc + getSignedAmount(entry);
   }, 0);
 
-  totals = {
+  return {
     reconciledTotal,
     postedTotal,
     pendingTotal,
+  };
+};
+
+const calculateAccountTotals = (accountTitle: string, source: LedgerEntry[]) => {
+  if (accountTotals[accountTitle]) {
+    const nextTotals = { ...accountTotals };
+    delete nextTotals[accountTitle];
+    accountTotals = nextTotals;
+    return;
   }
 
-  toast.info(
-    `Reconciled: ${toDisplayNet(reconciledTotal)} | Posted: ${toDisplayNet(postedTotal)} | Pending: ${toDisplayNet(pendingTotal)}`
-  );
+  accountTotals = {
+    ...accountTotals,
+    [accountTitle]: computeTotalsForEntries(source),
+  };
 };
 
 const handleSave = async () => {
@@ -361,6 +376,7 @@ const handleSave = async () => {
   submitted = true;
   const errors = validateDraft(draft);
   if (Object.keys(errors).length) {
+    syncModalSaveState();
     return;
   }
   isSaving = true;
@@ -426,6 +442,7 @@ const handleDelete = async () => {
 };
 
 const syncModalSaveState = () => {
+  submitted = true;
   const saveButton = document.getElementById("ledgerSaveButton")
   if (!saveButton) return
   const isValid = Object.keys(validateDraft(draft)).length === 0
@@ -458,29 +475,34 @@ export const LedgerApp = tag(() => {
   return [
     AdminNav(handleSignOut, currentUser),
     subscribe(entries$, (entries) => {
-      const filteredEntries = getFilteredEntries(entries, filters)
-      const filterCategories = getFilterCategories(entries)
+      return subscribe(moneyAccounts$, (moneyAccounts) => {
+        const filteredEntries = getFilteredEntries(entries, filters)
+        const filterCategories = getFilterCategories(entries)
 
-      return LedgerPanel({
-        entries,
-        filteredEntries,
-        filterCategories,
-        filters,
-        showAdvancedFilters,
-        setShowAdvancedFilters: (value: boolean) => {
-          showAdvancedFilters = value;
-        },
-        onFiltersChanged: (nextFilters: LedgerFilterState) => {
-          Object.assign(filters, nextFilters)
-        },
-        totals,
-        calculateTotals,
-        openCreateModal,
-        openEditModal,
-        toDisplayAmount,
-        toDisplayNet,
-        renderModal,
-        isLoading,
+        return LedgerPanel({
+          entries,
+          filteredEntries,
+          moneyAccounts,
+          filterCategories,
+          filters,
+          showAdvancedFilters,
+          setShowAdvancedFilters: (value: boolean) => {
+            showAdvancedFilters = value;
+          },
+          onFiltersChanged: (nextFilters: LedgerFilterState) => {
+            accountTotals = {};
+            Object.assign(filters, nextFilters)
+          },
+          accountTotals,
+          onCalculateAccountTotals: calculateAccountTotals,
+          onOpenCreateModalForAccount: openCreateModal,
+          openCreateModal,
+          openEditModal,
+          toDisplayAmount,
+          toDisplayNet,
+          renderModal,
+          isLoading,
+        });
       });
     })
   ];

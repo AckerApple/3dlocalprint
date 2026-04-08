@@ -1,8 +1,6 @@
 import {
   tag,
-  dialog,
   div,
-  h2,
   button,
   label,
   input,
@@ -12,6 +10,7 @@ import {
   p,
   output,
 } from "taggedjs";
+import { Modal } from "../Modal.tag.js";
 import type { LedgerEntry } from "../../types/ledger.js";
 import type {
   LedgerDraft,
@@ -85,21 +84,6 @@ export const LedgerEntryModal = tag(({
     onSyncSaveState = output(onSyncSaveState);
   })
 
-  const errors = validateDraft(draft);
-  const isValid = Object.keys(errors).length === 0;
-  const categoryOptions = getAllCategoryOptions(entries);
-
-  const shouldShowCustomCategoryInput = () => {
-    const current = String(draft.billingCategory || "").trim();
-    return draft.billingCategory === "Other" || !categoryOptions.includes(current);
-  };
-
-  const onBackdropClick = (event: Event & { target?: EventTarget | null }) => {
-    if (event?.target instanceof HTMLDialogElement) {
-      onClose();
-    }
-  };
-
   const onModalKeyDown = (event: KeyboardEvent & { target?: EventTarget | null }) => {
     const targetTag = event.target instanceof HTMLElement ? event.target.tagName : "";
     if (event.key === "Enter" && targetTag !== "TEXTAREA") {
@@ -110,32 +94,18 @@ export const LedgerEntryModal = tag(({
     }
   }
 
-  return [
-    _=> {
-      if(!modalOpen) return null
+  const renderModalBody = () => {
+    const errors = validateDraft(draft);
+    const isValid = Object.keys(errors).length === 0;
+    const categoryOptions = getAllCategoryOptions(entries);
+    const shouldShowCustomCategoryInput = () => {
+      const current = String(draft.billingCategory || "").trim();
+      return draft.billingCategory === "Other" || !categoryOptions.includes(current);
+    };
+    const hasMoneyAccountError = () =>
+      submitted && !String(draft.moneyAccountTitle || "").trim();
 
-      return dialog
-        .class`qr-modal ledger-modal`
-        .open(true)
-        .onClick(onBackdropClick)
-        .onCancel((event) => {
-          event.preventDefault();
-          onClose();
-        })
-        .onKeyDown(onModalKeyDown)
-      (
-    div.class`qr-modal-card ledger-modal-card`(
-      div.class`qr-modal-header`(
-        h2(modalMode === "edit" ? "Edit Ledger Entry" : "Add Ledger Entry"),
-        div.class`qr-modal-actions`(
-          button
-            .type`button`
-            .class`qr-modal-close`
-            .onClick(onClose)(
-            "Close"
-          )
-        )
-      ),
+    return [
       div.class`ledger-form-grid`(
         label(
           "Title",
@@ -165,6 +135,9 @@ export const LedgerEntryModal = tag(({
         label(
           "Money Account",
           select
+            .class(_=> `ledger-money-account-select${hasMoneyAccountError() ? " ledger-input-invalid" : ""}`)
+            .required`true`
+            .attr("aria-invalid", _=> (hasMoneyAccountError() ? "true" : "false"))
             .value(() => draft.moneyAccountTitle)
             .onChange((event) => {
               draft.moneyAccountTitle = event.target.value;
@@ -287,7 +260,19 @@ export const LedgerEntryModal = tag(({
           isSaving ? "Saving..." : "Save"
         )
       )
-    )
-      )
-    }]
+    ];
+  };
+
+  return [
+    _=> Modal({
+      modalOpen,
+      title: modalMode === "edit" ? "Edit Ledger Entry" : "Add Ledger Entry",
+      draggableTitle: true,
+      className: "ledger-modal",
+      cardClassName: "ledger-modal-card",
+      onClose,
+      onKeyDown: onModalKeyDown,
+      content: renderModalBody,
+    })
+  ];
 })

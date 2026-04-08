@@ -1764,6 +1764,15 @@ input:focus {
   gap: 12px;
 }
 
+.qr-modal-header.is-draggable {
+  cursor: grab;
+  user-select: none;
+}
+
+.qr-modal-header.is-draggable:active {
+  cursor: grabbing;
+}
+
 .qr-modal-actions {
   display: flex;
   align-items: center;
@@ -1862,6 +1871,44 @@ input:focus {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.ledger-account-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.ledger-account-section {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 3em;
+}
+
+.ledger-account-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.ledger-account-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ledger-account-title {
+  margin: 0;
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.ledger-totals-toggle.is-active {
+  background: #e8f3ff;
+  border-color: #bcd8f7;
+  color: #1f4d7a;
 }
 
 .ledger-table-wrap {
@@ -2023,6 +2070,12 @@ input:focus {
   font-size: 0.75rem;
   text-transform: none;
   letter-spacing: normal;
+}
+
+.ledger-money-account-select.ledger-input-invalid {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px rgba(180, 35, 24, 0.22);
+  background: #fff7f7;
 }
 
 .ledger-modal-actions {

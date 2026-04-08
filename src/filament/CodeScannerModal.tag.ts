@@ -1,19 +1,17 @@
 import {
   tag,
   button,
-  h2,
   output,
-  dialog,
   div,
-  onDestroy,
 } from "taggedjs";
+import { Modal } from "./Modal.tag.js";
 import { QrScannerPanel } from "./QrScanner.tag.js";
 
 export const CodeScannerModal = tag(
-  ({ title, onClose, onApply, applyLabel, ScannerPanel, name }) => {
+  ({ title, onClose, onApply, applyLabel, ScannerPanel }) => {
     CodeScannerModal.inputs((args) => {
       const next = args?.[0] || {};
-      ({ title, onClose, onApply, applyLabel, ScannerPanel, name } = next);
+      ({ title, onClose, onApply, applyLabel, ScannerPanel } = next);
       
       if (typeof onClose === "function") {
         onClose = output(onClose);
@@ -34,21 +32,6 @@ export const CodeScannerModal = tag(
     if (typeof ScannerPanel !== "function") {
       ScannerPanel = QrScannerPanel;
     }
-    const dialogId = `${name}-${Math.random().toString(36).slice(2, 9)}`;
-
-    const closeDialog = () => {
-      const dialogEl = document.getElementById(dialogId);
-      if (dialogEl?.close) {
-        dialogEl.close();
-      }
-
-      // onClose();
-    };
-
-    onDestroy(() => {
-      closeDialog()
-      onClose()
-    })
 
     let pendingText = "";
 
@@ -63,58 +46,29 @@ export const CodeScannerModal = tag(
       if (onApply) {
         onApply(pendingText);
       }
-      closeDialog();
-    };
-
-    const onBackdropClick = (event) => {
-      if (event.target.nodeName === "DIALOG") {
-        closeDialog();
-      }
-    };
-
-    const onDialogClose = () => {
       onClose();
     };
 
-    const onDialogCancel = (event) => {
-      if (event?.preventDefault) {
-        event.preventDefault();
-      }
-      closeDialog();
-    };
-
-    return dialog
-      .id(dialogId)
-      .class`qr-modal`
-      .open(true)
-      .onClick(onBackdropClick)
-      .onClose(onDialogClose)
-      .onCancel(onDialogCancel)(
-      div.class`qr-modal-card`(
-        div.class`qr-modal-header`(
-          h2.class`qr-modal-title`(title),
-          div.class`qr-modal-actions`(
-            _=> pendingText &&
-              button
-                .type`button`
-                .class`qr-modal-apply`
-                .onClick(applyAndClose)(
-                applyLabel || "Apply"
-              ),
-            button
+    return Modal({
+      modalOpen: true,
+      title,
+      className: "qr-modal",
+      cardClassName: "qr-modal-card",
+      onClose,
+      headerActions: () =>
+        pendingText
+          ? button
               .type`button`
-              .class`qr-modal-close`
-              .attr("aria-label", "Close")
-              .onClick(() => closeDialog())(
-              "Close"
+              .class`qr-modal-apply`
+              .onClick(applyAndClose)(
+              applyLabel || "Apply"
             )
-          )
-        ),
+          : null,
+      content: () =>
         div.class`qr-modal-body`(
           _=> ScannerPanel({
             onResult: setPendingText,
           })
-        )
-      )
-    )
+        ),
+    });
   });

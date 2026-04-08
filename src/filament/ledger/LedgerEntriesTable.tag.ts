@@ -41,28 +41,28 @@ export const LedgerEntriesTable = tag(({
               tr
                 .class`ledger-row`
                 .onClick(() => onOpenEditModal(entry.id))(
-                td(entry.applicableDate || "—"),
+                td(_=> entry.applicableDate || "—"),
                 td(
                   span
                     .class`ledger-title-cell`
-                    .attr("title", entry.title || "—")(
-                    entry.title || "—"
+                    .title(_=> entry.title || "—")(
+                    _=> entry.title || "—"
                   )
                 ),
-                td(entry.moneyAccountTitle || "—"),
-                td(entry.billingCategory || "—"),
+                td(_=> entry.moneyAccountTitle || "—"),
+                td(_=> entry.billingCategory || "—"),
                 td(
-                  span.class`pill ledger-status-pill ${
+                  span.class(_=> `pill ledger-status-pill ${
                     entry.status === "pending"
                       ? "ledger-status-pending"
                       : entry.status === "reconciled"
                         ? "ledger-status-reconciled"
                         : "ledger-status-posted"
-                  }`(
-                    entry.status || "posted"
+                  }`)(
+                    _=> entry.status || "posted"
                   )
                 ),
-                td(toDisplayAmount(entry.amount))
+                td(_=> toDisplayAmount(entry.amount))
               ).key(entry.id)
             )
           )
