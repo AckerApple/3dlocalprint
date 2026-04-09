@@ -12,7 +12,7 @@ import {
   span,
 } from "taggedjs";
 import { replaceMountRoot } from "./ssoMount.js";
-import { adminNavItems, withManufacturerEmoji } from "./adminNavItems.js";
+import { adminNavGroups, withManufacturerEmoji } from "./adminNavItems.js";
 import { toast } from "./toast.js";
 import { startAdminAppShell } from "./adminAppShell.js";
 
@@ -54,14 +54,19 @@ export const AdminHomeApp = tag(() => [
       h1("Admin Home"),
       p("Choose an admin area to get started.")
     ),
-    div.class`admin-home-grid`(
-      ...adminNavItems.map((item) =>
-        a
-          .class`panel admin-home-card`
-          .href(item.href)(
-          div.class`admin-home-emoji`(item.emoji),
-          h2(withManufacturerEmoji(item.label)),
-          p(withManufacturerEmoji(item.details))
+    ...adminNavGroups.map((group) =>
+      section.class`admin-home-group`(
+        h2.class`admin-home-group-title`(group.title),
+        div.class`admin-home-grid`(
+          ...group.items.map((item) =>
+            a
+              .class`panel admin-home-card`
+              .href(item.href)(
+              div.class`admin-home-emoji`(item.emoji),
+              h2(withManufacturerEmoji(item.label)),
+              p(withManufacturerEmoji(item.details))
+            )
+          )
         )
       )
     )

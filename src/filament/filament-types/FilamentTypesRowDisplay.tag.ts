@@ -3,6 +3,7 @@ import {
   div,
   img,
   strong,
+  span,
   button,
   input,
   label,
@@ -12,6 +13,7 @@ import {
   SignalArray,
 } from "taggedjs";
 import { addBarcode, FilamentComment, FilamentType, getBarcodeList, openBarcodeScanner, openQrScanner, removeBarcode, removeType, saveType, toggleExpanded, updateBarcode } from "../filament-types.tag";
+import { toFilamentPath } from "../path-utils.js";
 import type { ManufacturerItem } from "../../types/filament.js";
 
 const subMaterialTypes = ["silk", "matte"];
@@ -65,6 +67,16 @@ const toValidHttpUrl = (value: unknown) => {
   } catch {
     return "";
   }
+};
+
+const getManufacturerOptions = (manufacturers: ManufacturerItem[] = []) => {
+  const labels = new Set<string>();
+  (Array.isArray(manufacturers) ? manufacturers : []).forEach((maker) => {
+    const label = String(maker?.label || "").trim();
+    if (label) labels.add(label);
+  });
+  labels.add("Sunlu");
+  return Array.from(labels).sort((a, b) => a.localeCompare(b));
 };
 
 type FilamentTypeEditorProps = {
@@ -303,7 +315,14 @@ const FilamentTypeEditor = tag(({
         )
       ),
       label(
-        "🏭 Manufacturer",
+        div.class`field-label-row`(
+          span("🏭 Manufacturer"),
+          a
+            .class`field-label-quick-link`
+            .href(toFilamentPath("manufacturers.html"))
+            .attr("title", "View manufacturers")
+            ("👁️")
+        ),
         select
           .onChange((event) => {
             item.manufacturer = event?.target?.value || "";
@@ -313,8 +332,7 @@ const FilamentTypeEditor = tag(({
             .selected(_=> !item.manufacturer)(
             withManufacturerEmoji("Select manufacturer")
           ),
-          _=> manufacturers$.value.map((maker) => {
-            const makerLabel = String(maker?.label || "").trim();
+          _=> getManufacturerOptions(manufacturers$.value).map((makerLabel) => {
             return option
               .value(makerLabel)
               .selected(_=> item.manufacturer === makerLabel)(makerLabel)

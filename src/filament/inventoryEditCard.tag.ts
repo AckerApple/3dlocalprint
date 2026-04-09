@@ -194,7 +194,14 @@ export const inventoryEditCard = tag(
           }
         })(
         label(
-          "Filament type",
+          div.class`field-label-row`(
+            span("Filament type"),
+            a
+              .class`field-label-quick-link`
+              .href(toFilamentPath("filament-types.html"))
+              .attr("title", "View filament types")
+              ("👁️")
+          ),
           select
             .onChange((event) => {
               item.filament_type_id = event?.target?.value || "";
