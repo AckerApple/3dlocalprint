@@ -1,8 +1,11 @@
 import type { LedgerEntry } from "../../types/ledger.js";
 
 export type LedgerTotals = {
+  grossPositiveTotal: number;
+  grossNegativeTotal: number;
   reconciledTotal: number;
   postedTotal: number;
+  pendingAmountsTotal: number;
   pendingTotal: number;
 };
 

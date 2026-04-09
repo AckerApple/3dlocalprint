@@ -333,6 +333,16 @@ const getSignedAmount = (entry: LedgerEntry): number => {
 };
 
 const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
+  const grossPositiveTotal = source.reduce((acc, entry) => {
+    const amount = getSignedAmount(entry);
+    return amount > 0 ? acc + amount : acc;
+  }, 0);
+
+  const grossNegativeTotal = source.reduce((acc, entry) => {
+    const amount = getSignedAmount(entry);
+    return amount < 0 ? acc + amount : acc;
+  }, 0);
+
   const reconciledTotal = source.reduce((acc, entry) => {
     if (entry.status !== "reconciled") return acc;
     return acc + getSignedAmount(entry);
@@ -343,13 +353,21 @@ const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
     return acc + getSignedAmount(entry);
   }, 0);
 
+  const pendingAmountsTotal = source.reduce((acc, entry) => {
+    if (entry.status !== "pending") return acc;
+    return acc + getSignedAmount(entry);
+  }, 0);
+
   const pendingTotal = source.reduce((acc, entry) => {
     return acc + getSignedAmount(entry);
   }, 0);
 
   return {
+    grossPositiveTotal,
+    grossNegativeTotal,
     reconciledTotal,
     postedTotal,
+    pendingAmountsTotal,
     pendingTotal,
   };
 };

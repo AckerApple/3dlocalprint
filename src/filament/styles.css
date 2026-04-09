@@ -1993,6 +1993,18 @@ input:focus {
   vertical-align: bottom;
 }
 
+.ledger-amount-value {
+  font-weight: 600;
+}
+
+.ledger-amount-positive {
+  color: #1f6e21;
+}
+
+.ledger-amount-negative {
+  color: #b42318;
+}
+
 .ledger-status-pill {
   text-transform: capitalize;
 }

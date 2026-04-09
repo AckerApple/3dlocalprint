@@ -30,7 +30,6 @@ export const LedgerEntriesTable = tag(({
             tr(
               th("Applicable Date"),
               th("Title"),
-              th("Account"),
               th("Category"),
               th("Status"),
               th("Amount")
@@ -49,7 +48,6 @@ export const LedgerEntriesTable = tag(({
                     _=> entry.title || "—"
                   )
                 ),
-                td(_=> entry.moneyAccountTitle || "—"),
                 td(_=> entry.billingCategory || "—"),
                 td(
                   span.class(_=> `pill ledger-status-pill ${
@@ -62,7 +60,17 @@ export const LedgerEntriesTable = tag(({
                     _=> entry.status || "posted"
                   )
                 ),
-                td(_=> toDisplayAmount(entry.amount))
+                td(
+                  span.class(_=> `ledger-amount-value ${
+                    entry.amount > 0
+                      ? "ledger-amount-positive"
+                      : entry.amount < 0
+                        ? "ledger-amount-negative"
+                        : ""
+                  }`.trim())(
+                    _=> toDisplayAmount(entry.amount)
+                  )
+                )
               ).key(entry.id)
             )
           )

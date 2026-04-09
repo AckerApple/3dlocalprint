@@ -150,10 +150,19 @@ export const LedgerPanel = tag(({
 
                 return div.class`ledger-totals`(
                   p.class`ledger-net-value`(
+                    `Gross positive: ${toDisplayNet(totals.grossPositiveTotal)}`
+                  ),
+                  p.class`ledger-net-value`(
+                    `Gross negative: ${toDisplayNet(totals.grossNegativeTotal)}`
+                  ),
+                  p.class`ledger-net-value`(
                     `Reconciled total: ${toDisplayNet(totals.reconciledTotal)}`
                   ),
                   p.class`ledger-net-value`(
                     `Posted total: ${toDisplayNet(totals.postedTotal)}`
+                  ),
+                  p.class`ledger-net-value`(
+                    `Pending amounts: ${toDisplayNet(totals.pendingAmountsTotal)}`
                   ),
                   p.class`ledger-net-value`(
                     `Pending total: ${toDisplayNet(totals.pendingTotal)}`
