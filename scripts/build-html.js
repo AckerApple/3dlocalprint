@@ -4,6 +4,7 @@ import { renderDocument } from "./html.render.js";
 import { filamentIndexPage } from "./filament.index.html.js";
 import { filamentStandalonePage } from "./filament.standalone.html.js";
 import { filamentFastEditPage } from "./filament.fast-edit.html.js";
+import { homeLandingPage, homeProductsPage, homeProductDetailPage, homeCartPage } from "./home.pages.js";
 
 const locations = ["Fireguys", "Apples"];
 
@@ -15,6 +16,26 @@ const slugifyLocation = (location = "") =>
 
 const rootDir = resolve(".");
 const filamentDir = resolve(rootDir, "src/filament");
+const homeDir = resolve(rootDir, "src");
+
+const homePages = [
+  {
+    path: resolve(homeDir, "index.html"),
+    render: () => homeLandingPage(),
+  },
+  {
+    path: resolve(homeDir, "products.html"),
+    render: () => homeProductsPage(),
+  },
+  {
+    path: resolve(homeDir, "product.html"),
+    render: () => homeProductDetailPage(),
+  },
+  {
+    path: resolve(homeDir, "cart.html"),
+    render: () => homeCartPage(),
+  },
+];
 
 const pages = [
   {
@@ -76,6 +97,15 @@ const pages = [
       }),
   },
   {
+    path: resolve(filamentDir, "products.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Products",
+        appId: "productsApp",
+        appScript: "products.tag.ts",
+      }),
+  },
+  {
     path: resolve(filamentDir, "admins.html"),
     render: () =>
       filamentStandalonePage({
@@ -116,8 +146,9 @@ const locationInventoryPages = locations.map((location) => {
 });
 
 mkdirSync(filamentDir, { recursive: true });
+mkdirSync(homeDir, { recursive: true });
 
-pages.concat(fastEditPages, locationInventoryPages).forEach((page) => {
+homePages.concat(pages, fastEditPages, locationInventoryPages).forEach((page) => {
   const dir = resolve(page.path, "..");
   mkdirSync(dir, { recursive: true });
   writeFileSync(page.path, renderDocument(page.render()), "utf-8");

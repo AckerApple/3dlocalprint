@@ -52,9 +52,9 @@ export const adminNavGroups = [
     title: "Products",
     items: [
       {
-        label: "Products (coming soon)",
-        details: "Product and variant management will live here.",
-        href: "./admin.html#products",
+        label: "Products catalog",
+        details: "Manage product records used for cart and checkout.",
+        href: "./products.html",
         emoji: "🛒",
       },
     ],

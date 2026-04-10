@@ -23,6 +23,7 @@ import {
 } from "firebase/firestore";
 import { slugifyLocation } from "./location-utils.js";
 import type { ManufacturerItem } from "../types/filament.js";
+import type { ProductItem } from "../types/product.js";
 
 const REQUIRED_FIREBASE_ENV_KEYS = [
   "VITE_FIREBASE_API_KEY",
@@ -71,6 +72,7 @@ const MANUFACTURERS_DOC = doc(db, "manufacturers", "list");
 const ADMINS_DOC = doc(db, "admins", "list");
 const LEDGER_DOC = doc(db, "ledger", "entries");
 const MONEY_ACCOUNTS_DOC = doc(db, "ledger", "moneyAccounts");
+const PRODUCTS_DOC = doc(db, "products", "list");
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
 const normalizeManufacturerItems = (items: unknown): ManufacturerItem[] =>
@@ -93,6 +95,36 @@ const normalizeManufacturerItems = (items: unknown): ManufacturerItem[] =>
       return null;
     })
     .filter((item): item is ManufacturerItem => Boolean(item?.label));
+
+const normalizeProductItems = (items: unknown): ProductItem[] =>
+  (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const id = String((item as { id?: unknown }).id || "").trim();
+      const title = String((item as { title?: unknown }).title || "").trim();
+      if (!id || !title) return null;
+      const now = Date.now();
+      const rawSlug = String((item as { slug?: unknown }).slug || "").trim();
+      const slug = rawSlug
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return {
+        id,
+        title,
+        slug: slug || id,
+        description: String((item as { description?: unknown }).description || "").trim(),
+        imageUrl: String((item as { imageUrl?: unknown }).imageUrl || "").trim(),
+        unitAmount: Math.max(0, Math.round(Number((item as { unitAmount?: unknown }).unitAmount) || 0)),
+        currency: String((item as { currency?: unknown }).currency || "usd").trim().toLowerCase() || "usd",
+        active: Boolean((item as { active?: unknown }).active),
+        stripePriceId: String((item as { stripePriceId?: unknown }).stripePriceId || "").trim(),
+        taxCode: String((item as { taxCode?: unknown }).taxCode || "").trim(),
+        createdAt: Number((item as { createdAt?: unknown }).createdAt) || now,
+        updatedAt: Number((item as { updatedAt?: unknown }).updatedAt) || now,
+      };
+    })
+    .filter((item): item is ProductItem => Boolean(item?.id && item?.title));
 
 const isIOS = () =>
   typeof navigator !== "undefined" &&
@@ -471,6 +503,42 @@ const subscribeMoneyAccounts = (callback) =>
     }
   );
 
+const loadProducts = async () => {
+  const snapshot = await getDoc(PRODUCTS_DOC);
+  if (!snapshot.exists()) {
+    return [];
+  }
+  const data = snapshot.data();
+  return normalizeProductItems(data.items);
+};
+
+const saveProducts = (items: ProductItem[]) =>
+  setDoc(
+    PRODUCTS_DOC,
+    {
+      items: normalizeProductItems(items),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+const subscribeProducts = (callback) =>
+  onSnapshot(
+    PRODUCTS_DOC,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        callback([]);
+        return;
+      }
+      const data = snapshot.data();
+      callback(normalizeProductItems(data.items));
+    },
+    (error) => {
+      console.error("Failed to subscribe to products", error);
+      callback([]);
+    }
+  );
+
 export {
   db,
   auth,
@@ -497,4 +565,7 @@ export {
   loadMoneyAccounts,
   saveMoneyAccounts,
   subscribeMoneyAccounts,
+  loadProducts,
+  saveProducts,
+  subscribeProducts,
 };

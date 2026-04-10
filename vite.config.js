@@ -25,6 +25,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "src/index.html"),
+        productsHome: resolve(__dirname, "src/products.html"),
+        productDetail: resolve(__dirname, "src/product.html"),
+        cartHome: resolve(__dirname, "src/cart.html"),
         filament: resolve(__dirname, "src/filament/index.html"),
         admin: resolve(__dirname, "src/filament/admin.html"),
         filamentTypes: resolve(__dirname, "src/filament/filament-types.html"),
@@ -32,6 +35,7 @@ export default defineConfig({
         cameraTest: resolve(__dirname, "src/filament/camera-test.html"),
         ledger: resolve(__dirname, "src/filament/ledger.html"),
         moneyAccounts: resolve(__dirname, "src/filament/money-accounts.html"),
+        products: resolve(__dirname, "src/filament/products.html"),
         admins: resolve(__dirname, "src/filament/admins.html"),
         ...Object.fromEntries(
           locations.map((location) => {
