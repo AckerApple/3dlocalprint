@@ -1,8 +1,18 @@
-import { loadProducts } from "./filament/firebase.js";
+import { loadProducts } from "./admin/shared/firebase.js";
 import type { ProductItem } from "./types/product.js";
-import { addToCart, getCartQuantity } from "./cart-store.js";
+import { normalizeProductCategories } from "./product-categories.js";
+import { createHomeCartActions } from "./home-cart-actions.js";
 
 const detailRoot = document.getElementById("homeProductDetail");
+const pageTitleRoot = document.getElementById("homeProductPageTitle");
+
+type ProductVariationView = {
+  id: string;
+  label: string;
+  unitAmount: number;
+  stripePriceId: string;
+  active: boolean;
+};
 
 const formatPrice = (unitAmount = 0, currency = "usd") =>
   new Intl.NumberFormat("en-US", {
@@ -14,11 +24,37 @@ const formatPrice = (unitAmount = 0, currency = "usd") =>
 
 const getSlug = () => {
   const params = new URLSearchParams(window.location.search);
-  return String(params.get("slug") || "").trim();
+  const fromQuery = String(params.get("slug") || "").trim();
+  if (fromQuery) {
+    return fromQuery;
+  }
+  const pathMatch = window.location.pathname.match(/\/product\/([^/?#]+)\/?$/i);
+  if (!pathMatch?.[1]) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(pathMatch[1]).trim();
+  } catch {
+    return String(pathMatch[1] || "").trim();
+  }
 };
+
+const normalizeVariations = (product: ProductItem): ProductVariationView[] =>
+  (Array.isArray(product?.variations) ? product.variations : [])
+    .map((variation) => ({
+      id: String(variation?.id || "").trim(),
+      label: String(variation?.label || "").trim(),
+      unitAmount: Math.max(0, Math.round(Number(variation?.unitAmount) || 0)),
+      stripePriceId: String(variation?.stripePriceId || "").trim(),
+      active: Boolean(variation?.active),
+    }))
+    .filter((variation) => variation.id && variation.label && variation.active);
 
 const renderMessage = (title: string, message: string) => {
   if (!detailRoot) return;
+  if (pageTitleRoot) {
+    pageTitleRoot.textContent = "Products";
+  }
   detailRoot.innerHTML = "";
   const card = document.createElement("article");
   card.className = "home-card home-card-muted";
@@ -32,6 +68,9 @@ const renderMessage = (title: string, message: string) => {
 
 const renderProduct = (product: ProductItem) => {
   if (!detailRoot) return;
+  if (pageTitleRoot) {
+    pageTitleRoot.textContent = String(product.title || "Products").trim() || "Products";
+  }
   detailRoot.innerHTML = "";
 
   const card = document.createElement("article");
@@ -44,50 +83,72 @@ const renderProduct = (product: ProductItem) => {
     card.append(media);
   }
 
-  const title = document.createElement("h2");
-  title.textContent = product.title;
-  card.append(title);
+  const descriptionText = String(product.description || "").trim();
+  if (descriptionText) {
+    const description = document.createElement("p");
+    description.className = "home-product-description";
+    description.textContent = descriptionText;
+    card.append(description);
+  }
 
-  const description = document.createElement("p");
-  description.className = "home-product-description";
-  description.textContent = product.description || "No description yet.";
-  card.append(description);
+  const categories = normalizeProductCategories(product.categories);
+  if (categories.length) {
+    const categoriesWrap = document.createElement("div");
+    categoriesWrap.className = "home-product-categories";
+    categories.forEach((category) => {
+      const chip = document.createElement("span");
+      chip.className = "home-product-category-chip";
+      chip.textContent = category;
+      categoriesWrap.append(chip);
+    });
+    card.append(categoriesWrap);
+  }
 
   const price = document.createElement("div");
   price.className = "home-card-tag";
-  price.textContent = formatPrice(product.unitAmount, product.currency);
+  const variations = normalizeVariations(product);
+  const defaultVariation = variations[0] || null;
+  price.textContent = formatPrice(defaultVariation?.unitAmount ?? product.unitAmount, product.currency);
   card.append(price);
 
   const row = document.createElement("div");
   row.className = "home-product-detail-actions";
-  const qtyInput = document.createElement("input");
-  qtyInput.className = "home-cart-qty-input";
-  qtyInput.type = "number";
-  qtyInput.min = "1";
-  qtyInput.max = "99";
-  qtyInput.step = "1";
-  qtyInput.value = "1";
 
-  const addButton = document.createElement("button");
-  addButton.className = "add-button";
-  addButton.type = "button";
-  addButton.textContent = "Add to Cart";
+  let selectedVariationId = defaultVariation?.id || "";
+  if (variations.length) {
+    const variationLabel = document.createElement("label");
+    variationLabel.className = "home-products-filter-label";
+    variationLabel.textContent = "OPTIONS";
 
-  const cartNote = document.createElement("span");
-  cartNote.className = "home-cart-note";
-  cartNote.textContent = `Cart: ${getCartQuantity()} item(s)`;
+    const variationSelect = document.createElement("select");
+    variationSelect.className = "manufacturer-input home-products-filter-select";
+    variations.forEach((variation) => {
+      const item = document.createElement("option");
+      item.value = variation.id;
+      item.textContent = `${variation.label} - ${formatPrice(variation.unitAmount, product.currency)}`;
+      variationSelect.append(item);
+    });
+    variationSelect.value = selectedVariationId;
+    variationSelect.addEventListener("change", () => {
+      selectedVariationId = String(variationSelect.value || "").trim();
+      const next = variations.find((variation) => variation.id === selectedVariationId) || defaultVariation;
+      price.textContent = formatPrice(next?.unitAmount ?? product.unitAmount, product.currency);
+    });
+    variationLabel.append(variationSelect);
+    row.append(variationLabel);
+  }
 
-  addButton.addEventListener("click", () => {
-    const quantity = Math.max(1, Math.min(99, Math.floor(Number(qtyInput.value) || 1)));
-    addToCart(product.id, quantity);
-    cartNote.textContent = `Added. Cart: ${getCartQuantity()} item(s)`;
+  const cartActions = createHomeCartActions({
+    productId: product.id,
+    getVariationId: () => selectedVariationId,
+    initialQuantity: 1,
   });
-
-  row.append(qtyInput, addButton, cartNote);
+  cartActions.classList.add("home-product-detail-cart-actions");
+  row.append(cartActions);
 
   const backLink = document.createElement("a");
   backLink.className = "ghost-button";
-  backLink.href = "./products.html";
+  backLink.href = "../products.html";
   backLink.textContent = "Back to Products";
   row.append(backLink);
   card.append(row);

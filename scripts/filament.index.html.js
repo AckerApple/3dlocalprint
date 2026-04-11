@@ -19,6 +19,9 @@ const withPrefix = (prefix, path) => {
 
 export const filamentIndexPage = ({
   assetPrefix = "./",
+  stylePath = "styles.css",
+  appScriptPath = "index.ts",
+  versionScriptPath = "version.ts",
   location = "",
   locationSlug = "",
   includeFooter = true,
@@ -31,7 +34,7 @@ export const filamentIndexPage = ({
         .href(favicon),
       link
         .rel`stylesheet`
-        .href(withPrefix(assetPrefix, "styles.css")),
+        .href(withPrefix(assetPrefix, stylePath)),
     ],
     bodyItems: [
       main
@@ -91,10 +94,10 @@ export const filamentIndexPage = ({
         : null,
       script
         .type`module`
-        .src(withPrefix(assetPrefix, "index.ts")),
+        .src(withPrefix(assetPrefix, appScriptPath)),
       versionBadge(),
       script
         .type`module`
-        .src(withPrefix(assetPrefix, "version.ts")),
+        .src(withPrefix(assetPrefix, versionScriptPath)),
     ],
   });

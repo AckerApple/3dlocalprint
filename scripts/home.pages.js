@@ -34,16 +34,14 @@ const homeNav = (assetPrefix = "./") =>
   );
 
 const homeHeader = ({
-  title,
   lede,
   assetPrefix = "./",
 }) =>
   header.class`page-header home-hero`(
     img
       .class("home-logo")
-      .src(withPrefix(assetPrefix, "assets/logo-one.png"))
+      .src(withPrefix(assetPrefix, "assets/logo-one-transparent.svg"))
       .alt("3D Local Print logo"),
-    title ? h1(title) : null,
     homeNav(assetPrefix),
     lede ? p.class`home-lede`(lede) : null
   );
@@ -56,7 +54,7 @@ const homeFooter = (assetPrefix = "./") =>
       a.class`home-footer-email`.href("mailto:service@3dlocalprint.com")("service@3dlocalprint.com"),
       a
         .class`home-footer-admin`
-        .href(withPrefix(assetPrefix, "filament/admin.html"))(
+        .href(withPrefix(assetPrefix, "admin/index.html"))(
         "Admin"
       ),
       div.class`home-footer-version`.attr("data-app-version", "")
@@ -65,7 +63,6 @@ const homeFooter = (assetPrefix = "./") =>
 
 const homeShell = ({
   pageTitle,
-  heroTitle,
   heroLede,
   mainSections = [],
   bodyScripts = [],
@@ -76,11 +73,10 @@ const homeShell = ({
     pageTitle,
     headItems: [
       link.rel`icon`.href(favicon),
-      link.rel`stylesheet`.href(withPrefix(assetPrefix, "filament/styles.css")),
+      link.rel`stylesheet`.href(withPrefix(assetPrefix, "admin/shared/styles.css")),
     ],
     bodyItems: [
       homeHeader({
-        title: heroTitle,
         lede: heroLede,
         assetPrefix,
       }),
@@ -90,18 +86,20 @@ const homeShell = ({
         script.type`module`.src(withPrefix(assetPrefix, scriptPath))
       ),
       script.type`module`.src(withPrefix(assetPrefix, "nav-cart.ts")),
-      script.type`module`.src(withPrefix(assetPrefix, "filament/version.ts")),
+      script.type`module`.src(withPrefix(assetPrefix, "admin/shared/version.ts")),
     ],
   });
 
 export const homeLandingPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
     pageTitle: "3D Local Print",
-    heroTitle: "3D Local Print",
     heroLede:
       "A hands-on 3D local print store where you can learn, paint, assemble, and take home custom 3D printed merchandise.",
     assetPrefix,
     mainSections: [
+      section.class`cart-page-title`(
+        h1("3D Local Print")
+      ),
       section.class`home-info panel`(
         div(
           h2.class`output-title`("Coming soon"),
@@ -164,11 +162,15 @@ export const homeLandingPage = ({ assetPrefix = "./" } = {}) =>
 export const homeProductsPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
     pageTitle: "Products - 3D Local Print",
-    heroTitle: "Products",
     heroLede: "",
     bodyScripts: ["products.ts"],
+    mainClass: "home-main home-main-cart",
     assetPrefix,
     mainSections: [
+      section.class`cart-page-title`(
+        h1("Products")
+      ),
+      section.class`home-products-filter`.id("homeProductsFilter"),
       section.class`home-grid home-products-grid`.id("homeProductsGrid")(
         div.class`home-products-loading`(
           div.class`home-products-spinner`().attr("aria-hidden", "true"),
@@ -180,12 +182,15 @@ export const homeProductsPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homeProductDetailPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
-    pageTitle: "Product - 3D Local Print",
-    heroTitle: "Product",
+    pageTitle: "Products - 3D Local Print",
     heroLede: "",
     bodyScripts: ["product.ts"],
+    mainClass: "home-main home-main-cart",
     assetPrefix,
     mainSections: [
+      section.class`cart-page-title`(
+        h1.id("homeProductPageTitle")("Products")
+      ),
       section.class`home-grid`.id("homeProductDetail")(
         div.class`home-products-loading`(
           div.class`home-products-spinner`().attr("aria-hidden", "true"),
@@ -198,7 +203,6 @@ export const homeProductDetailPage = ({ assetPrefix = "./" } = {}) =>
 export const homeCartPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
     pageTitle: "Cart - 3D Local Print",
-    heroTitle: "",
     heroLede: "",
     bodyScripts: ["cart.ts"],
     mainClass: "home-main home-main-cart",
@@ -214,4 +218,24 @@ export const homeCartPage = ({ assetPrefix = "./" } = {}) =>
         )
       ),
     ],
+  });
+
+export const homeNotFoundPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Page Not Found - 3D Local Print",
+    heroLede: "",
+    assetPrefix,
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Page not found")
+      ),
+      section.class`home-grid`(
+        div.class`home-card home-card-muted`(
+          h2("This page is unavailable."),
+          p("If you followed a product link, we will try to route you automatically."),
+          a.class`ghost-button`.href(withPrefix(assetPrefix, "products.html"))("Browse Products")
+        )
+      ),
+    ],
+    bodyScripts: ["not-found-route.ts"],
   });

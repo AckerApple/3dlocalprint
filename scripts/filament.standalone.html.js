@@ -12,6 +12,8 @@ export const filamentStandalonePage = ({
   appId,
   appScript,
   assetPrefix = "./",
+  stylePath = "styles.css",
+  versionScriptPath = "version.ts",
 }) =>
   htmlPage({
     pageTitle,
@@ -19,7 +21,7 @@ export const filamentStandalonePage = ({
     headItems: [
       link
         .rel`stylesheet`
-        .href(withPrefix(assetPrefix, "styles.css"))
+        .href(withPrefix(assetPrefix, stylePath))
     ],
     bodyItems: [
       main.id(appId)(
@@ -31,7 +33,7 @@ export const filamentStandalonePage = ({
 
         script
           .type`module`
-          .src( withPrefix(assetPrefix, "version.ts") ),
+          .src( withPrefix(assetPrefix, versionScriptPath) ),
       )
     ],
   });

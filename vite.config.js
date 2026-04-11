@@ -1,14 +1,61 @@
 import { defineConfig } from "vite";
 import { resolve } from "path";
 import { readFileSync } from "fs";
-import { locations } from "./src/filament/locations.array.js";
-import { slugifyLocation } from "./src/filament/location-utils.js";
+import { locations } from "./src/admin/filament/locations.array.js";
+import { slugifyLocation } from "./src/admin/filament/location-utils.js";
 
 const pkg = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf-8")
 );
 
+const rewriteProductPath = (url = "") => {
+  const [pathname, query = ""] = String(url || "").split("?");
+  const match = pathname.match(/^\/product\/([^/?#]+)\/?$/i);
+  if (!match?.[1]) return null;
+  const slug = match[1];
+  const search = new URLSearchParams(query);
+  if (!search.get("slug")) {
+    search.set("slug", slug);
+  }
+  return `/product.html?${search.toString()}`;
+};
+
+const productSlugRewritePlugin = {
+  name: "product-slug-rewrite",
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const method = String(req.method || "GET").toUpperCase();
+      const accept = String(req.headers?.accept || "").toLowerCase();
+      const target = rewriteProductPath(req.url || "");
+      const isHtmlRequest = accept.includes("text/html");
+      if (method === "GET" && isHtmlRequest && target) {
+        res.statusCode = 302;
+        res.setHeader("Location", target);
+        res.end();
+        return;
+      }
+      next();
+    });
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const method = String(req.method || "GET").toUpperCase();
+      const accept = String(req.headers?.accept || "").toLowerCase();
+      const target = rewriteProductPath(req.url || "");
+      const isHtmlRequest = accept.includes("text/html");
+      if (method === "GET" && isHtmlRequest && target) {
+        res.statusCode = 302;
+        res.setHeader("Location", target);
+        res.end();
+        return;
+      }
+      next();
+    });
+  },
+};
+
 export default defineConfig({
+  plugins: [productSlugRewritePlugin],
   base: "./",
   root: "src",
   envDir: "..",
@@ -28,21 +75,22 @@ export default defineConfig({
         productsHome: resolve(__dirname, "src/products.html"),
         productDetail: resolve(__dirname, "src/product.html"),
         cartHome: resolve(__dirname, "src/cart.html"),
-        filament: resolve(__dirname, "src/filament/index.html"),
-        admin: resolve(__dirname, "src/filament/admin.html"),
-        filamentTypes: resolve(__dirname, "src/filament/filament-types.html"),
-        manufacturers: resolve(__dirname, "src/filament/manufacturers.html"),
-        cameraTest: resolve(__dirname, "src/filament/camera-test.html"),
-        ledger: resolve(__dirname, "src/filament/ledger.html"),
-        moneyAccounts: resolve(__dirname, "src/filament/money-accounts.html"),
-        products: resolve(__dirname, "src/filament/products.html"),
-        admins: resolve(__dirname, "src/filament/admins.html"),
+        notFound: resolve(__dirname, "src/404.html"),
+        adminHome: resolve(__dirname, "src/admin/index.html"),
+        adminFilament: resolve(__dirname, "src/admin/filament/index.html"),
+        adminFilamentTypes: resolve(__dirname, "src/admin/filament/types.html"),
+        adminManufacturers: resolve(__dirname, "src/admin/filament/manufacturers.html"),
+        adminCameraTest: resolve(__dirname, "src/admin/filament/camera-test.html"),
+        adminLedger: resolve(__dirname, "src/admin/accounting/ledger.html"),
+        adminMoneyAccounts: resolve(__dirname, "src/admin/accounting/money-accounts.html"),
+        adminProducts: resolve(__dirname, "src/admin/products/index.html"),
+        adminAdmins: resolve(__dirname, "src/admin/security/admins.html"),
         ...Object.fromEntries(
           locations.map((location) => {
             const slug = slugifyLocation(location);
             return [
-              [`inventory-${slug}`, resolve(__dirname, `src/filament/${slug}/index.html`)],
-              [`fast-edit-${slug}`, resolve(__dirname, `src/filament/${slug}/fast-edit.html`)],
+              [`admin-inventory-${slug}`, resolve(__dirname, `src/admin/filament/${slug}/index.html`)],
+              [`admin-fast-edit-${slug}`, resolve(__dirname, `src/admin/filament/${slug}/fast-edit.html`)],
             ];
           })
           .flat()

@@ -13,6 +13,9 @@ export const filamentFastEditPage = ({
   location,
   locationSlug,
   assetPrefix = "../",
+  stylePath = "styles.css",
+  appScriptPath = "filament-fast-edit.tag.ts",
+  versionScriptPath = "version.ts",
 }) =>
   htmlPage({
     pageTitle,
@@ -20,7 +23,7 @@ export const filamentFastEditPage = ({
     headItems: [
       link
         .rel`stylesheet`
-        .href(withPrefix(assetPrefix, "styles.css"))(),
+        .href(withPrefix(assetPrefix, stylePath))(),
     ],
     bodyItems: [
       main
@@ -29,10 +32,10 @@ export const filamentFastEditPage = ({
         .attr("data-location-slug", locationSlug)(),
       script
         .type`module`
-        .src(withPrefix(assetPrefix, "filament-fast-edit.tag.ts"))(),
+        .src(withPrefix(assetPrefix, appScriptPath))(),
       versionBadge(),
       script
         .type`module`
-        .src(withPrefix(assetPrefix, "version.ts"))(),
+        .src(withPrefix(assetPrefix, versionScriptPath))(),
     ],
   });

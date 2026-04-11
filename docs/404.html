@@ -3,38 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Page Not Found</title>
-    <script>
-      (function redirect() {
-        var path = window.location.pathname || "/";
-        var query = window.location.search || "";
-        var hash = window.location.hash || "";
-
-        if (path === "/404.html") {
-          window.location.replace("/index.html" + query + hash);
-          return;
-        }
-
-        var normalized = path.replace(/\/+$/, "");
-        var candidates = [];
-
-        if (normalized) {
-          if (/\.html$/i.test(normalized)) {
-            candidates.push(normalized);
-          } else {
-            candidates.push(normalized + "/index.html");
-            candidates.push(normalized + ".html");
-          }
-        }
-
-        candidates.push("/index.html");
-
-        var target = candidates[0] || "/index.html";
-        window.location.replace(target + query + hash);
-      })();
-    </script>
+    <title>Page Not Found - 3D Local Print</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🖨️</text></svg>" />
+    <script type="module" crossorigin src="./assets/notFound-D4-TEKRs.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/version-BriAM3D2.js">
+    <link rel="modulepreload" crossorigin href="./assets/nav-cart-8mG-U4Tb.js">
+    <link rel="stylesheet" crossorigin href="./assets/version-CKCWaJh7.css">
   </head>
-  <body>
-    <p>Redirecting...</p>
+  <body class="">
+    <header class="page-header home-hero">
+      <img class="home-logo" src="./assets/logo-one-transparent-DZLFCoPj.svg" alt="3D Local Print logo" />
+      <nav class="home-menu">
+        <a class="home-menu-link" href="./index.html">🏠 Home</a>
+        <a class="home-menu-link" href="./products.html">🧩 Products</a>
+        <a class="home-menu-link" href="./cart.html" data-cart-link="true">🛒 Cart</a>
+      </nav>
+    </header>
+    <main class="home-main">
+      <section class="cart-page-title">
+        <h1>Page not found</h1>
+      </section>
+      <section class="home-grid">
+        <div class="home-card home-card-muted">
+          <h2>This page is unavailable.</h2>
+          <p>If you followed a product link, we will try to route you automatically.</p>
+          <a class="ghost-button" href="./products.html">Browse Products</a>
+        </div>
+      </section>
+    </main>
+    <footer class="home-footer">
+      <div class="home-footer-inner">
+        <div class="home-footer-title">3D Local Print LLC.</div>
+        <div class="home-footer-tagline">Learn. Paint. Assemble. Bring it home.</div>
+        <a class="home-footer-email" href="mailto:service@3dlocalprint.com">service@3dlocalprint.com</a>
+        <a class="home-footer-admin" href="./admin/index.html">Admin</a>
+        <div class="home-footer-version" data-app-version=""></div>
+      </div>
+    </footer>
   </body>
 </html>

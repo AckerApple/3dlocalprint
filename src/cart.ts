@@ -1,4 +1,4 @@
-import { loadProducts } from "./filament/firebase.js";
+import { loadProducts } from "./admin/shared/firebase.js";
 import type { ProductItem } from "./types/product.js";
 import {
   clearCart,
@@ -21,6 +21,28 @@ const formatPrice = (unitAmount = 0, currency = "usd") =>
 const mapProducts = (items: ProductItem[]) =>
   new Map((Array.isArray(items) ? items : []).map((item) => [item.id, item]));
 
+const normalizeVariations = (product: ProductItem) =>
+  (Array.isArray(product?.variations) ? product.variations : [])
+    .map((variation) => ({
+      id: String(variation?.id || "").trim(),
+      label: String(variation?.label || "").trim(),
+      unitAmount: Math.max(0, Math.round(Number(variation?.unitAmount) || 0)),
+      stripePriceId: String(variation?.stripePriceId || "").trim(),
+      active: Boolean(variation?.active),
+    }))
+    .filter((variation) => variation.id && variation.label && variation.active);
+
+const getVariationForCart = (product: ProductItem, variationId = "") => {
+  const variations = normalizeVariations(product);
+  const normalizedId = String(variationId || "").trim();
+  if (normalizedId) {
+    const matched = variations.find((variation) => variation.id === normalizedId);
+    if (matched) return matched;
+  }
+  if (variations.length) return variations[0];
+  return null;
+};
+
 const createMessageCard = (title: string, text: string) => {
   const card = document.createElement("article");
   card.className = "home-card home-card-muted";
@@ -35,18 +57,18 @@ const createMessageCard = (title: string, text: string) => {
 const createLineRow = (
   item: CartItem,
   product: ProductItem,
-  onChanged: () => Promise<void>,
 ) => {
   const row = document.createElement("div");
   row.className = "home-cart-row";
 
   const title = document.createElement("div");
   title.className = "home-cart-row-title";
-  title.textContent = product.title;
+  const variation = getVariationForCart(product, item.variationId);
+  title.textContent = variation ? `${product.title} (${variation.label})` : product.title;
 
   const unit = document.createElement("div");
   unit.className = "home-cart-row-unit";
-  unit.textContent = formatPrice(product.unitAmount, product.currency);
+  unit.textContent = formatPrice(variation?.unitAmount ?? product.unitAmount, product.currency);
 
   const qty = document.createElement("input");
   qty.className = "home-cart-qty-input";
@@ -56,8 +78,7 @@ const createLineRow = (
   qty.step = "1";
   qty.value = String(item.quantity);
   qty.addEventListener("change", async () => {
-    updateCartItemQuantity(product.id, Number(qty.value) || 1);
-    await onChanged();
+    updateCartItemQuantity(product.id, Number(qty.value) || 1, item.variationId || "");
   });
 
   const removeBtn = document.createElement("button");
@@ -65,13 +86,15 @@ const createLineRow = (
   removeBtn.className = "ghost-button delete-button";
   removeBtn.textContent = "Remove";
   removeBtn.addEventListener("click", async () => {
-    removeFromCart(product.id);
-    await onChanged();
+    removeFromCart(product.id, item.variationId || "");
   });
 
   const subtotal = document.createElement("div");
   subtotal.className = "home-cart-row-subtotal";
-  subtotal.textContent = formatPrice(product.unitAmount * item.quantity, product.currency);
+  subtotal.textContent = formatPrice(
+    (variation?.unitAmount ?? product.unitAmount) * item.quantity,
+    product.currency
+  );
 
   row.append(title, unit, qty, subtotal, removeBtn);
   return row;
@@ -84,11 +107,16 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
       product: productsById.get(item.productId),
     }))
     .filter((entry) => Boolean(entry.product))
-    .map(({ item, product }) => ({
-      priceId: String(product?.stripePriceId || "").trim(),
-      quantity: item.quantity,
-      title: String(product?.title || "Product"),
-    }));
+    .map(({ item, product }) => {
+      const variation = product ? getVariationForCart(product, item.variationId || "") : null;
+      return {
+        priceId: String(variation?.stripePriceId || product?.stripePriceId || "").trim(),
+        quantity: item.quantity,
+        title: variation
+          ? `${String(product?.title || "Product")} (${variation.label})`
+          : String(product?.title || "Product"),
+      };
+    });
 
   const missing = lineItems.filter((entry) => !entry.priceId);
   if (missing.length) {
@@ -156,18 +184,15 @@ const renderCart = async () => {
   cart.forEach((item) => {
     const product = productsById.get(item.productId);
     if (!product) return;
-    rows.append(
-      createLineRow(item, product, async () => {
-        await renderCart();
-      }),
-    );
+    rows.append(createLineRow(item, product));
   });
   panel.append(rows);
 
   const total = cart.reduce((sum, item) => {
     const product = productsById.get(item.productId);
     if (!product) return sum;
-    return sum + product.unitAmount * item.quantity;
+    const variation = getVariationForCart(product, item.variationId || "");
+    return sum + (variation?.unitAmount ?? product.unitAmount) * item.quantity;
   }, 0);
 
   const footer = document.createElement("div");
@@ -183,9 +208,8 @@ const renderCart = async () => {
   clearBtn.type = "button";
   clearBtn.className = "ghost-button";
   clearBtn.textContent = "Clear Cart";
-  clearBtn.addEventListener("click", async () => {
+  clearBtn.addEventListener("click", () => {
     clearCart();
-    await renderCart();
   });
 
   const checkoutBtn = document.createElement("button");
