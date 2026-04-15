@@ -40,7 +40,7 @@ const LedgerAdvancedFilters = tag(({
         onFiltersChanged(next);
       })(
       option.value``("All categories"),
-      ...filterCategories.map((category) =>
+      filterCategories.map((category) =>
         option.value(category)(category)
       )
     ),

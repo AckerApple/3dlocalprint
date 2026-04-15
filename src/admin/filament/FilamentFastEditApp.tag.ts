@@ -276,7 +276,7 @@ export const FilamentFastEditApp = tag((location, locationSlug) => {
       _=> loadError && div.class`fast-edit-error`(loadError),
       _=> hasMatches() &&
         div.class`fast-edit-list`(
-          ...matches.map((entry) =>
+          matches.map((entry) =>
             div.class`fast-edit-row`(
               div.class`fast-edit-row-info`(
                 strong(describeFilamentType(entry.item)),

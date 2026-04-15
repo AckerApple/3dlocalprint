@@ -123,7 +123,7 @@ export const LedgerPanel = tag(({
         }
 
         return div.class`ledger-account-sections`(
-          ...accountSections.map((section) =>
+          accountSections.map((section) =>
             div.class`ledger-account-section`(
               div.class`ledger-account-header`(
                 h3.class`ledger-account-title`(section.title),

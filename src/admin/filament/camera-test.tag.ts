@@ -109,10 +109,12 @@ export const CameraTestApp = tag(() => [
               ? BarcodeScannerPanel({
                   onResult: onBarcodeResult,
                   engine: "zxing",
+                  showDiagnostics: true,
                 })
               : BarcodeScannerPanel({
                   onResult: onBarcodeResult,
                   engine: "native",
+                  showDiagnostics: true,
                 })
           )
         : p.class`ledger-empty`("Camera stopped. Click Start camera to resume.")

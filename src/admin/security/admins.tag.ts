@@ -62,7 +62,7 @@ export const AdminsApp = tag(() => [
     h1("Manage Admins"),
     p("Update the list of emails allowed to access the filament tools."),
     div.class`manufacturer-list`(
-      ...state.map((email, index) =>
+      state.map((email, index) =>
         div.class`manufacturer-row`(
           input
             .class`manufacturer-input`

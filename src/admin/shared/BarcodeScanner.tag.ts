@@ -15,6 +15,8 @@ type BarcodeScannerProps = {
   onResult?: (value: string) => void;
   formats?: string[];
   engine?: "auto" | "native" | "zxing";
+  showDiagnostics?: boolean;
+  minScanIntervalMs?: number;
 };
 
 type DetectedBarcode = {
@@ -59,11 +61,23 @@ const isNonFatalZxingNoResultError = (error: unknown) => {
 };
 
 export const BarcodeScannerPanel = tag(
-  ({ onResult, formats, engine = "auto" }: BarcodeScannerProps = {}) => {
+  ({
+    onResult,
+    formats,
+    engine = "auto",
+    showDiagnostics = false,
+    minScanIntervalMs = 400,
+  }: BarcodeScannerProps = {}) => {
   
   BarcodeScannerPanel.inputs((args: [BarcodeScannerProps?]) => {
     const [next = {}] = args;
-    ({ onResult, formats, engine = "auto" } = next);
+    ({
+      onResult,
+      formats,
+      engine = "auto",
+      showDiagnostics = false,
+      minScanIntervalMs = 400,
+    } = next);
     onResult = output(onResult)
   });
 
@@ -94,6 +108,7 @@ export const BarcodeScannerPanel = tag(
   let activeScannerEngine = "native";
   let manualValue = "";
   let debugDetails = "";
+  let lastDetectedAt = 0;
   const previewId = `barcodePreview-${Math.random().toString(36).slice(2, 9)}`;
 
   const setStatus = (message: string) => {
@@ -131,6 +146,11 @@ export const BarcodeScannerPanel = tag(
   };
 
   const onDetected = tag.callback((value: string) => {
+    const now = Date.now();
+    if (now - lastDetectedAt < Math.max(0, Number(minScanIntervalMs) || 0)) {
+      return;
+    }
+    lastDetectedAt = now;
     try {
       onResult(value);
     } catch (error) {
@@ -269,12 +289,6 @@ export const BarcodeScannerPanel = tag(
 
   tag.promise = startScanner()
 
-  const formatLabel = () => {
-    if (!lastText) return ""
-    if (!lastFormat) return lastText
-    return `${lastText}\n\nformat: ${lastFormat}`
-  };
-
   const applyManualValue = () => {
     const value = String(manualValue || "").trim()
     if (!value) return
@@ -307,15 +321,23 @@ export const BarcodeScannerPanel = tag(
             "Use barcode"
           )
         ),
-    div.class`qr-output`(
-      span.class`qr-label`("Barcode Data"),
-      pre.class`qr-text`(_ => formatLabel() || "(no scan yet)")
-    ),
-    div.class`qr-output`(
-      span.class`qr-label`("Scanner Engine"),
-      pre.class`qr-text`(_=> activeScannerEngine)
-    ),
-    _=> debugDetails
+    _=> showDiagnostics
+      ? div.class`qr-output`(
+          span.class`qr-label`("Barcode Data"),
+          pre.class`qr-text`(_=> {
+            if (!lastText) return "(no scan yet)";
+            if (!lastFormat) return lastText;
+            return `${lastText}\n\nformat: ${lastFormat}`;
+          })
+        )
+      : null,
+    _=> showDiagnostics
+      ? div.class`qr-output`(
+          span.class`qr-label`("Scanner Engine"),
+          pre.class`qr-text`(_=> activeScannerEngine)
+        )
+      : null,
+    _=> showDiagnostics && debugDetails
       ? div.class`qr-output`(
           span.class`qr-label`("Scanner Debug Details"),
           pre.class`qr-text`(_=> debugDetails)

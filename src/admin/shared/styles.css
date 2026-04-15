@@ -896,6 +896,66 @@ button[disabled],
   font-size: 0.85rem;
 }
 
+.inventory-add-scanner {
+  max-width: 500px;
+  width: 100%;
+}
+
+.inventory-scan-keep-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.inventory-scan-keep-open input[type="checkbox"] {
+  margin: 0;
+}
+
+label.inventory-scan-keep-open {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.inventory-add-action {
+  background: #1f9d55;
+  color: #fff;
+}
+
+.inventory-add-action:hover {
+  background: #1b8749;
+}
+
+.add-button.inventory-add-action {
+  background: #1f9d55;
+  color: #fff;
+}
+
+.add-button.inventory-add-action:hover {
+  background: #1b8749;
+}
+
+.ghost-button.inventory-remove-action {
+  border-color: rgba(220, 38, 38, 0.52);
+  background: rgba(239, 68, 68, 0.86);
+  color: #fff;
+}
+
+.ghost-button.inventory-remove-action:hover {
+  background: rgba(220, 38, 38, 0.92);
+}
+
+.inventory-add-modal .qr-modal-title {
+  color: #1f9d55;
+}
+
 .barcode-inputs {
   display: grid;
   gap: 8px;
@@ -2402,13 +2462,21 @@ input:focus {
 }
 
 .qr-modal::backdrop {
-  background: rgba(18, 20, 25, 0.55);
+  background: rgba(18, 20, 25, 0.84);
 }
 
 .qr-modal-card {
   padding: 22px;
   display: grid;
+  max-height: min(90vh, 720px);
+  overflow: hidden;
   gap: 16px;
+}
+
+.qr-modal-body {
+  overflow: auto;
+  max-height: calc(min(90vh, 720px) - 108px);
+  padding-right: 4px;
 }
 
 .qr-modal-header {

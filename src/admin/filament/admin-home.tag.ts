@@ -54,11 +54,11 @@ export const AdminHomeApp = tag(() => [
       h1("Admin Home"),
       p("Choose an admin area to get started.")
     ),
-    ...adminNavGroups.map((group) =>
+    adminNavGroups.map((group) =>
       section.class`admin-home-group`(
         h2.class`admin-home-group-title`(group.title),
         div.class`admin-home-grid`(
-          ...group.items.map((item) =>
+          group.items.map((item) =>
             a
               .class`panel admin-home-card`
               .href(item.href)(

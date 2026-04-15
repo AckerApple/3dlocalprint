@@ -68,8 +68,12 @@ const homeShell = ({
   bodyScripts = [],
   mainClass = "home-main",
   assetPrefix = "./",
-}) =>
-  htmlPage({
+}) => {
+  const scriptItems = bodyScripts.map((scriptPath) =>
+    script.type`module`.src(withPrefix(assetPrefix, scriptPath))
+  );
+
+  return htmlPage({
     pageTitle,
     headItems: [
       link.rel`icon`.href(favicon),
@@ -82,13 +86,13 @@ const homeShell = ({
       }),
       main.class(mainClass)(...mainSections),
       homeFooter(assetPrefix),
-      ...bodyScripts.map((scriptPath) =>
-        script.type`module`.src(withPrefix(assetPrefix, scriptPath))
-      ),
+    ].concat(
+      scriptItems,
       script.type`module`.src(withPrefix(assetPrefix, "nav-cart.ts")),
-      script.type`module`.src(withPrefix(assetPrefix, "admin/shared/version.ts")),
-    ],
+      script.type`module`.src(withPrefix(assetPrefix, "admin/shared/version.ts"))
+    ),
   });
+};
 
 export const homeLandingPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({

@@ -200,13 +200,14 @@ const auth = startAdminAppShell({
     if (!stopManufacturers) {
       stopManufacturers = subscribeManufacturers((items) => {
         if (Array.isArray(items) && items.length) {
+          const normalized = items.map((item) => ({
+            label: String(item?.label || "").trim(),
+            iconUrl: String(item?.iconUrl || "").trim(),
+          }));
           manufacturers$.splice(
             0,
             manufacturers$.length,
-            ...items.map((item) => ({
-              label: String(item?.label || "").trim(),
-              iconUrl: String(item?.iconUrl || "").trim(),
-            }))
+            ...normalized
           )
         } else {
           manufacturers$.splice(0, manufacturers$.length)

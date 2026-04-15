@@ -144,7 +144,7 @@ export const LedgerEntryModal = tag(({
               onSyncSaveState();
             })(
             option.value``("Select account"),
-            ...moneyAccountTitles.map((title) => option.value(title)(title))
+            moneyAccountTitles.map((title) => option.value(title)(title))
           ),
           _=> !moneyAccountTitles.length
             ? p.class`ledger-field-error`("No money accounts yet. Add one in Money Accounts first.")
@@ -180,7 +180,7 @@ export const LedgerEntryModal = tag(({
 
                 onSyncSaveState();
               })(
-              ...categoryOptions.map((category) =>
+              categoryOptions.map((category) =>
                 option.value(category)(category)
               )
             ),

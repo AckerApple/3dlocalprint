@@ -28,7 +28,10 @@ const getDisplayPrice = (product: ProductItem) => {
   if (variations.length === 1) {
     return formatPrice(variations[0].unitAmount, product.currency);
   }
-  const min = Math.min(...variations.map((variation) => variation.unitAmount));
+  const min = variations.reduce(
+    (acc, variation) => Math.min(acc, variation.unitAmount),
+    Number.POSITIVE_INFINITY
+  );
   return `From ${formatPrice(min, product.currency)}`;
 };
 

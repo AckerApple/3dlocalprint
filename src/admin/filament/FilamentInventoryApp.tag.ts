@@ -8,9 +8,13 @@ import {
   h2,
   select,
   option,
+  optgroup,
+  label,
+  input,
   main,
   header,
   a,
+  hr,
 } from "taggedjs";
 import { InventoryRow } from "./inventoryRow.tag.js";
 import {
@@ -33,6 +37,9 @@ import { getManufacturerDisplayLabel, normalizeManufacturerLabel } from "./manuf
 import { normalizeBarcodeList } from "../shared/barcode-utils.js";
 import { BarcodeFilterControl } from "../shared/BarcodeFilterControl.tag.js";
 import { normalizeStorageLocations } from "./storage-locations.js";
+import { BarcodeScannerPanel } from "../shared/BarcodeScanner.tag.js";
+import { Modal } from "../shared/Modal.tag.js";
+import { extractBarcodeToken, findBarcodeMatches } from "../shared/barcode-utils.js";
 import type {
   FilamentInventoryItem,
   FilamentType,
@@ -72,6 +79,35 @@ type InventoryUser = {
   photoURL?: string | null;
 } | null;
 
+const createTonePlayer = () => {
+  let context: AudioContext | null = null;
+  const play = (frequency: number, durationMs: number) => {
+    try {
+      if (!context) {
+        context = new AudioContext();
+      }
+      if (context.state === "suspended") {
+        context.resume().catch(() => {});
+      }
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.value = 0.12;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + durationMs / 1000);
+    } catch (error) {
+      console.warn("Audio tone failed", error);
+    }
+  };
+  return {
+    success: () => play(880, 120),
+    fail: () => play(220, 180),
+  };
+};
+
 export const FilamentInventoryApp = tag(
   (
     onSignOut: (() => Promise<void>) | undefined,
@@ -85,6 +121,7 @@ export const FilamentInventoryApp = tag(
 
     const isLocationPage = Boolean(selectedLocation);
     const unassignedLocation = "__unassigned__";
+    const tone = createTonePlayer();
 
     let data: FilamentInventoryItem[] = [];
     let filamentTypes: FilamentType[] = [];
@@ -100,11 +137,200 @@ export const FilamentInventoryApp = tag(
     let materialTypeFilter: string = "";
     let subMaterialTypeFilter: string = "";
     let barcodeFilter: string = "";
+    let addInventoryModalOpen = false;
+    let addInventoryScannerOpen = false;
+    let addInventoryStatus = "";
+    let addInventoryIsSaving = false;
+    let manualFilamentTypeId = "";
+    let manualSpoolCount = "1";
+    let addKeepOpenOnScan = false;
+    let addLastScan = { key: "", at: 0 };
+    let removeInventoryModalOpen = false;
+    let removeInventoryScannerOpen = false;
+    let removeInventoryStatus = "";
+    let removeInventoryIsSaving = false;
+    let removeKeepOpenOnScan = false;
+    let removeLastScan = { key: "", at: 0 };
+    const scanCooldownMs = 1200;
 
-    const addFilamentForLocation = (location: string): void => {
-      data.unshift(createEmptyInventoryItem(location || locations[0] || ""));
-      setEditingIndex(0, data[0]?.location || "");
+    const closeAddInventoryModal = () => {
+      addInventoryModalOpen = false;
+      addInventoryScannerOpen = false;
+      addInventoryStatus = "";
+      addInventoryIsSaving = false;
+      manualFilamentTypeId = "";
+      manualSpoolCount = "1";
+      addKeepOpenOnScan = false;
+      addLastScan = { key: "", at: 0 };
     };
+    const closeRemoveInventoryModal = () => {
+      removeInventoryModalOpen = false;
+      removeInventoryScannerOpen = false;
+      removeInventoryStatus = "";
+      removeInventoryIsSaving = false;
+      removeKeepOpenOnScan = false;
+      removeLastScan = { key: "", at: 0 };
+    };
+
+    const addInventoryByTypeId = async (
+      filamentTypeId: string,
+      spoolCount = 1,
+      closeAfterSave = true
+    ) => {
+      const normalizedTypeId = String(filamentTypeId || "").trim();
+      const quantity = Math.max(1, Math.floor(Number(spoolCount) || 1));
+      if (!normalizedTypeId || !selectedLocation) return;
+      if (addInventoryIsSaving) return;
+      addInventoryIsSaving = true;
+      try {
+        const existing = data.find(
+          (item) =>
+            String(item?.filament_type_id || "").trim() === normalizedTypeId &&
+            String(item?.location || "").trim() === selectedLocation
+        );
+        if (existing) {
+          existing.spool_inventory = Math.max(0, Number(existing.spool_inventory) || 0) + quantity;
+        } else {
+          data.unshift({
+            filament_type_id: normalizedTypeId,
+            spool_inventory: quantity,
+            location: selectedLocation,
+            storage_locations: [],
+          });
+        }
+        await saveFilamentInventoryToFirestore(data);
+        if (closeAfterSave) {
+          closeAddInventoryModal();
+        } else {
+          addInventoryStatus = "Inventory added. Ready for next scan.";
+        }
+      } finally {
+        addInventoryIsSaving = false;
+      }
+    };
+
+    const addFromScan = async (rawValue: string) => {
+      if (addInventoryIsSaving) return;
+      const token = extractBarcodeToken(rawValue || "");
+      const normalized = String(token || rawValue || "").trim();
+      if (!normalized) {
+        addInventoryStatus = "No barcode value detected.";
+        tone.fail();
+        return;
+      }
+      const now = Date.now();
+      const normalizedKey = `raw:${normalized.toLowerCase()}`;
+      if (normalizedKey === addLastScan.key && now - addLastScan.at < scanCooldownMs) {
+        return;
+      }
+      const matches = findBarcodeMatches(filamentTypes, normalized);
+      const first = matches?.[0];
+      const typeId = String(first?.filament_type_id || "").trim();
+      if (!typeId) {
+        addLastScan = { key: normalizedKey, at: now };
+        addInventoryStatus = `No filament type matched barcode: ${normalized}`;
+        tone.fail();
+        return;
+      }
+      const typeKey = `type:${typeId.toLowerCase()}`;
+      if (typeKey === addLastScan.key && now - addLastScan.at < scanCooldownMs) {
+        return;
+      }
+      addLastScan = { key: typeKey, at: now };
+      addInventoryStatus = `Matched ${first?.label || first?.color_name || typeId}. Adding...`;
+      tone.success();
+      const keepOpen = addKeepOpenOnScan;
+      await addInventoryByTypeId(typeId, 1, false);
+      if (!keepOpen) {
+        closeAddInventoryModal();
+      }
+    };
+    const removeInventoryByTypeId = async (
+      filamentTypeId: string,
+      spoolCount = 1,
+      closeAfterSave = true
+    ) => {
+      const normalizedTypeId = String(filamentTypeId || "").trim();
+      const quantity = Math.max(1, Math.floor(Number(spoolCount) || 1));
+      if (!normalizedTypeId || !selectedLocation) return;
+      if (removeInventoryIsSaving) return;
+      removeInventoryIsSaving = true;
+      try {
+        const existing = data.find(
+          (item) =>
+            String(item?.filament_type_id || "").trim() === normalizedTypeId &&
+            String(item?.location || "").trim() === selectedLocation
+        );
+        if (!existing) {
+          removeInventoryStatus = "No matching inventory item found for this location.";
+          tone.fail();
+          return;
+        }
+        const current = Math.max(0, Number(existing.spool_inventory) || 0);
+        if (current <= 0) {
+          removeInventoryStatus = "Inventory is already zero for this item.";
+          tone.fail();
+          return;
+        }
+        existing.spool_inventory = Math.max(0, current - quantity);
+        await saveFilamentInventoryToFirestore(data);
+        if (closeAfterSave) {
+          closeRemoveInventoryModal();
+        } else {
+          removeInventoryStatus = "Inventory removed. Ready for next scan.";
+        }
+      } finally {
+        removeInventoryIsSaving = false;
+      }
+    };
+    const removeFromScan = async (rawValue: string) => {
+      if (removeInventoryIsSaving) return;
+      const token = extractBarcodeToken(rawValue || "");
+      const normalized = String(token || rawValue || "").trim();
+      if (!normalized) {
+        removeInventoryStatus = "No barcode value detected.";
+        tone.fail();
+        return;
+      }
+      const now = Date.now();
+      const normalizedKey = `raw:${normalized.toLowerCase()}`;
+      if (normalizedKey === removeLastScan.key && now - removeLastScan.at < scanCooldownMs) {
+        return;
+      }
+      const matches = findBarcodeMatches(filamentTypes, normalized);
+      const first = matches?.[0];
+      const typeId = String(first?.filament_type_id || "").trim();
+      if (!typeId) {
+        removeLastScan = { key: normalizedKey, at: now };
+        removeInventoryStatus = `No filament type matched barcode: ${normalized}`;
+        tone.fail();
+        return;
+      }
+      const typeKey = `type:${typeId.toLowerCase()}`;
+      if (typeKey === removeLastScan.key && now - removeLastScan.at < scanCooldownMs) {
+        return;
+      }
+      removeLastScan = { key: typeKey, at: now };
+      removeInventoryStatus = `Matched ${first?.label || first?.color_name || typeId}. Removing...`;
+      tone.success();
+      const keepOpen = removeKeepOpenOnScan;
+      await removeInventoryByTypeId(typeId, 1, false);
+      if (!keepOpen) {
+        closeRemoveInventoryModal();
+      }
+    };
+
+    const onAddScanResult = tag.callback((value: string) => {
+      const task = addFromScan(value);
+      tag.promise = task;
+      return task;
+    });
+
+    const onRemoveScanResult = tag.callback((value: string) => {
+      const task = removeFromScan(value);
+      tag.promise = task;
+      return task;
+    });
 
     const saveCurrentFilaments = () => {
       return tag.promise = saveFilamentInventoryToFirestore(data).then(() => {
@@ -152,7 +378,10 @@ export const FilamentInventoryApp = tag(
       });
 
     const locationPageEntries = () =>
-      filteredData().filter(({ item }) => (item.location || "") === selectedLocation);
+      filteredData().filter(({ item }) =>
+        (item.location || "") === selectedLocation &&
+        (Number(item?.spool_inventory) || 0) > 0
+      );
 
     const groupedLocationEntries = () =>
       groupLocationEntriesByManufacturer(locationPageEntries(), manufacturers);
@@ -231,7 +460,7 @@ export const FilamentInventoryApp = tag(
         main(
           section.class`panel`(
             div.class`location-list`(
-              ...locations.map((location) => {
+              locations.map((location) => {
                 const slug = slugifyLocation(location);
                 return div.class`location-group location-selector-card`(
                   div.class`location-title-row`(
@@ -317,9 +546,25 @@ export const FilamentInventoryApp = tag(
                   ("⚡ Fast edit"),
                 button
                   .type`button`
-                  .class`add-button`
-                  .onClick(() => addFilamentForLocation(selectedLocation))(
+                  .class`add-button inventory-add-action`
+                  .onClick(() => {
+                    addInventoryModalOpen = true;
+                    addInventoryScannerOpen = false;
+                    addInventoryStatus = "";
+                    addKeepOpenOnScan = false;
+                  })(
                   "➕ Add inventory"
+                ),
+                button
+                  .type`button`
+                  .class`ghost-button inventory-remove-action`
+                  .onClick(() => {
+                    removeInventoryModalOpen = true;
+                    removeInventoryScannerOpen = false;
+                    removeInventoryStatus = "";
+                    removeKeepOpenOnScan = false;
+                  })(
+                  "➖ Remove inventory"
                 ),
                 button
                   .type`button`
@@ -339,7 +584,7 @@ export const FilamentInventoryApp = tag(
                       nameClassName: "manufacturer-group-name",
                     })
                   ),
-                  ...group.entries.map(({ item, index, type }) =>
+                  group.entries.map(({ item, index, type }) =>
                     InventoryRow(
                       item,
                       type,
@@ -357,7 +602,121 @@ export const FilamentInventoryApp = tag(
               )
             )
           )
-        )
+        ),
+        _=> Modal({
+          modalOpen: addInventoryModalOpen,
+          title: "Add Inventory",
+          draggableTitle: true,
+          className: "ledger-modal inventory-add-modal",
+          cardClassName: "ledger-modal-card",
+          onClose: closeAddInventoryModal,
+          content: () =>
+            div.class`manufacturer-output`(
+              p("Scan a filament barcode to add 1 spool to this location."),
+              button
+                .type`button`
+                .class`add-button inventory-add-action`
+                .onClick(() => {
+                  addInventoryScannerOpen = !addInventoryScannerOpen;
+                })(
+                _=> addInventoryScannerOpen ? "📸 hide scanner" : "📸 scan product code"
+              ),
+              _=> addInventoryScannerOpen
+                ? div.class`inventory-add-scanner`(
+                    BarcodeScannerPanel({
+                      onResult: onAddScanResult,
+                    })
+                  )
+                : null,
+              label.class`inventory-scan-keep-open`(
+                input
+                  .type`checkbox`
+                  .checked(_=> addKeepOpenOnScan)
+                  .onChange((event) => {
+                    addKeepOpenOnScan = Boolean(event?.target?.checked);
+                  })(),
+                "Keep modal open while scanning"
+              ),
+              _=> addInventoryStatus ? p.class`manufacturer-helper`(_=> addInventoryStatus) : null,
+              hr(),
+              p("Manual entry"),
+              select
+                .class`manufacturer-input`
+                .value(_=> manualFilamentTypeId)
+                .onChange((event) => {
+                  manualFilamentTypeId = String(event?.target?.value || "").trim();
+                })(
+                option.value``("Select filament type"),
+                _=> getFilamentTypeGroupsByManufacturer(filamentTypes).map(([manufacturer, types]) =>
+                  optgroup
+                    .attr("label", manufacturer === "Unknown" ? "🏭 Unknown" : manufacturer)(
+                    types.map((type) => {
+                      const typeId = String(type?.filament_type_id || "").trim();
+                      const label = String(type?.label || type?.color_name || typeId).trim();
+                      return option.value(typeId)(label).key(typeId);
+                    })
+                  )
+                )
+              ),
+              div.class`manufacturer-add`(
+                input
+                  .class`manufacturer-input`
+                  .type`number`
+                  .min`1`
+                  .step`1`
+                  .value(_=> manualSpoolCount)
+                  .onInput((event) => {
+                    manualSpoolCount = String(event?.target?.value || "1");
+                  })(),
+                button
+                  .type`button`
+                  .class`add-button inventory-add-action`
+                  .disabled(_=> !manualFilamentTypeId || addInventoryIsSaving)
+                  .onClick(() => {
+                    void addInventoryByTypeId(manualFilamentTypeId, Number(manualSpoolCount) || 1);
+                  })(
+                  _=> (addInventoryIsSaving ? "Adding..." : "Add to inventory")
+                )
+              )
+            ),
+        }),
+        _=> Modal({
+          modalOpen: removeInventoryModalOpen,
+          title: "Remove Inventory",
+          draggableTitle: true,
+          className: "ledger-modal",
+          cardClassName: "ledger-modal-card",
+          onClose: closeRemoveInventoryModal,
+          content: () =>
+            div.class`manufacturer-output`(
+              p("Scan a filament barcode to remove 1 spool from this location."),
+              button
+                .type`button`
+                .class`ghost-button inventory-remove-action`
+                .onClick(() => {
+                  removeInventoryScannerOpen = !removeInventoryScannerOpen;
+                })(
+                _=> removeInventoryScannerOpen ? "📸 hide scanner" : "📸 scan product code"
+              ),
+              _=> removeInventoryScannerOpen
+                ? div.class`inventory-add-scanner`(
+                    BarcodeScannerPanel({
+                      onResult: onRemoveScanResult,
+                    })
+                  )
+                : null,
+              label.class`inventory-scan-keep-open`(
+                input
+                  .type`checkbox`
+                  .checked(_=> removeKeepOpenOnScan)
+                  .onChange((event) => {
+                    removeKeepOpenOnScan = Boolean(event?.target?.checked);
+                  })(),
+                "Keep modal open while scanning"
+              ),
+              _=> removeInventoryStatus ? p.class`manufacturer-helper`(_=> removeInventoryStatus) : null
+            ),
+        })
       ),
     ];
   }
@@ -500,4 +859,27 @@ const getSubMaterialTypeOptions = (filamentTypes: FilamentType[]): string[] => {
       .filter(Boolean)
   );
   return Array.from(unique).sort((a, b) => a.localeCompare(b));
+};
+
+const getFilamentTypeGroupsByManufacturer = (
+  filamentTypes: FilamentType[]
+): [string, FilamentType[]][] => {
+  const groups = new Map<string, FilamentType[]>();
+  (Array.isArray(filamentTypes) ? filamentTypes : []).forEach((type) => {
+    const manufacturer = getManufacturerDisplayLabel(type?.manufacturer, "Unknown");
+    if (!groups.has(manufacturer)) {
+      groups.set(manufacturer, []);
+    }
+    groups.get(manufacturer)?.push(type);
+  });
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([manufacturer, types]) => [
+      manufacturer,
+      [...types].sort((a, b) =>
+        String(a?.label || a?.color_name || a?.filament_type_id || "").localeCompare(
+          String(b?.label || b?.color_name || b?.filament_type_id || "")
+        )
+      ),
+    ]);
 };

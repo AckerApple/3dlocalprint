@@ -92,11 +92,11 @@ export const AdminNav = tag((onSignOut, user) => {
           .onClick(closeDrawer)
           ("🧭 Admin home")
       ),
-      ...adminNavGroups.map((group) =>
+      adminNavGroups.map((group) =>
         div.class`admin-nav-group`(
           div.class`admin-nav-group-title`(group.title),
           div.class`admin-nav-section`(
-            ...group.items.map((item) =>
+            group.items.map((item) =>
               a
                 .class`menu-button`
                 .href(toAdminPath(item.href))

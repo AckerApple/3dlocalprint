@@ -469,14 +469,16 @@ const auth = startAdminAppShell({
         types$.length = 0
 
         if (Array.isArray(items)) {
-          types$.push(
-            ...items.map((item) => ({
+          items
+            .map((item) => ({
               ...item,
               single_rating: Math.max(0, Math.min(5, Math.round(Number(item?.single_rating) || 0))),
               comments: normalizeComments(item?.comments),
               barcode_search_data: normalizeBarcodeList(item?.barcode_search_data).filter(Boolean),
             }))
-          )
+            .forEach((item) => {
+              types$.push(item);
+            });
         }
 
         if (appMounted) {
@@ -492,12 +494,14 @@ const auth = startAdminAppShell({
         manufacturers$.length = 0
 
         if (Array.isArray(items) && items.length) {
-          manufacturers$.push(
-            ...items.map((item) => ({
+          items
+            .map((item) => ({
               label: String(item?.label || "").trim(),
               iconUrl: String(item?.iconUrl || "").trim(),
             }))
-          )
+            .forEach((item) => {
+              manufacturers$.push(item);
+            });
         }
 
         if (appMounted) {
