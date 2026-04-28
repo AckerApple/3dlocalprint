@@ -40,6 +40,7 @@ import { normalizeStorageLocations } from "./storage-locations.js";
 import { BarcodeScannerPanel } from "../shared/BarcodeScanner.tag.js";
 import { Modal } from "../shared/Modal.tag.js";
 import { extractBarcodeToken, findBarcodeMatches } from "../shared/barcode-utils.js";
+import { toAdminPath } from "../shared/path-utils.js";
 import type {
   FilamentInventoryItem,
   FilamentType,
@@ -140,6 +141,7 @@ export const FilamentInventoryApp = tag(
     let addInventoryModalOpen = false;
     let addInventoryScannerOpen = false;
     let addInventoryStatus = "";
+    let addUnknownBarcode = "";
     let addInventoryIsSaving = false;
     let manualFilamentTypeId = "";
     let manualSpoolCount = "1";
@@ -157,6 +159,7 @@ export const FilamentInventoryApp = tag(
       addInventoryModalOpen = false;
       addInventoryScannerOpen = false;
       addInventoryStatus = "";
+      addUnknownBarcode = "";
       addInventoryIsSaving = false;
       manualFilamentTypeId = "";
       manualSpoolCount = "1";
@@ -215,6 +218,7 @@ export const FilamentInventoryApp = tag(
       const normalized = String(token || rawValue || "").trim();
       if (!normalized) {
         addInventoryStatus = "No barcode value detected.";
+        addUnknownBarcode = "";
         tone.fail();
         return;
       }
@@ -228,7 +232,8 @@ export const FilamentInventoryApp = tag(
       const typeId = String(first?.filament_type_id || "").trim();
       if (!typeId) {
         addLastScan = { key: normalizedKey, at: now };
-        addInventoryStatus = `No filament type matched barcode: ${normalized}`;
+        addInventoryStatus = "code not in system";
+        addUnknownBarcode = normalized;
         tone.fail();
         return;
       }
@@ -237,6 +242,7 @@ export const FilamentInventoryApp = tag(
         return;
       }
       addLastScan = { key: typeKey, at: now };
+      addUnknownBarcode = "";
       addInventoryStatus = `Matched ${first?.label || first?.color_name || typeId}. Adding...`;
       tone.success();
       const keepOpen = addKeepOpenOnScan;
@@ -356,6 +362,14 @@ export const FilamentInventoryApp = tag(
       data.splice(index, 1);
       setEditingIndex(null);
       tag.promise = saveFilamentInventoryToFirestore(data);
+    };
+
+    const cancelAddFilamentAt = (index: number): void => {
+      const target = data[index];
+      if (!target) return;
+      if (!confirm("Abandon adding this inventory item?")) return;
+      data.splice(index, 1);
+      setEditingIndex(null);
     };
 
     const zeroOutLocationInventory = (location: string): void => {
@@ -551,6 +565,7 @@ export const FilamentInventoryApp = tag(
                     addInventoryModalOpen = true;
                     addInventoryScannerOpen = false;
                     addInventoryStatus = "";
+                    addUnknownBarcode = "";
                     addKeepOpenOnScan = false;
                   })(
                   "➕ Add inventory"
@@ -595,6 +610,8 @@ export const FilamentInventoryApp = tag(
                       saveCurrentFilaments,
                       duplicateFilamentAt,
                       removeFilamentAt,
+                      cancelAddFilamentAt,
+                      !String(item?.filament_type_id || "").trim(),
                       selectedLocation
                     ).key(item.filament_type_id || `item-${index}`)
                   )
@@ -637,7 +654,23 @@ export const FilamentInventoryApp = tag(
                   })(),
                 "Keep modal open while scanning"
               ),
-              _=> addInventoryStatus ? p.class`manufacturer-helper`(_=> addInventoryStatus) : null,
+              _=> addInventoryStatus && !addUnknownBarcode
+                ? p.class`manufacturer-helper`(_=> addInventoryStatus)
+                : null,
+              _=> addUnknownBarcode
+                ? div.class`inventory-unknown-code-callout`(
+                    p.class`inventory-unknown-code-title`("⁉️ code not in system"),
+                    a
+                      .class`inventory-unknown-code-link`
+                      .href(() => {
+                        const params = new URLSearchParams();
+                        params.set("add", "1");
+                        params.set("barcode", addUnknownBarcode);
+                        return `${toAdminPath("filament/types.html")}?${params.toString()}`;
+                      })
+                      ("add to system")
+                  )
+                : null,
               hr(),
               p("Manual entry"),
               select

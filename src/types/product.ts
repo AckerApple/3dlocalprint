@@ -6,12 +6,22 @@ export type ProductVariation = {
   active: boolean;
 };
 
+export type ProductImage = {
+  imageUrl: string;
+  imagePath?: string;
+  uploadedAt: number;
+  uploadedDate: string;
+  location: string;
+};
+
 export type ProductItem = {
   id: string;
   title: string;
   slug: string;
   description: string;
   imageUrl: string;
+  imagePath?: string;
+  images?: ProductImage[];
   unitAmount: number;
   currency: string;
   categories: string[];

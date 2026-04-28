@@ -43,6 +43,34 @@ let isDeleting = false;
 let submitted = false;
 let accountTotals: Record<string, LedgerTotals> = {};
 let handleSignOut = () => Promise.resolve();
+let pendingEntryIdFromUrl = "";
+
+const getEntryIdFromUrl = (): string => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return String(params.get("entry") || "").trim();
+  } catch {
+    return "";
+  }
+};
+
+const setEntryIdInUrl = (entryId: string) => {
+  try {
+    const nextId = String(entryId || "").trim();
+    const url = new URL(window.location.href);
+    if (nextId) {
+      url.searchParams.set("entry", nextId);
+    } else {
+      url.searchParams.delete("entry");
+    }
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState({}, "", nextUrl);
+  } catch {
+    // ignore URL mutation failures
+  }
+};
+
+pendingEntryIdFromUrl = getEntryIdFromUrl();
 
 const createFilters = (): LedgerFilterState => ({
   search: "",
@@ -92,7 +120,10 @@ const createEntryId = () => {
 
 const createDraft = () => ({
   title: "",
+  amountType: "credit" as const,
   amount: "",
+  salesTaxLiability: "",
+  processingFees: "",
   moneyAccountTitle: getLocalStorageValue(
     LOCAL_STORAGE_KEYS.moneyAccountTitle,
     ""
@@ -107,6 +138,40 @@ const createDraft = () => ({
 });
 
 let draft: LedgerDraft = createDraft();
+
+const getAmountTypeFromAmount = (amount: number) =>
+  amount < 0 ? "debit" : "credit";
+
+const creditOnlyCategories = new Set([
+  "Sales Revenue",
+  "Owner Contribution",
+  "Shipping Income",
+  "Bank Bonus Income",
+  "Sales Tax Collected",
+]);
+
+const debitOnlyCategories = new Set([
+  "Filament",
+  "Printer Parts",
+  "Tools",
+  "Packaging",
+  "Shipping Expense",
+  "Transfer to Credit Card",
+  "Marketing",
+  "Software",
+  "Event Fees",
+]);
+
+const isCategoryAllowedForAmountType = (
+  category: string,
+  amountType: LedgerDraft["amountType"]
+) => {
+  const value = String(category || "").trim();
+  if (!value || value === "Other") return true;
+  if (creditOnlyCategories.has(value)) return amountType === "credit";
+  if (debitOnlyCategories.has(value)) return amountType === "debit";
+  return true;
+};
 
 const sortLedgerEntries = (items: LedgerEntry[]) =>
   [...items].sort((a, b) => {
@@ -151,6 +216,8 @@ const normalizeLoadedEntry = (
     return amount;
   })(),
   title: String(item?.title || ""),
+  salesTaxLiability: Math.min(0, Number((item as any)?.salesTaxLiability) || 0),
+  processingFees: Math.min(0, Number((item as any)?.processingFees) || 0),
   moneyAccountTitle: String((item as any)?.moneyAccountTitle || ""),
   billingCategory: String(item?.billingCategory || ""),
   applicableDate: String(item?.applicableDate || ""),
@@ -164,7 +231,14 @@ const normalizeLoadedEntry = (
 
 const entryToDraft = (entry: LedgerEntry): LedgerDraft => ({
   title: String(entry.title || ""),
+  amountType: getAmountTypeFromAmount(Number(entry.amount) || 0),
   amount: Number(entry.amount).toFixed(2),
+  salesTaxLiability: Number(entry.salesTaxLiability || 0)
+    ? Number(entry.salesTaxLiability || 0).toFixed(2)
+    : "",
+  processingFees: Number(entry.processingFees || 0)
+    ? Number(entry.processingFees || 0).toFixed(2)
+    : "",
   moneyAccountTitle: String(entry.moneyAccountTitle || ""),
   billingCategory: String(entry.billingCategory || ""),
   applicableDate: String(entry.applicableDate || getTodayIso()),
@@ -185,6 +259,11 @@ const validateDraft = (source: LedgerDraft): LedgerValidationErrors => {
   const title = String(source.title || "").trim();
   const amountRaw = String(source.amount || "").trim();
   const amount = Number(amountRaw);
+  const salesTaxLiabilityRaw = String(source.salesTaxLiability || "").trim();
+  const salesTaxLiability = Number(salesTaxLiabilityRaw || "0");
+  const processingFeesRaw = String(source.processingFees || "").trim();
+  const processingFees = Number(processingFeesRaw || "0");
+  const isSalesRevenue = String(source.billingCategory || "").trim().toLowerCase() === "sales revenue";
   const decimalRule = /^-?\d+(\.\d{1,2})?$/;
 
   if (title.length < 2 || title.length > 80) {
@@ -193,11 +272,27 @@ const validateDraft = (source: LedgerDraft): LedgerValidationErrors => {
   if (!decimalRule.test(amountRaw) || !Number.isFinite(amount) || amount === 0) {
     next.amount = "Amount must be a non-zero number (up to 2 decimals).";
   }
+  if (
+    isSalesRevenue
+    && salesTaxLiabilityRaw
+    && (!decimalRule.test(salesTaxLiabilityRaw) || !Number.isFinite(salesTaxLiability) || salesTaxLiability >= 0)
+  ) {
+    next.salesTaxLiability = "Sales tax liability must be a negative number (up to 2 decimals).";
+  }
+  if (
+    isSalesRevenue
+    && processingFeesRaw
+    && (!decimalRule.test(processingFeesRaw) || !Number.isFinite(processingFees) || processingFees >= 0)
+  ) {
+    next.processingFees = "Processing fees must be a negative number (up to 2 decimals).";
+  }
   if (!String(source.moneyAccountTitle || "").trim()) {
     next.moneyAccountTitle = "Money account is required.";
   }
   if (!String(source.billingCategory || "").trim()) {
     next.billingCategory = "Billing category is required.";
+  } else if (!isCategoryAllowedForAmountType(source.billingCategory, source.amountType)) {
+    next.billingCategory = `${source.billingCategory} does not apply to ${source.amountType} entries.`;
   }
   if (!isValidDate(source.applicableDate)) {
     next.applicableDate = "Applicable date is required.";
@@ -214,12 +309,20 @@ const normalizedDraft = (): Omit<LedgerEntry, "id" | "createdAt" | "updatedAt"> 
   const notes = String(draft.notes || "").trim();
   const moneyAccountTitle = String(draft.moneyAccountTitle || "").trim();
   const billingCategory = String(draft.billingCategory || "").trim();
+  const isSalesRevenue = draft.amountType === "credit" && billingCategory.toLowerCase() === "sales revenue";
+  const amount = Math.abs(Number(draft.amount) || 0);
   return {
     title,
     notes,
     moneyAccountTitle,
     billingCategory: billingCategory || "",
-    amount: Number(draft.amount),
+    amount: draft.amountType === "debit" ? -amount : amount,
+    salesTaxLiability: isSalesRevenue
+      ? Math.min(0, Number(draft.salesTaxLiability || "0") || 0)
+      : 0,
+    processingFees: isSalesRevenue
+      ? Math.min(0, Number(draft.processingFees || "0") || 0)
+      : 0,
     applicableDate: draft.applicableDate,
     status: draft.status,
   };
@@ -301,12 +404,16 @@ const openCreateModal = (accountTitle = "") => {
   }
   submitted = false;
   modalOpen = true;
+  setEntryIdInUrl("");
 };
 
-const openEditModal = (id: string) => {
+const openEditModal = (id: string, syncUrl = true) => {
   const entry = entries$.value.find((item) => item.id === id);
 
-  if (!entry) return;
+  if (!entry) {
+    if (syncUrl) setEntryIdInUrl("");
+    return false;
+  }
 
   modalMode = "edit";
   activeEntryId = id;
@@ -318,14 +425,18 @@ const openEditModal = (id: string) => {
   }
   submitted = false;
   modalOpen = true;
+  if (syncUrl) setEntryIdInUrl(id);
+  return true;
 };
 
 const closeModal = () => {
   modalOpen = false;
+  activeEntryId = "";
   submitted = false;
   isSaving = false;
   isDeleting = false;
   draft = createDraft();
+  setEntryIdInUrl("");
 };
 
 const getSignedAmount = (entry: LedgerEntry): number => {
@@ -362,6 +473,10 @@ const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
     return acc + getSignedAmount(entry);
   }, 0);
 
+  const taxToPayTotal = source.reduce((acc, entry) => {
+    return acc + (Number(entry.salesTaxLiability) || 0);
+  }, 0);
+
   return {
     grossPositiveTotal,
     grossNegativeTotal,
@@ -369,6 +484,7 @@ const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
     postedTotal,
     pendingAmountsTotal,
     pendingTotal,
+    taxToPayTotal,
   };
 };
 
@@ -394,7 +510,7 @@ const handleSave = async () => {
   submitted = true;
   const errors = validateDraft(draft);
   if (Object.keys(errors).length) {
-    syncModalSaveState();
+    syncModalSaveState(true);
     return;
   }
   isSaving = true;
@@ -459,12 +575,23 @@ const handleDelete = async () => {
   }
 };
 
-const syncModalSaveState = () => {
-  submitted = true;
+const syncModalSaveState = (showErrors = false) => {
+  if (showErrors) {
+    submitted = true;
+  }
   const saveButton = document.getElementById("ledgerSaveButton")
-  if (!saveButton) return
-  const isValid = Object.keys(validateDraft(draft)).length === 0
-  ;(saveButton as any).disabled = !isValid || isSaving || isDeleting
+  const errors = validateDraft(draft);
+  if (saveButton) {
+    ;(saveButton as any).disabled = isSaving || isDeleting
+  }
+  document.querySelectorAll("[data-ledger-error]").forEach((element) => {
+    const field = element.getAttribute("data-ledger-error") as keyof LedgerValidationErrors | null;
+    element.textContent = submitted && field && errors[field] ? String(errors[field]) : "";
+  });
+  document.querySelectorAll("[data-ledger-field]").forEach((element) => {
+    const field = element.getAttribute("data-ledger-field") as keyof LedgerValidationErrors | null;
+    element.classList.toggle("ledger-input-invalid", !!(submitted && field && errors[field]));
+  });
 };
 
 const renderModal = (entries: LedgerEntry[]) => {
@@ -580,6 +707,14 @@ const auth = startAdminAppShell({
       stopLedger = subscribeLedgerEntries((items) => {
         isLoading = false;
         replaceEntries((Array.isArray(items) ? items : []).map(normalizeLoadedEntry));
+        if (pendingEntryIdFromUrl) {
+          const restoreId = pendingEntryIdFromUrl;
+          pendingEntryIdFromUrl = "";
+          const opened = openEditModal(restoreId, false);
+          if (!opened) {
+            setEntryIdInUrl("");
+          }
+        }
         if (authState.isAuthorized) {
           if (appMounted) {
             return;

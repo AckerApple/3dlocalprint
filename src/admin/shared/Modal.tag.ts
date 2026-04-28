@@ -52,6 +52,7 @@ export const Modal = tag(({
   let maxX = 0;
   let minY = 0;
   let maxY = 0;
+  let ignoreNextCancel = false;
 
   const getDialog = () => document.getElementById(dialogId);
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -100,7 +101,27 @@ export const Modal = tag(({
 
   onDestroy(() => {
     onDragEnd();
+    const dialogEl = getDialog();
+    if (dialogEl?.open) {
+      dialogEl.close();
+    }
   });
+
+  const ensureDialogOpen = () => {
+    requestAnimationFrame(() => {
+      const dialogEl = getDialog();
+      if (!dialogEl || dialogEl.open) return;
+      if (typeof dialogEl.showModal === "function") {
+        try {
+          dialogEl.showModal();
+          return;
+        } catch (error) {
+          console.warn("showModal failed, falling back to open attribute", error);
+        }
+      }
+      dialogEl.setAttribute("open", "true");
+    });
+  };
 
   const onBackdropClick = (event) => {
     if (event?.target instanceof HTMLDialogElement) {
@@ -108,21 +129,48 @@ export const Modal = tag(({
     }
   };
 
+  const shouldBlockEscapeClose = (event) => {
+    const target = event?.target instanceof HTMLElement ? event.target : null;
+    if (!target) return false;
+    if (target.closest("[data-escape-stops-modal='true']")) return true;
+    if (target instanceof HTMLSelectElement) return true;
+    if (target.getAttribute("role") === "combobox") return true;
+    if (target.getAttribute("aria-expanded") === "true") return true;
+    return false;
+  };
+
+  const onDialogKeyDown = (event) => {
+    onKeyDown(event);
+    if (event?.defaultPrevented) return;
+    if (event?.key !== "Escape") return;
+    if (shouldBlockEscapeClose(event)) {
+      ignoreNextCancel = true;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    ignoreNextCancel = false;
+  };
+
   return [
     _=> {
       if (!modalOpen) return null;
-
+      ensureDialogOpen();
 
       return dialog
         .id(dialogId)
         .class(_=> `qr-modal ${className}`.trim())
-        .open(true)
         .onClick(onBackdropClick)
         .onCancel((event) => {
+          if (ignoreNextCancel) {
+            ignoreNextCancel = false;
+            event.preventDefault();
+            return;
+          }
           event.preventDefault();
           onClose();
         })
-        .onKeyDown((event) => onKeyDown(event))(
+        .onKeyDown((event) => onDialogKeyDown(event))(
         div
           .class(_=> `qr-modal-card ${cardClassName}`.trim())(
           div

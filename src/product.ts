@@ -50,6 +50,13 @@ const normalizeVariations = (product: ProductItem): ProductVariationView[] =>
     }))
     .filter((variation) => variation.id && variation.label && variation.active);
 
+const getPrimaryImageUrl = (product: ProductItem) => {
+  const images = Array.isArray(product?.images) ? product.images : [];
+  const firstImageUrl = String(images[0]?.imageUrl || "").trim();
+  if (firstImageUrl) return firstImageUrl;
+  return String(product?.imageUrl || "").trim();
+};
+
 const renderMessage = (title: string, message: string) => {
   if (!detailRoot) return;
   if (pageTitleRoot) {
@@ -76,10 +83,11 @@ const renderProduct = (product: ProductItem) => {
   const card = document.createElement("article");
   card.className = "home-card home-product-detail-card";
 
-  if (product.imageUrl) {
+  const primaryImageUrl = getPrimaryImageUrl(product);
+  if (primaryImageUrl) {
     const media = document.createElement("div");
     media.className = "home-product-detail-media";
-    media.style.backgroundImage = `url("${product.imageUrl.replace(/"/g, "%22")}")`;
+    media.style.backgroundImage = `url("${primaryImageUrl.replace(/"/g, "%22")}")`;
     card.append(media);
   }
 

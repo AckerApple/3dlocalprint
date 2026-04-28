@@ -11,6 +11,8 @@ export interface MoneyAccount {
 export interface LedgerEntry {
   id: string;
   amount: number;
+  salesTaxLiability: number;
+  processingFees: number;
   title: string;
   moneyAccountTitle: string;
   billingCategory: string;

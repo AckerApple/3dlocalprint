@@ -216,9 +216,11 @@ const renderCart = async () => {
   checkoutBtn.type = "button";
   checkoutBtn.className = "add-button";
   checkoutBtn.textContent = "Checkout";
+  checkoutBtn.disabled = true;
 
   const status = document.createElement("span");
   status.className = "home-cart-note";
+  status.textContent = "Checkout is not possible while the website is under construction.";
 
   checkoutBtn.addEventListener("click", async () => {
     checkoutBtn.disabled = true;

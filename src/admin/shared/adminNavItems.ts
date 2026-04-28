@@ -16,7 +16,7 @@ export const adminNavGroups = [
         emoji: "🧵",
       },
       {
-        label: "Filament manufacturers",
+        label: "Manufacturers",
         details: "Edit the manufacturer list used by inventory forms.",
         href: "filament/manufacturers.html",
         emoji: "🏭",

@@ -12,7 +12,7 @@ import {
   a,
   SignalArray,
 } from "taggedjs";
-import { addBarcode, FilamentComment, FilamentType, getBarcodeList, openBarcodeScanner, openQrScanner, removeBarcode, removeType, saveType, toggleExpanded, updateBarcode } from "../filament-types.tag.js";
+import { addBarcode, cancelAddType, FilamentComment, FilamentType, getBarcodeList, isAddModeType, openBarcodeScanner, openQrScanner, removeBarcode, removeType, saveType, toggleExpanded, updateBarcode } from "../filament-types.tag.js";
 import { toAdminPath } from "../../shared/path-utils.js";
 import type { ManufacturerItem } from "../../../types/filament.js";
 
@@ -27,6 +27,18 @@ const toSingleRatingStars = (value: unknown) => {
   if (!rating) return "";
   return `${"⭐️".repeat(rating)}${"☆".repeat(maxSingleRating - rating)}`;
 };
+
+const hasHexColor = (value: unknown) =>
+  /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(value || "").trim());
+
+const hasSwatchNumber = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric);
+};
+
+const isUnknownManufacturer = (value: unknown) =>
+  String(value || "").trim().toLowerCase() === "unknown";
 
 const normalizeComments = (value: unknown): FilamentComment[] =>
   (Array.isArray(value) ? value : [])
@@ -81,6 +93,11 @@ const getManufacturerOptions = (manufacturers: ManufacturerItem[] = []) => {
 
 type FilamentTypeEditorProps = {
   item: FilamentType;
+  isAddMode?: boolean;
+  onSave?: (item: FilamentType) => void | Promise<void>;
+  saveLabel?: string;
+  saveDisabled?: boolean;
+  onCancelAdd?: (item: FilamentType) => void;
   currentUser?: { email?: string; photoURL?: string } | null;
   manufacturers$: SignalArray<ManufacturerItem>;
   materialTypes: string[];
@@ -126,26 +143,32 @@ export const FilamentTypesRowDisplay = tag(({
 
   return [_=> groupTypesByManufacturer.map(([, {manufacturer, types}]) => {
     return div.class`filament-type-group`(
-      strong.class`filament-type-group-title`(
-        _=> manufacturer.iconUrl &&
-          img
-            .class("filament-type-group-title-icon")
-            .src(manufacturer.iconUrl)
-            .alt(`${manufacturer.label} icon`)
-,
-        manufacturer.label === "Unknown" ? "🏭 Unknown" : manufacturer.label
-      ),
+      _=> !isUnknownManufacturer(manufacturer?.label)
+        ? strong.class`filament-type-group-title`(
+            _=> manufacturer.iconUrl &&
+              img
+                .class("filament-type-group-title-icon")
+                .src(manufacturer.iconUrl)
+                .alt(`${manufacturer.label} icon`)
+    ,
+            manufacturer.label
+          )
+        : null,
       div.class`filament-type-group-grid`(
         _=> types.map((item, index) =>
           div.id(`filament-type-card-${item.filament_type_id || index}`)
             .class("swatch-card")
             (
               div.class`filament-type-header`(
-                div
-                  .class`summary-chip filament-type-swatch`
-                  .style(_=> `background:${item.hex || ""};`)(),
+                _=> hasHexColor(item?.hex)
+                  ? div
+                      .class`summary-chip filament-type-swatch`
+                      .style(_=> `background:${item.hex || ""};`)()
+                  : null,
                 div(
-                  div.class`filament-type-number`(_=> `#${item.number ?? "-"}`),
+                  _=> hasSwatchNumber(item?.number)
+                    ? div.class`filament-type-number`(_=> `#${item.number}`)
+                    : null,
                   strong(_=> item.label),
                   div.class`filament-type-color`(
                     _=> [item.color_name, item.material_type, item.sub_material_type]
@@ -187,6 +210,7 @@ export const FilamentTypesRowDisplay = tag(({
               _=> isExpanded(item) &&
                 FilamentTypeEditor({
                   item,
+                  isAddMode: isAddModeType(item),
                   currentUser,
                   manufacturers$,
                   materialTypes,
@@ -199,8 +223,13 @@ export const FilamentTypesRowDisplay = tag(({
   })]
 })
 
-const FilamentTypeEditor = tag(({
+export const FilamentTypeEditor = tag(({
   item,
+  isAddMode = false,
+  onSave,
+  saveLabel = "💾 Save changes",
+  saveDisabled = false,
+  onCancelAdd,
   currentUser = null,
   manufacturers$,
   materialTypes = [],
@@ -214,6 +243,11 @@ const FilamentTypeEditor = tag(({
   FilamentTypeEditor.updates((args) => {
     [{
       item,
+      isAddMode = false,
+      onSave,
+      saveLabel = "💾 Save changes",
+      saveDisabled = false,
+      onCancelAdd,
       currentUser = null,
       manufacturers$,
       materialTypes = [],
@@ -267,6 +301,21 @@ const FilamentTypeEditor = tag(({
       editingCommentId = "";
       editingCommentText = "";
     }
+  };
+
+  const handleSave = () => {
+    if (typeof onSave === "function") {
+      return onSave(item);
+    }
+    return saveType(item);
+  };
+
+  const handleCancelAdd = () => {
+    if (typeof onCancelAdd === "function") {
+      onCancelAdd(item);
+      return;
+    }
+    cancelAddType(item);
   };
 
   return div.class`filament-type-editor`(
@@ -585,9 +634,18 @@ const FilamentTypeEditor = tag(({
       button
         .type`button`
         .class`add-button`
-        .onClick(() => saveType(item))(
-        "💾 Save changes"
-      )
+        .disabled(_=> saveDisabled)
+        .onClick(handleSave)(
+        _=> saveLabel
+      ),
+      _=> isAddMode
+        ? button
+            .type`button`
+            .class`ghost-button delete-button`
+            .onClick(handleCancelAdd)(
+            "Cancel add"
+          )
+        : null
     )
   );
 });

@@ -9,6 +9,7 @@ import {
   homeProductsPage,
   homeProductDetailPage,
   homeCartPage,
+  homeQr1Page,
   homeNotFoundPage,
 } from "./home.pages.js";
 
@@ -22,6 +23,7 @@ const slugifyLocation = (location = "") =>
 
 const rootDir = resolve(".");
 const homeDir = resolve(rootDir, "src");
+const qr1Dir = resolve(homeDir, "qr1");
 const adminDir = resolve(rootDir, "src/admin");
 const adminFilamentDir = resolve(adminDir, "filament");
 const adminAccountingDir = resolve(adminDir, "accounting");
@@ -44,6 +46,10 @@ const homePages = [
   {
     path: resolve(homeDir, "cart.html"),
     render: () => homeCartPage(),
+  },
+  {
+    path: resolve(qr1Dir, "index.html"),
+    render: () => homeQr1Page(),
   },
   {
     path: resolve(homeDir, "404.html"),

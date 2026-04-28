@@ -7,6 +7,7 @@ export type LedgerTotals = {
   postedTotal: number;
   pendingAmountsTotal: number;
   pendingTotal: number;
+  taxToPayTotal: number;
 };
 
 export type LedgerFilterState = {
@@ -19,9 +20,14 @@ export type LedgerFilterState = {
 
 export type LedgerModalMode = "create" | "edit";
 
+export type LedgerAmountType = "credit" | "debit";
+
 export type LedgerDraft = {
   title: string;
+  amountType: LedgerAmountType;
   amount: string;
+  salesTaxLiability: string;
+  processingFees: string;
   moneyAccountTitle: string;
   billingCategory: string;
   applicableDate: string;
@@ -32,6 +38,8 @@ export type LedgerDraft = {
 export type LedgerValidationErrors = {
   title?: string;
   amount?: string;
+  salesTaxLiability?: string;
+  processingFees?: string;
   moneyAccountTitle?: string;
   billingCategory?: string;
   applicableDate?: string;

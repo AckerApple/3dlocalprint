@@ -219,6 +219,7 @@ main {
   margin-left: 0;
   position: relative;
   z-index: 0;
+  min-width: 30px;
 }
 
 .filament-type-action-pill:hover,
@@ -811,6 +812,32 @@ button[disabled],
   grid-column: 1 / -1;
 }
 
+.product-image-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.product-image-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.product-image-meta {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .product-variations {
   display: grid;
   gap: 8px;
@@ -855,6 +882,11 @@ button[disabled],
   .product-variation-row {
     grid-template-columns: 1fr;
   }
+
+  .product-image-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
 }
 
 .product-row-actions {
@@ -894,6 +926,33 @@ button[disabled],
 .manufacturer-helper {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.inventory-unknown-code-callout {
+  width: 100%;
+  max-width: 500px;
+  border: 1px solid rgba(194, 65, 12, 0.32);
+  background: #ffedd5;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.inventory-unknown-code-title {
+  margin: 0;
+  color: #9a3412;
+  font-weight: 700;
+}
+
+.inventory-unknown-code-link {
+  color: #7c2d12;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.inventory-unknown-code-link:hover {
+  color: #5f270f;
 }
 
 .inventory-add-scanner {
@@ -1708,6 +1767,31 @@ input:focus {
   gap: 6px;
 }
 
+.cart-construction-banner {
+  justify-self: center;
+  border: 1px solid rgba(180, 35, 24, 0.24);
+  background: #fff7ed;
+  color: #8a2f14;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.cart-construction-banner p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.qr1-product-image {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  height: 350px;
+  justify-self: center;
+  border-radius: 12px;
+  border: 1px solid rgba(228, 221, 209, 0.9);
+  object-fit: cover;
+}
+
 .home-info {
   margin-top: 24px;
 }
@@ -2462,7 +2546,7 @@ input:focus {
 }
 
 .qr-modal::backdrop {
-  background: rgba(18, 20, 25, 0.84);
+  background: rgba(18, 20, 25, 0.78);
 }
 
 .qr-modal-card {
@@ -2706,6 +2790,12 @@ input:focus {
   color: #1d4f91;
 }
 
+.ledger-title-stack {
+  display: grid;
+  gap: 3px;
+  max-width: 300px;
+}
+
 .ledger-title-cell {
   display: inline-block;
   max-width: 300px;
@@ -2715,8 +2805,31 @@ input:focus {
   vertical-align: bottom;
 }
 
+.ledger-notes-preview {
+  margin: 0;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.ledger-amount-stack {
+  display: grid;
+  gap: 3px;
+}
+
 .ledger-amount-value {
   font-weight: 600;
+}
+
+.ledger-tax-preview {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.2;
 }
 
 .ledger-amount-positive {
@@ -2775,10 +2888,58 @@ input:focus {
   gap: 18px;
 }
 
+.products-modal {
+  max-width: min(980px, 96vw);
+  max-height: 92vh;
+}
+
+.products-modal-card {
+  max-height: 92vh;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.products-modal-body {
+  max-height: none;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+
 .ledger-form-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.ledger-amount-group {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  display: grid;
+  gap: 10px;
+}
+
+.ledger-amount-group-title {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ledger-amount-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.ledger-amount-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .ledger-notes {
@@ -2806,6 +2967,19 @@ input:focus {
   letter-spacing: normal;
 }
 
+.ledger-field-error:empty {
+  display: none;
+}
+
+.ledger-field-help {
+  margin: 0;
+  opacity: 0.65;
+  font-size: 0.75rem;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ledger-input-invalid,
 .ledger-money-account-select.ledger-input-invalid {
   border-color: #b42318;
   box-shadow: 0 0 0 1px rgba(180, 35, 24, 0.22);

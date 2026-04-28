@@ -65,8 +65,10 @@ export const inventoryEditCard = tag(
     onSave,
     onDuplicate,
     onDelete,
+    onCancelAdd,
     onLocationChange,
-    fixedLocation = ""
+    fixedLocation = "",
+    isAddMode = false
   ) => {
     inventoryEditCard.inputs((args) => {
       [
@@ -77,13 +79,16 @@ export const inventoryEditCard = tag(
         onSave,
         onDuplicate,
         onDelete,
+        onCancelAdd,
         onLocationChange,
         fixedLocation,
+        isAddMode,
       ] = args;
       toggleRowEdit = output(toggleRowEdit)
       onSave = output(onSave)
       onDuplicate = output(onDuplicate)
       onDelete = output(onDelete)
+      onCancelAdd = output(onCancelAdd)
       onLocationChange = output(onLocationChange)
     });
     let isDirty = false;
@@ -122,6 +127,11 @@ export const inventoryEditCard = tag(
     const triggerDelete = () => {
       if (!onDelete) return;
       onDelete(index);
+    };
+
+    const triggerCancelAdd = () => {
+      if (!onCancelAdd) return;
+      onCancelAdd(index);
     };
 
     const updateLocation = (event) => {
@@ -346,6 +356,14 @@ export const inventoryEditCard = tag(
               .class`ghost-button delete-button`
               .onClick(triggerDelete)(
               "🗑️ Delete"
+            )
+          : null,
+        _=> isAddMode && onCancelAdd
+          ? button
+              .type`button`
+              .class`ghost-button delete-button`
+              .onClick(triggerCancelAdd)(
+              "Cancel add"
             )
           : null,
         a

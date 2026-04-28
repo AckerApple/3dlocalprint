@@ -14,6 +14,8 @@ export const InventoryRow = tag(
     onSave,
     onDuplicate,
     onDelete,
+    onCancelAdd,
+    isAddMode = false,
     fixedLocation = ""
   ) => {
     InventoryRow.inputs((args) => {
@@ -27,12 +29,15 @@ export const InventoryRow = tag(
         onSave,
         onDuplicate,
         onDelete,
+        onCancelAdd,
+        isAddMode,
         fixedLocation,
       ] = args;
       toggleRowEdit = output(toggleRowEdit)
       onSave = output(onSave)
       onDuplicate = output(onDuplicate)
       onDelete = output(onDelete)
+      onCancelAdd = output(onCancelAdd)
     });
 
     return noElement(
@@ -45,8 +50,10 @@ export const InventoryRow = tag(
             onSave,
             onDuplicate,
             onDelete,
+            onCancelAdd,
             updateEditingLocation,
-            fixedLocation
+            fixedLocation,
+            isAddMode
           )
         : inventorySummaryRow(
             item,

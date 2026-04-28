@@ -159,14 +159,19 @@ export const LedgerPanel = tag(({
                     `Reconciled total: ${toDisplayNet(totals.reconciledTotal)}`
                   ),
                   p.class`ledger-net-value`(
-                    `Posted total: ${toDisplayNet(totals.postedTotal)}`
+                    `🏦 Posted total: ${toDisplayNet(totals.postedTotal)}`
                   ),
                   p.class`ledger-net-value`(
-                    `Pending amounts: ${toDisplayNet(totals.pendingAmountsTotal)}`
+                    `⏳ Pending amounts: ${toDisplayNet(totals.pendingAmountsTotal)}`
                   ),
                   p.class`ledger-net-value`(
-                    `Pending total: ${toDisplayNet(totals.pendingTotal)}`
-                  )
+                    `⏳ Pending total: ${toDisplayNet(totals.pendingTotal)}`
+                  ),
+                  _=> totals.taxToPayTotal
+                    ? p.class`ledger-net-value`(
+                        `💰 Tax to pay: ${toDisplayNet(totals.taxToPayTotal)}`
+                      )
+                    : null
                 );
               },
               LedgerEntriesTable({

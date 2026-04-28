@@ -20,18 +20,30 @@ const rewriteProductPath = (url = "") => {
   return `/product.html?${search.toString()}`;
 };
 
+const rewriteQr1Path = (url = "") => {
+  const [pathname, query = ""] = String(url || "").split("?");
+  if (!/^\/qr1\/?$/i.test(pathname)) return null;
+  return `/qr1/index.html${query ? `?${query}` : ""}`;
+};
+
 const productSlugRewritePlugin = {
   name: "product-slug-rewrite",
   configureServer(server) {
     server.middlewares.use((req, res, next) => {
       const method = String(req.method || "GET").toUpperCase();
       const accept = String(req.headers?.accept || "").toLowerCase();
-      const target = rewriteProductPath(req.url || "");
+      const productTarget = rewriteProductPath(req.url || "");
+      const qr1Target = rewriteQr1Path(req.url || "");
       const isHtmlRequest = accept.includes("text/html");
-      if (method === "GET" && isHtmlRequest && target) {
+      if (method === "GET" && isHtmlRequest && productTarget) {
         res.statusCode = 302;
-        res.setHeader("Location", target);
+        res.setHeader("Location", productTarget);
         res.end();
+        return;
+      }
+      if (method === "GET" && isHtmlRequest && qr1Target) {
+        req.url = qr1Target;
+        next();
         return;
       }
       next();
@@ -41,12 +53,18 @@ const productSlugRewritePlugin = {
     server.middlewares.use((req, res, next) => {
       const method = String(req.method || "GET").toUpperCase();
       const accept = String(req.headers?.accept || "").toLowerCase();
-      const target = rewriteProductPath(req.url || "");
+      const productTarget = rewriteProductPath(req.url || "");
+      const qr1Target = rewriteQr1Path(req.url || "");
       const isHtmlRequest = accept.includes("text/html");
-      if (method === "GET" && isHtmlRequest && target) {
+      if (method === "GET" && isHtmlRequest && productTarget) {
         res.statusCode = 302;
-        res.setHeader("Location", target);
+        res.setHeader("Location", productTarget);
         res.end();
+        return;
+      }
+      if (method === "GET" && isHtmlRequest && qr1Target) {
+        req.url = qr1Target;
+        next();
         return;
       }
       next();
@@ -75,6 +93,7 @@ export default defineConfig({
         productsHome: resolve(__dirname, "src/products.html"),
         productDetail: resolve(__dirname, "src/product.html"),
         cartHome: resolve(__dirname, "src/cart.html"),
+        qr1: resolve(__dirname, "src/qr1/index.html"),
         notFound: resolve(__dirname, "src/404.html"),
         adminHome: resolve(__dirname, "src/admin/index.html"),
         adminFilament: resolve(__dirname, "src/admin/filament/index.html"),

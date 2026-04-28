@@ -14,12 +14,6 @@ let appMounted = false;
 let currentUser = null;
 let handleSignOut = () => Promise.resolve();
 
-const rerender = () => {
-  if (!appRoot.current) return;
-  appRoot.current.replaceChildren();
-  tagElement(AdminsApp, appRoot.current);
-};
-
 const addAdmin = () => {
   const value = newAdminEmail.trim().toLowerCase();
   if (!value) {
@@ -32,14 +26,12 @@ const addAdmin = () => {
   }
   state.push(value);
   newAdminEmail = "";
-  rerender();
 };
 
 const removeAdmin = (index) => {
   const email = state[index] || "";
   if (!confirm(`Remove admin ${email}?`)) return;
   state.splice(index, 1);
-  rerender();
 };
 
 const saveList = async () => {
@@ -152,9 +144,7 @@ const auth = startAdminAppShell({
           state.splice(0, state.length);
         }
         if (authState.isAuthorized) {
-          if (appMounted) {
-            rerender();
-          } else {
+          if (!appMounted) {
             mountApp("admins:update");
           }
         }

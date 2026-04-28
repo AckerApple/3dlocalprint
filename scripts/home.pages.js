@@ -212,6 +212,9 @@ export const homeCartPage = ({ assetPrefix = "./" } = {}) =>
     mainClass: "home-main home-main-cart",
     assetPrefix,
     mainSections: [
+      section.class`cart-construction-banner`(
+        p("This website is under construction. Checkout is not possible at this time.")
+      ),
       section.class`cart-page-title`(
         h1("Your Cart")
       ),
@@ -219,6 +222,29 @@ export const homeCartPage = ({ assetPrefix = "./" } = {}) =>
         div.class`home-products-loading`(
           div.class`home-products-spinner`().attr("aria-hidden", "true"),
           p.class`home-products-loading-text`("Loading cart...")
+        )
+      ),
+    ],
+  });
+
+export const homeQr1Page = ({ assetPrefix = "../" } = {}) =>
+  homeShell({
+    pageTitle: "Jesus Angel Keychain - 3D Local Print",
+    heroLede: "",
+    mainClass: "home-main home-main-cart",
+    assetPrefix,
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Jesus Angel Keychain")
+      ),
+      section.class`home-grid`(
+        div.class`home-card`(
+          img
+            .class("qr1-product-image")
+            .src("https://firebasestorage.googleapis.com/v0/b/threedlocalprint.firebasestorage.app/o/products%2F484b16aa-cbab-4f8b-a074-b07fe0058c70%2F1777389811396_awwj560.jpg")
+            .alt("Jesus Angel Keychain")
+            .loading("lazy"),
+          p("Hello world")
         )
       ),
     ],

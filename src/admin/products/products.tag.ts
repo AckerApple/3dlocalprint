@@ -1,4 +1,9 @@
-import { saveProducts, subscribeProducts } from "../shared/firebase.js";
+import {
+  saveProducts,
+  subscribeProducts,
+  uploadProductImageFile,
+  deleteProductImageByPath,
+} from "../shared/firebase.js";
 import {
   tag,
   tagElement,
@@ -14,6 +19,7 @@ import {
   p,
   h1,
   strong,
+  hr,
   array,
   subscribe,
   a,
@@ -23,12 +29,13 @@ import { toast } from "../shared/toast.js";
 import { AdminNav } from "../shared/AdminNav.tag.js";
 import { replaceMountRoot } from "../shared/ssoMount.js";
 import { startAdminAppShell } from "../shared/adminAppShell.js";
-import type { ProductItem, ProductVariation } from "../../types/product.js";
+import type { ProductImage, ProductItem, ProductVariation } from "../../types/product.js";
 import { PRODUCT_CATEGORIES, normalizeProductCategories } from "../../product-categories.js";
 
 let app = document.getElementById("productsApp");
 const appRoot = { current: app };
 const products$ = array<ProductItem>([]);
+const MAX_PRODUCT_IMAGE_BYTES = 2 * 1024 * 1024;
 let stopProducts = null;
 let appMounted = false;
 let currentUser = null;
@@ -40,6 +47,8 @@ type ProductsUiState = {
   modalIndex: number;
   draftProduct: ProductItem | null;
   isSaving: boolean;
+  pendingImageFile: File | null;
+  pendingImageUrl: string;
 };
 
 const productsUi$ = array<ProductsUiState>([
@@ -49,6 +58,8 @@ const productsUi$ = array<ProductsUiState>([
     modalIndex: -1,
     draftProduct: null,
     isSaving: false,
+    pendingImageFile: null,
+    pendingImageUrl: "",
   },
 ]);
 
@@ -59,6 +70,8 @@ const getProductsUi = () =>
     modalIndex: -1,
     draftProduct: null,
     isSaving: false,
+    pendingImageFile: null,
+    pendingImageUrl: "",
   };
 
 const setProductsUi = (patch: Partial<ProductsUiState>) => {
@@ -125,6 +138,51 @@ const normalizeVariations = (
       Boolean(variation?.id && (allowEmptyLabel || variation?.label))
     );
 
+const normalizeProductImages = (images: unknown): ProductImage[] =>
+  (Array.isArray(images) ? images : [])
+    .map((image) => {
+      if (!image || typeof image !== "object") return null;
+      const imageUrl = String((image as { imageUrl?: unknown }).imageUrl || "").trim();
+      if (!imageUrl) return null;
+      const imagePath = String((image as { imagePath?: unknown }).imagePath || "").trim();
+      const uploadedAt = Number((image as { uploadedAt?: unknown }).uploadedAt) || Date.now();
+      const uploadedDate = String((image as { uploadedDate?: unknown }).uploadedDate || "").trim()
+        || new Date(uploadedAt).toISOString();
+      const location = String((image as { location?: unknown }).location || "").trim()
+        || imagePath
+        || imageUrl;
+      return {
+        imageUrl,
+        imagePath,
+        uploadedAt,
+        uploadedDate,
+        location,
+      } satisfies ProductImage;
+    })
+    .filter((image): image is NonNullable<typeof image> => Boolean(image?.imageUrl));
+
+const getProductImagesWithFallback = (product: ProductItem | null | undefined): ProductImage[] => {
+  const images = normalizeProductImages(product?.images);
+  if (images.length) return images;
+  const imageUrl = String(product?.imageUrl || "").trim();
+  if (!imageUrl) return [];
+  const imagePath = String(product?.imagePath || "").trim();
+  const uploadedAt = Number(product?.updatedAt) || Date.now();
+  return [{
+    imageUrl,
+    imagePath,
+    uploadedAt,
+    uploadedDate: new Date(uploadedAt).toISOString(),
+    location: imagePath || imageUrl,
+  }];
+};
+
+const getPrimaryImage = (product: ProductItem | null | undefined): ProductImage | null => {
+  const images = getProductImagesWithFallback(product);
+  if (images.length) return images[0];
+  return null;
+};
+
 const getDefaultVariation = (product: ProductItem): ProductVariation => ({
   id: "default",
   label: "Default",
@@ -148,12 +206,16 @@ const normalizeProductsForSave = (items: ProductItem[]) => {
         const title = String(item?.title || "").trim();
         const id = String(item?.id || "").trim() || createId();
         if (!title) return null;
+        const images = getProductImagesWithFallback(item);
+        const primaryImage = images[0];
         return {
           id,
           title,
           slug: toSlug(item?.slug || title) || id,
           description: String(item?.description || "").trim(),
-          imageUrl: String(item?.imageUrl || "").trim(),
+          imageUrl: String(primaryImage?.imageUrl || item?.imageUrl || "").trim(),
+          imagePath: String(primaryImage?.imagePath || item?.imagePath || "").trim(),
+          images,
           unitAmount: Math.max(0, Math.round(Number(item?.unitAmount) || 0)),
           currency: String(item?.currency || "usd").trim().toLowerCase() || "usd",
           categories: normalizeProductCategories(item?.categories),
@@ -165,7 +227,7 @@ const normalizeProductsForSave = (items: ProductItem[]) => {
           updatedAt: now,
         } satisfies ProductItem;
       })
-      .filter((item): item is ProductItem => Boolean(item))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
   );
 };
 
@@ -202,6 +264,8 @@ const createDraftProduct = (): ProductItem => {
     slug: id,
     description: "",
     imageUrl: "",
+    imagePath: "",
+    images: [],
     unitAmount: 0,
     currency: "usd",
     categories: [],
@@ -299,6 +363,22 @@ const removeCategoryFromDraft = (category: string) => {
   });
 };
 
+const removeImageFromDraft = (imageIndex: number) => {
+  const current = getProductsUi().draftProduct;
+  if (!current) return;
+  const images = getProductImagesWithFallback(current).filter((_, index) => index !== imageIndex);
+  const primary = images[0];
+  setProductsUi({
+    draftProduct: {
+      ...current,
+      images,
+      imageUrl: String(primary?.imageUrl || "").trim(),
+      imagePath: String(primary?.imagePath || "").trim(),
+      updatedAt: Date.now(),
+    },
+  });
+};
+
 const openCreateModal = () => {
   setProductsUi({
     modalMode: "create",
@@ -306,6 +386,8 @@ const openCreateModal = () => {
     draftProduct: createDraftProduct(),
     modalOpen: true,
     isSaving: false,
+    pendingImageFile: null,
+    pendingImageUrl: "",
   });
 };
 
@@ -318,9 +400,13 @@ const openEditModal = (index: number) => {
     draftProduct: {
       ...source,
       categories: normalizeProductCategories(source.categories),
+      imagePath: String(source.imagePath || "").trim(),
+      images: getProductImagesWithFallback(source),
     },
     modalOpen: true,
     isSaving: false,
+    pendingImageFile: null,
+    pendingImageUrl: "",
   });
 };
 
@@ -330,11 +416,13 @@ const closeModal = () => {
     modalIndex: -1,
     draftProduct: null,
     isSaving: false,
+    pendingImageFile: null,
+    pendingImageUrl: "",
   });
 };
 
 const saveModalProduct = async () => {
-  const { draftProduct, modalMode, modalIndex, isSaving } = getProductsUi();
+  const { draftProduct, modalMode, modalIndex, isSaving, pendingImageFile, pendingImageUrl } = getProductsUi();
   if (isSaving) return;
   if (!draftProduct) return;
   const title = String(draftProduct.title || "").trim();
@@ -344,43 +432,164 @@ const saveModalProduct = async () => {
   }
 
   const now = Date.now();
-  const normalized: ProductItem = {
-    ...draftProduct,
-    id: String(draftProduct.id || "").trim() || createId(),
-    title,
-    slug: toSlug(draftProduct.slug || title) || String(draftProduct.id || "").trim() || createId(),
-    description: String(draftProduct.description || ""),
-    imageUrl: String(draftProduct.imageUrl || "").trim(),
-    unitAmount: Math.max(0, Math.round(Number(draftProduct.unitAmount) || 0)),
-    currency: String(draftProduct.currency || "usd").trim().toLowerCase() || "usd",
-    categories: normalizeProductCategories(draftProduct.categories),
-    active: Boolean(draftProduct.active),
-    stripePriceId: String(draftProduct.stripePriceId || "").trim(),
-    variations: normalizeVariations(draftProduct.variations),
-    taxCode: String(draftProduct.taxCode || "").trim(),
-    createdAt: Number(draftProduct.createdAt) || now,
-    updatedAt: now,
-  };
+  const normalizedId = String(draftProduct.id || "").trim() || createId();
+  const existingProduct =
+    modalMode === "edit" && modalIndex >= 0 ? products$.value[modalIndex] : null;
+  const previousImagePaths = new Set(
+    [
+      ...normalizeProductImages(existingProduct?.images).map((image) => String(image?.imagePath || "").trim()),
+      String(existingProduct?.imagePath || "").trim(),
+    ].filter(Boolean)
+  );
 
-  if (modalMode === "edit" && modalIndex >= 0) {
-    const nextItems = [...products$.value];
-    nextItems[modalIndex] = normalized;
-    setProductsUi({ isSaving: true });
-    const didSave = await persistProducts(nextItems, "Product saved.");
-    setProductsUi({ isSaving: false });
-    if (didSave) {
-      closeModal();
+  const uploadedImagePaths: string[] = [];
+  let nextImages = normalizeProductImages(draftProduct.images);
+  const normalizedPendingImageUrl = String(pendingImageUrl || "").trim();
+
+  setProductsUi({ isSaving: true });
+
+  try {
+    if (normalizedPendingImageUrl) {
+      const pendingUrlEntry: ProductImage = {
+        imageUrl: normalizedPendingImageUrl,
+        imagePath: "",
+        uploadedAt: now,
+        uploadedDate: new Date(now).toISOString(),
+        location: normalizedPendingImageUrl,
+      };
+      nextImages = [pendingUrlEntry, ...nextImages];
     }
-  } else {
-    const nextItems = [...products$.value, normalized];
-    setProductsUi({ isSaving: true });
-    const didSave = await persistProducts(nextItems, "Product added.");
-    setProductsUi({ isSaving: false });
-    if (didSave) {
-      closeModal();
+
+    if (pendingImageFile) {
+      const uploadResult = await uploadProductImageFile(
+        pendingImageFile,
+        normalizedId
+      );
+      uploadedImagePaths.push(String(uploadResult.imagePath || "").trim());
+      const uploadedImage: ProductImage = {
+        imageUrl: uploadResult.imageUrl,
+        imagePath: uploadResult.imagePath,
+        uploadedAt: uploadResult.uploadedAt,
+        uploadedDate: uploadResult.uploadedDate,
+        location: uploadResult.location,
+      };
+      nextImages = [uploadedImage, ...nextImages];
     }
+
+    const uniqueImageMap = new Map<string, ProductImage>();
+    nextImages.forEach((image) => {
+      const key = `${String(image?.imagePath || "").trim()}|${String(image?.imageUrl || "").trim()}`;
+      if (!key || uniqueImageMap.has(key)) return;
+      uniqueImageMap.set(key, image);
+    });
+    nextImages = Array.from(uniqueImageMap.values());
+    const primaryImage = nextImages[0];
+
+    const normalized: ProductItem = {
+      ...draftProduct,
+      id: normalizedId,
+      title,
+      slug: toSlug(draftProduct.slug || title) || normalizedId,
+      description: String(draftProduct.description || ""),
+      images: nextImages,
+      imagePath: String(primaryImage?.imagePath || "").trim(),
+      imageUrl: String(primaryImage?.imageUrl || "").trim(),
+      unitAmount: Math.max(0, Math.round(Number(draftProduct.unitAmount) || 0)),
+      currency: String(draftProduct.currency || "usd").trim().toLowerCase() || "usd",
+      categories: normalizeProductCategories(draftProduct.categories),
+      active: Boolean(draftProduct.active),
+      stripePriceId: String(draftProduct.stripePriceId || "").trim(),
+      variations: normalizeVariations(draftProduct.variations),
+      taxCode: String(draftProduct.taxCode || "").trim(),
+      createdAt: Number(draftProduct.createdAt) || now,
+      updatedAt: now,
+    };
+
+    if (modalMode === "edit" && modalIndex >= 0) {
+      const nextItems = [...products$.value];
+      nextItems[modalIndex] = normalized;
+      const didSave = await persistProducts(nextItems, "Product saved.");
+      if (didSave) {
+        const nextImagePaths = new Set(
+          [
+            ...normalizeProductImages(normalized.images).map((image) => String(image?.imagePath || "").trim()),
+            String(normalized.imagePath || "").trim(),
+          ].filter(Boolean)
+        );
+        const removedPaths = [...previousImagePaths].filter((path) => !nextImagePaths.has(path));
+        if (removedPaths.length) {
+          await Promise.all(
+            removedPaths.map((path) =>
+              deleteProductImageByPath(path).catch((error) => {
+                console.warn("Failed to cleanup old product image", error);
+              })
+            )
+          );
+        }
+        closeModal();
+      }
+    } else {
+      const nextItems = [...products$.value, normalized];
+      const didSave = await persistProducts(nextItems, "Product added.");
+      if (didSave) {
+        closeModal();
+      }
+    }
+  } catch (error) {
+    console.error("Failed to save product", error);
+    await Promise.all(
+      uploadedImagePaths.map((path) =>
+        deleteProductImageByPath(path).catch((cleanupError) => {
+          console.warn("Failed to cleanup uploaded product image", cleanupError);
+        })
+      )
+    );
+    const message = String((error as { message?: unknown })?.message || "").toLowerCase();
+    const code = String((error as { code?: unknown })?.code || "").toLowerCase();
+    if (code.startsWith("storage/") || message.includes("storage") || message.includes("cors")) {
+      toast.error("Image upload failed. Verify Firebase Storage is enabled, rules allow uploads, and bucket config is correct.");
+    } else {
+      toast.error("Save failed. Try again.");
+    }
+  } finally {
+    const currentUi = getProductsUi();
+    if (!currentUi.modalOpen) {
+      setProductsUi({
+        isSaving: false,
+        pendingImageFile: null,
+        pendingImageUrl: "",
+      });
+      return;
+    }
+    const refreshedDraft = normalizedProductFallback(draftProduct);
+    setProductsUi({
+      isSaving: false,
+      pendingImageFile: null,
+      pendingImageUrl: "",
+      draftProduct: refreshedDraft,
+    });
   }
 };
+
+const normalizedProductFallback = (product: ProductItem): ProductItem => ({
+  ...product,
+  id: String(product?.id || "").trim() || createId(),
+  title: String(product?.title || "").trim(),
+  slug: toSlug(product?.slug || product?.title || "") || String(product?.id || "").trim() || createId(),
+  description: String(product?.description || ""),
+  images: getProductImagesWithFallback(product),
+  imagePath: String(getPrimaryImage(product)?.imagePath || "").trim(),
+  imageUrl: String(getPrimaryImage(product)?.imageUrl || "").trim(),
+  unitAmount: Math.max(0, Math.round(Number(product?.unitAmount) || 0)),
+  currency: String(product?.currency || "usd").trim().toLowerCase() || "usd",
+  categories: normalizeProductCategories(product?.categories),
+  active: Boolean(product?.active),
+  stripePriceId: String(product?.stripePriceId || "").trim(),
+  variations: normalizeVariations(product?.variations),
+  taxCode: String(product?.taxCode || "").trim(),
+  createdAt: Number(product?.createdAt) || Date.now(),
+  updatedAt: Number(product?.updatedAt) || Date.now(),
+});
 
 const saveList = async () => {
   await persistProducts(products$.value, "Products saved.");
@@ -409,16 +618,16 @@ export const ProductsApp = tag(() => [
           items.map((item, index) =>
             div.class`product-row product-list-row`
               .onClick(() => openEditModal(index))(
-              item?.imageUrl
+              getPrimaryImage(item)?.imageUrl
                 ? a
                     .class`product-image-link`
-                    .href(item.imageUrl)
+                    .href(() => String(getPrimaryImage(item)?.imageUrl || ""))
                     .target`_blank`
                     .rel`noopener noreferrer`
                     .onClick((event) => event.stopPropagation())(
                     div
                       .class("product-thumb")
-                      .style(() => `background-image: url('${String(item.imageUrl || "").replace(/'/g, "%27")}')`)
+                      .style(() => `background-image: url('${String(getPrimaryImage(item)?.imageUrl || "").replace(/'/g, "%27")}')`)
                       ()
                     )
                 : div.class`product-thumb`(),
@@ -471,8 +680,9 @@ export const ProductsApp = tag(() => [
         modalOpen: ui?.modalOpen ?? false,
         title: ui?.modalMode === "edit" ? "Edit Product" : "Add Product",
         draggableTitle: true,
-        className: "ledger-modal",
-        cardClassName: "ledger-modal-card",
+        className: "ledger-modal products-modal",
+        cardClassName: "ledger-modal-card products-modal-card",
+        bodyClassName: "products-modal-body",
         onClose: closeModal,
         content: () => {
           const draftProduct = ui?.draftProduct;
@@ -561,23 +771,80 @@ export const ProductsApp = tag(() => [
                   });
                 })()
             ),
-            label(
-              "Image URL",
-              input
-                .class`manufacturer-input`
-                .type`url`
-                .placeholder`Image URL`
-                .value(() => draftProduct?.imageUrl ?? "")
-                .onInput((event) => {
-                  const current = getProductsUi().draftProduct;
-                  if (!current) return;
-                  setProductsUi({
-                    draftProduct: {
-                      ...current,
-                      imageUrl: String(event.target.value || ""),
-                    },
-                  });
-                })()
+            hr(),
+            div.class`product-field-full`(
+              strong("Product Images"),
+              span.class`field-help`(
+                "Add by file upload or legacy URL. New images are saved with upload time/date and location."
+              ),
+              label(
+                "Upload image file",
+                input
+                  .class`manufacturer-input`
+                  .type`file`
+                  .attr("accept", "image/*")
+                  .onChange((event) => {
+                    const current = getProductsUi().draftProduct;
+                    if (!current) return;
+                    const target = event?.target as HTMLInputElement | null;
+                    const file = target?.files?.[0] || null;
+                    if (file && file.size > MAX_PRODUCT_IMAGE_BYTES) {
+                      toast.error("Image must be 2MB or smaller.");
+                      if (target) {
+                        target.value = "";
+                      }
+                      setProductsUi({
+                        pendingImageFile: null,
+                      });
+                      return;
+                    }
+                    setProductsUi({
+                      pendingImageFile: file,
+                    });
+                  })(),
+                _=> getProductsUi().pendingImageFile
+                  ? span.class`field-help`(() => `Selected: ${getProductsUi().pendingImageFile?.name || ""}`)
+                  : null
+              ),
+              label(
+                "Add image by URL (optional)",
+                input
+                  .class`manufacturer-input`
+                  .type`url`
+                  .placeholder`https://...`
+                  .value(() => getProductsUi().pendingImageUrl || "")
+                  .onInput((event) => {
+                    setProductsUi({
+                      pendingImageUrl: String(event.target.value || ""),
+                    });
+                  })(),
+                span.class`field-help`("Useful for migrating old externally hosted images.")
+              ),
+              div.class`product-image-list`(
+                _=> {
+                  const images = getProductImagesWithFallback(draftProduct);
+                  if (!images.length) {
+                    return span.class`field-help`("No saved product images yet.");
+                  }
+                  return images.map((image, imageIndex) =>
+                    div.class`product-image-row`(
+                      a
+                        .href(image.imageUrl)
+                        .target`_blank`
+                        .rel`noopener noreferrer`(
+                        `Image ${imageIndex + 1}`
+                      ),
+                      span.class`field-help product-image-meta`(_=> `${image.uploadedDate} • ${image.location}`),
+                      button
+                        .type`button`
+                        .class`ghost-button delete-button`
+                        .onClick(() => removeImageFromDraft(imageIndex))(
+                        "Remove"
+                      )
+                    ).key(`draft-image-${imageIndex}`)
+                  );
+                },
+              )
             ),
             label(
               "Stripe price ID",
@@ -741,11 +1008,27 @@ export const ProductsApp = tag(() => [
                     .onClick(async () => {
                       if (ui?.isSaving) return;
                       if ((ui?.modalIndex ?? -1) >= 0) {
+                        const target = products$.value[ui.modalIndex];
+                        const targetImagePaths = new Set(
+                          [
+                            ...normalizeProductImages(target?.images).map((image) =>
+                              String(image?.imagePath || "").trim()
+                            ),
+                            String(target?.imagePath || "").trim(),
+                          ].filter(Boolean)
+                        );
                         setProductsUi({ isSaving: true });
                         const nextItems = products$.value.filter((_, index) => index !== ui.modalIndex);
                         const didSave = await persistProducts(nextItems, "Product removed.");
                         setProductsUi({ isSaving: false });
                         if (!didSave) return;
+                        await Promise.all(
+                          [...targetImagePaths].map((path) =>
+                            deleteProductImageByPath(path).catch((error) => {
+                              console.warn("Failed to cleanup deleted product image", error);
+                            })
+                          )
+                        );
                       }
                       closeModal();
                     })(
@@ -808,11 +1091,14 @@ const auth = startAdminAppShell({
         const normalized = sortProducts(
           (Array.isArray(items) ? items : [])
             .map((item) => ({
+              ...(item || {}),
               id: String(item?.id || "").trim(),
               title: String(item?.title || "").trim(),
               slug: toSlug(item?.slug || item?.title || ""),
               description: String(item?.description || "").trim(),
-              imageUrl: String(item?.imageUrl || "").trim(),
+              images: getProductImagesWithFallback(item),
+              imageUrl: String(getPrimaryImage(item)?.imageUrl || item?.imageUrl || "").trim(),
+              imagePath: String(getPrimaryImage(item)?.imagePath || item?.imagePath || "").trim(),
               unitAmount: Math.max(0, Math.round(Number(item?.unitAmount) || 0)),
               currency: String(item?.currency || "usd").trim().toLowerCase() || "usd",
               categories: normalizeProductCategories(item?.categories),

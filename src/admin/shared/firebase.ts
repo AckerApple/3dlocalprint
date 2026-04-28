@@ -21,9 +21,16 @@ import {
   serverTimestamp,
   runTransaction,
 } from "firebase/firestore";
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
 import { slugifyLocation } from "../filament/location-utils.js";
 import type { ManufacturerItem } from "../../types/filament.js";
-import type { ProductItem } from "../../types/product.js";
+import type { ProductImage, ProductItem } from "../../types/product.js";
 import { normalizeProductCategories } from "../../product-categories.js";
 
 const REQUIRED_FIREBASE_ENV_KEYS = [
@@ -53,11 +60,30 @@ const getRequiredEnv = (name: string, value: string | boolean | undefined): stri
   throw new Error(`Missing required environment variable: ${name}`);
 };
 
+const normalizeStorageBucketName = (value: string): string => {
+  const bucket = String(value || "")
+    .trim()
+    .replace(/^gs:\/\//i, "")
+    .replace(/^https?:\/\/storage\.googleapis\.com\//i, "")
+    .replace(/\/+$/g, "");
+  if (!bucket) return bucket;
+  return bucket;
+};
+
+if (import.meta.env.DEV) {
+  console.info(
+    "[firebase] storage bucket",
+    normalizeStorageBucketName(String(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || ""))
+  );
+}
+
 const firebaseConfig = {
   apiKey: getRequiredEnv("VITE_FIREBASE_API_KEY", import.meta.env.VITE_FIREBASE_API_KEY),
   authDomain: getRequiredEnv("VITE_FIREBASE_AUTH_DOMAIN", import.meta.env.VITE_FIREBASE_AUTH_DOMAIN),
   projectId: getRequiredEnv("VITE_FIREBASE_PROJECT_ID", import.meta.env.VITE_FIREBASE_PROJECT_ID),
-  storageBucket: getRequiredEnv("VITE_FIREBASE_STORAGE_BUCKET", import.meta.env.VITE_FIREBASE_STORAGE_BUCKET),
+  storageBucket: normalizeStorageBucketName(
+    getRequiredEnv("VITE_FIREBASE_STORAGE_BUCKET", import.meta.env.VITE_FIREBASE_STORAGE_BUCKET)
+  ),
   messagingSenderId: getRequiredEnv("VITE_FIREBASE_MESSAGING_SENDER_ID", import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID),
   appId: getRequiredEnv("VITE_FIREBASE_APP_ID", import.meta.env.VITE_FIREBASE_APP_ID),
 };
@@ -66,6 +92,8 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 const db = getFirestore(app);
+const storage = getStorage(app);
+const MAX_PRODUCT_IMAGE_BYTES = 2 * 1024 * 1024;
 
 const FILAMENT_INVENTORY_DOC = doc(db, "filament_inventory", "list");
 const FILAMENT_TYPES_DOC = doc(db, "filament_types", "list");
@@ -97,6 +125,29 @@ const normalizeManufacturerItems = (items: unknown): ManufacturerItem[] =>
     })
     .filter((item): item is ManufacturerItem => Boolean(item?.label));
 
+const normalizeProductImages = (images: unknown): ProductImage[] =>
+  (Array.isArray(images) ? images : [])
+    .map((image) => {
+      if (!image || typeof image !== "object") return null;
+      const imageUrl = String((image as { imageUrl?: unknown }).imageUrl || "").trim();
+      if (!imageUrl) return null;
+      const imagePath = String((image as { imagePath?: unknown }).imagePath || "").trim();
+      const uploadedAt = Number((image as { uploadedAt?: unknown }).uploadedAt) || Date.now();
+      const uploadedDate = String((image as { uploadedDate?: unknown }).uploadedDate || "").trim()
+        || new Date(uploadedAt).toISOString();
+      const location = String((image as { location?: unknown }).location || "").trim()
+        || imagePath
+        || imageUrl;
+      return {
+        imageUrl,
+        imagePath,
+        uploadedAt,
+        uploadedDate,
+        location,
+      } satisfies ProductImage;
+    })
+    .filter((image): image is NonNullable<typeof image> => Boolean(image?.imageUrl));
+
 const normalizeProductItems = (items: unknown): ProductItem[] =>
   (Array.isArray(items) ? items : [])
     .map((item) => {
@@ -110,6 +161,21 @@ const normalizeProductItems = (items: unknown): ProductItem[] =>
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "");
+      const images = normalizeProductImages((item as { images?: unknown }).images);
+      const fallbackImageUrl = String((item as { imageUrl?: unknown }).imageUrl || "").trim();
+      const fallbackImagePath = String((item as { imagePath?: unknown }).imagePath || "").trim();
+      const mergedImages = images.length
+        ? images
+        : (fallbackImageUrl
+            ? [{
+                imageUrl: fallbackImageUrl,
+                imagePath: fallbackImagePath,
+                uploadedAt: Date.now(),
+                uploadedDate: new Date().toISOString(),
+                location: fallbackImagePath || fallbackImageUrl,
+              } satisfies ProductImage]
+            : []);
+      const primaryImage = mergedImages[0];
       const rawVariations = (item as { variations?: unknown }).variations;
       const variations = (Array.isArray(rawVariations) ? rawVariations : [])
         .map((variation) => {
@@ -138,7 +204,9 @@ const normalizeProductItems = (items: unknown): ProductItem[] =>
         title,
         slug: slug || id,
         description: String((item as { description?: unknown }).description || "").trim(),
-        imageUrl: String((item as { imageUrl?: unknown }).imageUrl || "").trim(),
+        imageUrl: String(primaryImage?.imageUrl || "").trim(),
+        imagePath: String(primaryImage?.imagePath || "").trim(),
+        images: mergedImages,
         unitAmount: Math.max(0, Math.round(Number((item as { unitAmount?: unknown }).unitAmount) || 0)),
         currency: String((item as { currency?: unknown }).currency || "usd").trim().toLowerCase() || "usd",
         categories: normalizeProductCategories((item as { categories?: unknown }).categories),
@@ -150,7 +218,7 @@ const normalizeProductItems = (items: unknown): ProductItem[] =>
         updatedAt: Number((item as { updatedAt?: unknown }).updatedAt) || now,
       };
     })
-    .filter((item): item is ProductItem => Boolean(item?.id && item?.title));
+    .filter((item): item is NonNullable<typeof item> => Boolean(item?.id && item?.title));
 
 const isIOS = () =>
   typeof navigator !== "undefined" &&
@@ -433,6 +501,8 @@ const serializeLedgerEntries = (items = []) =>
     return {
       id,
       amount,
+      salesTaxLiability: Math.min(0, Number(item.salesTaxLiability) || 0),
+      processingFees: Math.min(0, Number(item.processingFees) || 0),
       title,
       moneyAccountTitle: String(item.moneyAccountTitle || "").trim(),
       billingCategory: String(item.billingCategory || "").trim() || "",
@@ -565,6 +635,63 @@ const subscribeProducts = (callback) =>
     }
   );
 
+const getFileExtension = (file: File) => {
+  const name = String(file?.name || "");
+  const fromName = name.includes(".") ? name.split(".").pop() : "";
+  const cleaned = String(fromName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  if (cleaned) return cleaned;
+  const mime = String(file?.type || "").toLowerCase();
+  if (mime === "image/jpeg") return "jpg";
+  if (mime === "image/png") return "png";
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/gif") return "gif";
+  if (mime === "image/avif") return "avif";
+  return "bin";
+};
+
+const uploadProductImageFile = async (file: File, productId: string) => {
+  if (!(file instanceof File)) {
+    throw new Error("Missing image file.");
+  }
+  if (file.size > MAX_PRODUCT_IMAGE_BYTES) {
+    throw new Error("Image must be 2MB or smaller.");
+  }
+  const normalizedProductId = String(productId || "").trim();
+  if (!normalizedProductId) {
+    throw new Error("Missing product id.");
+  }
+  const extension = getFileExtension(file);
+  const fileKey = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}.${extension}`;
+  const imagePath = `products/${normalizedProductId}/${fileKey}`;
+  const imageRef = storageRef(storage, imagePath);
+  await uploadBytes(imageRef, file, {
+    contentType: file.type || undefined,
+    cacheControl: "public,max-age=31536000,immutable",
+  });
+  const imageUrl = await getDownloadURL(imageRef);
+  return {
+    imagePath,
+    imageUrl,
+    uploadedAt: Date.now(),
+    uploadedDate: new Date().toISOString(),
+    location: imagePath,
+  };
+};
+
+const deleteProductImageByPath = async (imagePath = "") => {
+  const normalizedPath = String(imagePath || "").trim();
+  if (!normalizedPath) return;
+  try {
+    await deleteObject(storageRef(storage, normalizedPath));
+  } catch (error: any) {
+    const code = String(error?.code || "");
+    if (code === "storage/object-not-found") return;
+    throw error;
+  }
+};
+
 export {
   db,
   auth,
@@ -594,4 +721,6 @@ export {
   loadProducts,
   saveProducts,
   subscribeProducts,
+  uploadProductImageFile,
+  deleteProductImageByPath,
 };

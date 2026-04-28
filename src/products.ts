@@ -57,6 +57,13 @@ const matchesCategory = (product: ProductItem, category: string) => {
   return normalizeProductCategories(product.categories).includes(next);
 };
 
+const getPrimaryImageUrl = (product: ProductItem) => {
+  const images = Array.isArray(product?.images) ? product.images : [];
+  const firstImageUrl = String(images[0]?.imageUrl || "").trim();
+  if (firstImageUrl) return firstImageUrl;
+  return String(product?.imageUrl || "").trim();
+};
+
 const buildCard = (product: ProductItem) => {
   const card = document.createElement("article");
   card.className = "home-card home-product-card";
@@ -65,10 +72,11 @@ const buildCard = (product: ProductItem) => {
   link.className = "home-product-link";
   link.href = `./product/${encodeURIComponent(slug)}`;
 
-  if (product.imageUrl) {
+  const primaryImageUrl = getPrimaryImageUrl(product);
+  if (primaryImageUrl) {
     const media = document.createElement("div");
     media.className = "home-product-media";
-    media.style.backgroundImage = `url("${product.imageUrl.replace(/"/g, "%22")}")`;
+    media.style.backgroundImage = `url("${primaryImageUrl.replace(/"/g, "%22")}")`;
     link.append(media);
   }
 

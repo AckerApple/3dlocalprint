@@ -32,7 +32,38 @@ type LedgerEntryModalProps = {
   onClose: () => void;
   onSave: () => void;
   onDelete: () => void;
-  onSyncSaveState: () => void;
+  onSyncSaveState: (showErrors?: boolean) => void;
+};
+
+const creditOnlyCategories = new Set([
+  "Sales Revenue",
+  "Owner Contribution",
+  "Shipping Income",
+  "Bank Bonus Income",
+  "Sales Tax Collected",
+]);
+
+const debitOnlyCategories = new Set([
+  "Filament",
+  "Printer Parts",
+  "Tools",
+  "Packaging",
+  "Shipping Expense",
+  "Transfer to Credit Card",
+  "Marketing",
+  "Software",
+  "Event Fees",
+]);
+
+const isCategoryAllowedForAmountType = (
+  category: string,
+  amountType: LedgerDraft["amountType"]
+) => {
+  const value = String(category || "").trim();
+  if (!value || value === "Other") return true;
+  if (creditOnlyCategories.has(value)) return amountType === "credit";
+  if (debitOnlyCategories.has(value)) return amountType === "debit";
+  return true;
 };
 
 const renderFieldError = (
@@ -40,9 +71,11 @@ const renderFieldError = (
   errors: LedgerValidationErrors,
   field: keyof LedgerValidationErrors
 ) =>
-  submitted && errors[field]
-    ? p.class`ledger-field-error`(errors[field])
-    : null;
+  p
+    .class`ledger-field-error`
+    .attr("data-ledger-error", field)(
+    submitted && errors[field] ? errors[field] : ""
+  );
 
 export const LedgerEntryModal = tag(({
   modalOpen = false,
@@ -94,22 +127,128 @@ export const LedgerEntryModal = tag(({
     }
   }
 
+  const toForcedNegativeDecimal = (value: string) => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+
+    const cleaned = raw.replace(/[^\d.-]/g, "");
+    if (!cleaned) return "";
+
+    if (cleaned === "-" || cleaned === "-.") return "-";
+
+    const unsigned = cleaned.replace(/-/g, "");
+    if (!unsigned) return "-";
+
+    const hasTrailingDot = unsigned.endsWith(".");
+    const [wholePart = "", ...rest] = unsigned.split(".");
+    const fractionDigits = rest.join("").replace(/\./g, "").slice(0, 2);
+    const normalizedWhole = wholePart.replace(/^0+(?=\d)/, "") || "0";
+    const fractionPart = hasTrailingDot && !fractionDigits
+      ? "."
+      : (fractionDigits ? `.${fractionDigits}` : "");
+
+    return `-${normalizedWhole}${fractionPart}`;
+  };
+
+  const toForcedAmountSign = (
+    value: string,
+    amountType: LedgerDraft["amountType"]
+  ) => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+
+    const unsigned = raw.replace(/-/g, "");
+    if (!unsigned) return amountType === "debit" ? "-" : "";
+
+    return amountType === "debit" ? `-${unsigned}` : unsigned;
+  };
+
+  const syncAmountInput = (value: string) => {
+    const nextType = String(value ?? "").includes("-") ? "debit" : draft.amountType;
+    draft.amountType = nextType;
+    draft.amount = toForcedAmountSign(value, nextType);
+    if (!isCategoryAllowedForAmountType(draft.billingCategory, nextType)) {
+      draft.billingCategory = "";
+    }
+    if (nextType === "debit") {
+      draft.salesTaxLiability = "";
+      draft.processingFees = "";
+    }
+    onSyncSaveState();
+  };
+
+  const syncAmountType = (value: string) => {
+    draft.amountType = value === "debit" ? "debit" : "credit";
+    draft.amount = toForcedAmountSign(draft.amount, draft.amountType);
+    if (!isCategoryAllowedForAmountType(draft.billingCategory, draft.amountType)) {
+      draft.billingCategory = "";
+    }
+    if (draft.amountType === "debit") {
+      draft.salesTaxLiability = "";
+      draft.processingFees = "";
+    }
+    onSyncSaveState();
+  };
+
+  const renderAmountTypeField = () =>
+    label(
+      "Type",
+      select
+        .class`ledger-direction-select`
+        .value(() => draft.amountType)
+        .onChange((event) => {
+          syncAmountType(event.target.value);
+        })(
+        option.value`credit`("Credit"),
+        option.value`debit`("Debit")
+      )
+    );
+
+  const renderAmountField = (
+    errors: LedgerValidationErrors,
+    hasFieldError: (field: keyof LedgerValidationErrors) => boolean
+  ) =>
+    label(
+      "Amount",
+      input
+        .class(_=> hasFieldError("amount") ? "ledger-input-invalid" : "")
+        .attr("data-ledger-field", "amount")
+        .type`text`
+        .inputMode`decimal`
+        .placeholder(_=> draft.amountType === "debit" ? "-0.00" : "0.00")
+        .value(() => draft.amount)
+        .onInput((event) => {
+          syncAmountInput(event.target.value);
+        }),
+      renderFieldError(submitted, errors, "amount")
+    );
+
   const renderModalBody = () => {
     const errors = validateDraft(draft);
     const isValid = Object.keys(errors).length === 0;
     const categoryOptions = getAllCategoryOptions(entries);
+    const visibleCategoryOptions = categoryOptions.filter((category) =>
+      isCategoryAllowedForAmountType(category, draft.amountType)
+    );
+    const isSalesRevenueCategory = () =>
+      draft.amountType === "credit"
+      && String(draft.billingCategory || "").trim().toLowerCase() === "sales revenue";
     const shouldShowCustomCategoryInput = () => {
       const current = String(draft.billingCategory || "").trim();
-      return draft.billingCategory === "Other" || !categoryOptions.includes(current);
+      return draft.billingCategory === "Other" || !visibleCategoryOptions.includes(current);
     };
     const hasMoneyAccountError = () =>
       submitted && !String(draft.moneyAccountTitle || "").trim();
+    const hasFieldError = (field: keyof LedgerValidationErrors) =>
+      submitted && !!errors[field];
 
     return [
       div.class`ledger-form-grid`(
         label(
           "Title",
           input
+            .class(_=> hasFieldError("title") ? "ledger-input-invalid" : "")
+            .attr("data-ledger-field", "title")
             .type`text`
             .placeholder`Entry title`
             .value(() => draft.title)
@@ -119,23 +258,53 @@ export const LedgerEntryModal = tag(({
             }),
           renderFieldError(submitted, errors, "title")
         ),
-        label(
-          "Amount",
-          input
-            .type`text`
-            .inputmode`decimal`
-            .placeholder`0.00`
-            .value(() => draft.amount)
-            .onInput((event) => {
-              draft.amount = event.target.value;
-              onSyncSaveState();
-            }),
-          renderFieldError(submitted, errors, "amount")
-        ),
+        _=> isSalesRevenueCategory()
+          ? div.class`ledger-amount-group`(
+              p.class`ledger-amount-group-title`("Amounts"),
+              div.class`ledger-amount-grid`(
+                renderAmountTypeField(),
+                renderAmountField(errors, hasFieldError),
+                label(
+                  "Liability / Sales Tax",
+                  input
+                    .class(_=> hasFieldError("salesTaxLiability") ? "ledger-input-invalid" : "")
+                    .attr("data-ledger-field", "salesTaxLiability")
+                    .type`text`
+                    .inputMode`decimal`
+                    .placeholder`-0.00`
+                    .value(() => draft.salesTaxLiability)
+                    .onInput((event) => {
+                      draft.salesTaxLiability = toForcedNegativeDecimal(event.target.value);
+                      onSyncSaveState();
+                    }),
+                  renderFieldError(submitted, errors, "salesTaxLiability")
+                ),
+                label(
+                  "Processing Fees",
+                  input
+                    .class(_=> hasFieldError("processingFees") ? "ledger-input-invalid" : "")
+                    .attr("data-ledger-field", "processingFees")
+                    .type`text`
+                    .inputMode`decimal`
+                    .placeholder`-0.00`
+                    .value(() => draft.processingFees)
+                    .onInput((event) => {
+                      draft.processingFees = toForcedNegativeDecimal(event.target.value);
+                      onSyncSaveState();
+                    }),
+                  renderFieldError(submitted, errors, "processingFees")
+                ),
+              )
+            )
+          : div.class`ledger-amount-row`(
+              renderAmountTypeField(),
+              renderAmountField(errors, hasFieldError)
+            ),
         label(
           "Money Account",
           select
             .class(_=> `ledger-money-account-select${hasMoneyAccountError() ? " ledger-input-invalid" : ""}`)
+            .attr("data-ledger-field", "moneyAccountTitle")
             .required`true`
             .attr("aria-invalid", _=> (hasMoneyAccountError() ? "true" : "false"))
             .value(() => draft.moneyAccountTitle)
@@ -152,8 +321,10 @@ export const LedgerEntryModal = tag(({
           renderFieldError(submitted, errors, "moneyAccountTitle")
         ),
         label(
-          "Applicable Date",
+          "Created On",
           input
+            .class(_=> hasFieldError("applicableDate") ? "ledger-input-invalid" : "")
+            .attr("data-ledger-field", "applicableDate")
             .type`date`
             .value(() => draft.applicableDate)
             .onChange((event) => {
@@ -166,32 +337,44 @@ export const LedgerEntryModal = tag(({
           "Billing Category",
           div.class`ledger-category-row`(
             select
+              .class(_=> hasFieldError("billingCategory") ? "ledger-input-invalid" : "")
+              .attr("data-ledger-field", "billingCategory")
               .value(() => draft.billingCategory)
               .onChange((event) => {
                 const selected = event.target.value;
                 if (selected === "Other") {
                   const current = String(draft.billingCategory || "").trim();
-                  draft.billingCategory = categoryOptions.includes(current)
+                  draft.billingCategory = visibleCategoryOptions.includes(current)
                     ? "Other"
                     : (current || "");
                 } else {
                   draft.billingCategory = selected;
                 }
+                if (!isSalesRevenueCategory()) {
+                  draft.salesTaxLiability = "";
+                  draft.processingFees = "";
+                }
 
                 onSyncSaveState();
               })(
-              categoryOptions.map((category) =>
+              visibleCategoryOptions.map((category) =>
                 option.value(category)(category)
               )
             ),
             _=> shouldShowCustomCategoryInput()
               && input
+                .class(_=> hasFieldError("billingCategory") ? "ledger-input-invalid" : "")
+                .attr("data-ledger-field", "billingCategory")
                 .type`text`
                 .placeholder`Custom category`
                 .value(_=> draft.billingCategory)
                 .onInput((event) => {
                   const next = String(event.target.value || "").trim();
                   draft.billingCategory = next || "";
+                  if (!isSalesRevenueCategory()) {
+                    draft.salesTaxLiability = "";
+                    draft.processingFees = "";
+                  }
                   onSyncSaveState();
                 })
           ),
@@ -200,6 +383,8 @@ export const LedgerEntryModal = tag(({
         label(
           "Status",
           select
+            .class(_=> hasFieldError("status") ? "ledger-input-invalid" : "")
+            .attr("data-ledger-field", "status")
             .value(() => draft.status)
             .onChange((event) => {
               draft.status = event.target.value as LedgerEntry["status"];
@@ -254,9 +439,9 @@ export const LedgerEntryModal = tag(({
         button
           .id`ledgerSaveButton`
           .type`button`
-          .class`add-button`
-          .disabled(() => !isValid || isSaving || isDeleting)
-          .onClick(onSave)(
+        .class`add-button`
+        .disabled(() => isSaving || isDeleting)
+        .onClick(() => onSave())(
           isSaving ? "Saving..." : "Save"
         )
       )

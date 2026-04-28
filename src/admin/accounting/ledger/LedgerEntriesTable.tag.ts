@@ -7,6 +7,11 @@ type LedgerEntriesTableProps = {
   toDisplayAmount?: (value: number) => string;
 };
 
+const toNotesPreview = (value = "") => {
+  const firstLine = String(value || "").split(/\r?\n/)[0]?.trim() || "";
+  return firstLine.slice(0, 30);
+};
+
 export const LedgerEntriesTable = tag(({
   filteredEntries = [],
   onOpenEditModal = () => {},
@@ -28,7 +33,7 @@ export const LedgerEntriesTable = tag(({
         table.class`ledger-table`(
           thead(
             tr(
-              th("Applicable Date"),
+              th("Created On"),
               th("Title"),
               th("Category"),
               th("Status"),
@@ -42,10 +47,20 @@ export const LedgerEntriesTable = tag(({
                 .onClick(() => onOpenEditModal(entry.id))(
                 td(_=> entry.applicableDate || "—"),
                 td(
-                  span
-                    .class`ledger-title-cell`
-                    .title(_=> entry.title || "—")(
-                    _=> entry.title || "—"
+                  div.class`ledger-title-stack`(
+                    span
+                      .class`ledger-title-cell`
+                      .title(_=> entry.title || "—")(
+                      _=> entry.title || "—"
+                    ),
+                    _=> {
+                      const notesPreview = toNotesPreview(entry.notes);
+                      return notesPreview
+                        ? p
+                            .class`ledger-notes-preview`
+                            .title(() => entry.notes || "")(notesPreview)
+                        : null;
+                    }
                   )
                 ),
                 td(_=> entry.billingCategory || "—"),
@@ -61,14 +76,22 @@ export const LedgerEntriesTable = tag(({
                   )
                 ),
                 td(
-                  span.class(_=> `ledger-amount-value ${
-                    entry.amount > 0
-                      ? "ledger-amount-positive"
-                      : entry.amount < 0
-                        ? "ledger-amount-negative"
-                        : ""
-                  }`.trim())(
-                    _=> toDisplayAmount(entry.amount)
+                  div.class`ledger-amount-stack`(
+                    span.class(_=> `ledger-amount-value ${
+                      entry.amount > 0
+                        ? "ledger-amount-positive"
+                        : entry.amount < 0
+                          ? "ledger-amount-negative"
+                          : ""
+                    }`.trim())(
+                      _=> toDisplayAmount(entry.amount)
+                    ),
+                    _=> {
+                      const tax = Number(entry.salesTaxLiability) || 0;
+                      return tax
+                        ? p.class`ledger-tax-preview`(_=> `tax ${toDisplayAmount(tax)}`)
+                        : null;
+                    }
                   )
                 )
               ).key(entry.id)
