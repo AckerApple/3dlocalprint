@@ -15,7 +15,7 @@ import {
   footer,
   script,
 } from "taggedjs";
-import { htmlPage, favicon } from "./html.core.js";
+import { htmlPage, favicon } from "../../scripts/html.core.js";
 
 const withPrefix = (prefix, path) => {
   if (!prefix) return path;
@@ -241,10 +241,20 @@ export const homeQr1Page = ({ assetPrefix = "../" } = {}) =>
         div.class`home-card`(
           img
             .class("qr1-product-image")
-            .src("https://firebasestorage.googleapis.com/v0/b/threedlocalprint.firebasestorage.app/o/products%2F484b16aa-cbab-4f8b-a074-b07fe0058c70%2F1777389811396_awwj560.jpg")
+            .src("https://firebasestorage.googleapis.com/v0/b/threedlocalprint.firebasestorage.app/o/products%2F484b16aa-cbab-4f8b-a074-b07fe0058c70%2F1777389811396_awwj560.jpg?alt=media")
             .alt("Jesus Angel Keychain")
             .loading("lazy"),
-          p("Hello world")
+          
+          p(`🚧 We are currently working towards opening a full blown business.`),
+          p(`Your support goes a long! Check back often please and thank you.`),
+          p(
+            "If you would like to purchase Jesus keychains, especially because they are just so cute, please email us at ",
+            a
+              .href("mailto:service@3dlocalprint.com?subject=Purchase Jesus Keychains")
+              .style("text-decoration: none;")(
+              "📧 service@3dlocalprint.com"
+            )
+          ),
         )
       ),
     ],

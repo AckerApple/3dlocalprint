@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { renderDocument } from "./html.render.js";
-import { filamentIndexPage } from "./filament.index.html.js";
-import { filamentStandalonePage } from "./filament.standalone.html.js";
-import { filamentFastEditPage } from "./filament.fast-edit.html.js";
+import { filamentIndexPage } from "../src/page-generators/filament.index.html.js";
+import { filamentStandalonePage } from "../src/page-generators/filament.standalone.html.js";
+import { filamentFastEditPage } from "../src/page-generators/filament.fast-edit.html.js";
 import {
   homeLandingPage,
   homeProductsPage,
@@ -11,7 +11,7 @@ import {
   homeCartPage,
   homeQr1Page,
   homeNotFoundPage,
-} from "./home.pages.js";
+} from "../src/page-generators/home.pages.js";
 
 const locations = ["Fireguys", "Apples"];
 

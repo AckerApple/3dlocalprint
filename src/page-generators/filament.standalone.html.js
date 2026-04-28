@@ -1,5 +1,5 @@
 import { link, main, script } from "taggedjs";
-import { htmlPage, versionBadge } from "./html.core.js";
+import { htmlPage, versionBadge } from "../../scripts/html.core.js";
 
 const withPrefix = (prefix, path) => {
   if (!prefix) return path;

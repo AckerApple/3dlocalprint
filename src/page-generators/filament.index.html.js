@@ -9,7 +9,7 @@ import {
   p,
   script,
 } from "taggedjs";
-import { htmlPage, favicon, versionBadge } from "./html.core.js";
+import { htmlPage, favicon, versionBadge } from "../../scripts/html.core.js";
 
 const withPrefix = (prefix, path) => {
   if (!prefix) return path;
