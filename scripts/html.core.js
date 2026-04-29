@@ -8,9 +8,15 @@ import {
   div,
   htmlTag,
 } from "taggedjs";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 
-export const favicon =
-  'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🖨️</text></svg>';
+const faviconSvg = readFileSync(
+  resolve(process.cwd(), "src/assets/logo/transparent.svg"),
+  "utf-8"
+).trim();
+
+export const favicon = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
 
 export const htmlPage = ({
   pageTitle,

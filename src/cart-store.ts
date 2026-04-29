@@ -44,6 +44,15 @@ export const saveCart = (items: CartItem[]) => {
 export const getCartQuantity = () =>
   loadCart().reduce((sum, item) => sum + clampQuantity(item.quantity), 0);
 
+export const getCartItemQuantity = (productId: string, variationId = "") => {
+  const id = String(productId || "").trim();
+  const variant = String(variationId || "").trim();
+  if (!id) return 0;
+  return loadCart()
+    .filter((item) => item.productId === id && String(item.variationId || "") === variant)
+    .reduce((sum, item) => sum + clampQuantity(item.quantity), 0);
+};
+
 export const addToCart = (productId: string, quantity: number, variationId = "") => {
   const id = String(productId || "").trim();
   const variant = String(variationId || "").trim();

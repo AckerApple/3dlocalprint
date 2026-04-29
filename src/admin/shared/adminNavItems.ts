@@ -57,6 +57,12 @@ export const adminNavGroups = [
         href: "products/index.html",
         emoji: "🛒",
       },
+      {
+        label: "Orders",
+        details: "Inspect checkout orders, payment status, and Stripe links.",
+        href: "orders/index.html",
+        emoji: "🧾",
+      },
     ],
   },
   {

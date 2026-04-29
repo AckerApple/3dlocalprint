@@ -479,7 +479,7 @@ export const FilamentTypeEditor = tag(({
               div.class`barcode-entry`(
                 input
                   .class`qr-edit-input`
-                  .value(barcode ?? "")
+                  .value(_=> barcode ?? "")
                   .onInput((event) => updateBarcode(item, barcodeIndex, event.target.value))(),
                 button
                   .type`button`

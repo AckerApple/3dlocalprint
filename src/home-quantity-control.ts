@@ -1,73 +1,70 @@
-type HomeQuantityControlOptions = {
+import { tag, div, span, button } from "taggedjs";
+
+export type HomeQuantityControlOptions = {
   initialQuantity?: number;
   getQuantityState?: () => number;
   setQuantityState?: (quantity: number) => void;
   onBeforeAction?: (event: Event) => void;
+  onChange?: (quantity: number) => void;
 };
 
 const clampQuantity = (value: number) => Math.max(1, Math.min(99, Math.floor(Number(value) || 1)));
 
-export const createHomeQuantityControl = ({
+export const getHomeQuantity = ({
+  initialQuantity = 1,
+  getQuantityState,
+}: Pick<HomeQuantityControlOptions, "initialQuantity" | "getQuantityState">) =>
+  clampQuantity(typeof getQuantityState === "function" ? getQuantityState() : initialQuantity);
+
+export const setHomeQuantity = (
+  nextValue: number,
+  {
+    setQuantityState,
+    onChange,
+  }: Pick<HomeQuantityControlOptions, "setQuantityState" | "onChange">,
+) => {
+  const normalized = clampQuantity(nextValue);
+  setQuantityState?.(normalized);
+  onChange?.(normalized);
+  return normalized;
+};
+
+export const HomeQuantityControl = tag(({
   initialQuantity = 1,
   getQuantityState,
   setQuantityState,
   onBeforeAction,
+  onChange,
 }: HomeQuantityControlOptions) => {
-  const wrap = document.createElement("div");
-  wrap.className = "home-qty-wrap";
+  let quantity = getHomeQuantity({ initialQuantity, getQuantityState });
 
-  const label = document.createElement("span");
-  label.className = "home-qty-label";
-  label.textContent = "Quantity";
+  HomeQuantityControl.updates(() => {
+    quantity = getHomeQuantity({ initialQuantity, getQuantityState });
+  })
 
-  const control = document.createElement("div");
-  control.className = "home-qty-control";
-
-  const minus = document.createElement("button");
-  minus.type = "button";
-  minus.className = "ghost-button home-qty-btn";
-  minus.textContent = "−";
-
-  const plus = document.createElement("button");
-  plus.type = "button";
-  plus.className = "ghost-button home-qty-btn";
-  plus.textContent = "+";
-
-  const count = document.createElement("span");
-  count.className = "home-qty-count";
-
-  const getQuantity = () =>
-    clampQuantity(typeof getQuantityState === "function" ? getQuantityState() : initialQuantity);
-
-  const setQuantity = (nextValue: number) => {
-    const normalized = clampQuantity(nextValue);
-    if (typeof setQuantityState === "function") {
-      setQuantityState(normalized);
-    }
-    control.innerHTML = "";
-    if (normalized > 1) {
-      control.append(minus);
-    }
-    count.textContent = String(normalized);
-    control.append(count, plus);
+  const setQuantity = (event: Event, nextValue: number) => {
+    onBeforeAction?.(event);
+    setHomeQuantity(nextValue, { setQuantityState, onChange });
   };
 
-  plus.addEventListener("click", (event) => {
-    onBeforeAction?.(event);
-    setQuantity(getQuantity() + 1);
-  });
-
-  minus.addEventListener("click", (event) => {
-    onBeforeAction?.(event);
-    setQuantity(getQuantity() - 1);
-  });
-
-  setQuantity(getQuantity());
-  wrap.append(label, control);
-
-  return {
-    element: wrap,
-    getQuantity,
-    setQuantity,
-  };
-};
+  return div.class`home-qty-wrap`(
+    span.class`home-qty-label`("Quantity"),
+    div.class`home-qty-control`(
+      _=> quantity > 1
+        ? button
+            .type`button`
+            .class`ghost-button home-qty-btn`
+            .onClick((event) => setQuantity(event, quantity - 1))(
+            "-"
+          )
+        : null,
+      span.class`home-qty-count`(_=> String(quantity)),
+      button
+        .type`button`
+        .class`ghost-button home-qty-btn`
+        .onClick((event) => setQuantity(event, quantity + 1))(
+        "+"
+      )
+    )
+  );
+});

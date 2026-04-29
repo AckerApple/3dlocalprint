@@ -1,7 +1,19 @@
 import { loadProducts } from "./admin/shared/firebase.js";
 import type { ProductItem } from "./types/product.js";
 import { PRODUCT_CATEGORIES, normalizeProductCategories } from "./product-categories.js";
-import { createHomeCartActions } from "./home-cart-actions.js";
+import { HomeCartActions } from "./home-cart-actions.js";
+import {
+  tag,
+  tagElement,
+  div,
+  a,
+  h2,
+  p,
+  span,
+  label,
+  select,
+  option,
+} from "taggedjs";
 
 const productsRoot = document.getElementById("homeProductsGrid");
 const productsFilterRoot = document.getElementById("homeProductsFilter");
@@ -9,7 +21,15 @@ let loadedProducts: ProductItem[] = [];
 let selectedCategory = "";
 const selectedQuantities = new Map<string, number>();
 
-const normalizeVariations = (product: ProductItem) =>
+type ProductVariationView = {
+  id: string;
+  label: string;
+  unitAmount: number;
+  stripePriceId: string;
+  active: boolean;
+};
+
+const normalizeVariations = (product: ProductItem): ProductVariationView[] =>
   (Array.isArray(product?.variations) ? product.variations : [])
     .map((variation) => ({
       id: String(variation?.id || "").trim(),
@@ -19,6 +39,14 @@ const normalizeVariations = (product: ProductItem) =>
       active: Boolean(variation?.active),
     }))
     .filter((variation) => variation.id && variation.label && variation.active);
+
+const formatPrice = (unitAmount = 0, currency = "usd") =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: String(currency || "usd").toUpperCase(),
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format((Math.max(0, Number(unitAmount) || 0)) / 100);
 
 const getDisplayPrice = (product: ProductItem) => {
   const variations = normalizeVariations(product);
@@ -36,14 +64,6 @@ const getDisplayPrice = (product: ProductItem) => {
 };
 
 const getDefaultVariation = (product: ProductItem) => normalizeVariations(product)[0] || null;
-
-const formatPrice = (unitAmount = 0, currency = "usd") =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: String(currency || "usd").toUpperCase(),
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format((Math.max(0, Number(unitAmount) || 0)) / 100);
 
 const toSnippet = (value: string, max = 55) => {
   const flat = String(value || "").replace(/\s+/g, " ").trim();
@@ -64,143 +84,98 @@ const getPrimaryImageUrl = (product: ProductItem) => {
   return String(product?.imageUrl || "").trim();
 };
 
-const buildCard = (product: ProductItem) => {
-  const card = document.createElement("article");
-  card.className = "home-card home-product-card";
-  const slug = String(product.slug || product.id || "").trim();
-  const link = document.createElement("a");
-  link.className = "home-product-link";
-  link.href = `./product/${encodeURIComponent(slug)}`;
-
-  const primaryImageUrl = getPrimaryImageUrl(product);
-  if (primaryImageUrl) {
-    const media = document.createElement("div");
-    media.className = "home-product-media";
-    media.style.backgroundImage = `url("${primaryImageUrl.replace(/"/g, "%22")}")`;
-    link.append(media);
-  }
-
-  const title = document.createElement("h2");
-  title.textContent = product.title;
-  link.append(title);
-
-  const descriptionText = toSnippet(product.description || "", 55);
-  if (descriptionText) {
-    const description = document.createElement("p");
-    description.className = "home-product-snippet";
-    description.textContent = descriptionText;
-    link.append(description);
-  }
-
-  const categories = normalizeProductCategories(product.categories);
-  if (categories.length) {
-    const categoriesWrap = document.createElement("div");
-    categoriesWrap.className = "home-product-categories";
-    categories.forEach((category) => {
-      const chip = document.createElement("span");
-      chip.className = "home-product-category-chip";
-      chip.textContent = category;
-      categoriesWrap.append(chip);
-    });
-    link.append(categoriesWrap);
-  }
-
-  const price = document.createElement("div");
-  price.className = "home-card-tag";
-  price.textContent = getDisplayPrice(product);
-  link.append(price);
-
-  card.append(link);
-
-  const actions = createHomeCartActions({
-    productId: product.id,
-    getVariationId: () => getDefaultVariation(product)?.id || "",
-    initialQuantity: 1,
-    getQuantityState: () => selectedQuantities.get(product.id) || 1,
-    setQuantityState: (quantity) => {
-      selectedQuantities.set(product.id, quantity);
-    },
-    onBeforeAction: (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    },
-  });
-  card.append(actions);
-
-  return card;
-};
-
-const renderEmpty = (message: string) => {
-  if (!productsRoot) return;
-  productsRoot.innerHTML = "";
-
-  const card = document.createElement("article");
-  card.className = "home-card home-card-muted";
-  const title = document.createElement("h2");
-  title.textContent = "No products yet";
-  const body = document.createElement("p");
-  body.textContent = message;
-  card.append(title, body);
-  productsRoot.append(card);
-};
-
-const renderProducts = (items: ProductItem[]) => {
-  if (!productsRoot) return;
-  productsRoot.innerHTML = "";
-
-  if (!items.length) {
-    renderEmpty("Products are being prepared. Please check back soon.");
-    return;
-  }
-
-  items.forEach((item) => {
-    productsRoot.append(buildCard(item));
-  });
-};
-
-const renderFilteredProducts = () => {
-  const filtered = loadedProducts
+const getFilteredProducts = () =>
+  loadedProducts
     .filter((item) => matchesCategory(item, selectedCategory))
     .sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
-  renderProducts(filtered);
+
+const renderProducts = () => {
+  if (!productsRoot) return;
+  productsRoot.replaceChildren();
+  tagElement(ProductGridApp, productsRoot);
 };
 
 const renderFilter = () => {
   if (!productsFilterRoot) return;
-  productsFilterRoot.innerHTML = "";
-
-  const wrap = document.createElement("div");
-  wrap.className = "home-products-filter-wrap";
-
-  const label = document.createElement("label");
-  label.className = "home-products-filter-label";
-  label.textContent = "Category";
-
-  const select = document.createElement("select");
-  select.className = "manufacturer-input home-products-filter-select";
-
-  const allOption = document.createElement("option");
-  allOption.value = "";
-  allOption.textContent = "All categories";
-  select.append(allOption);
-
-  PRODUCT_CATEGORIES.forEach((category) => {
-    const option = document.createElement("option");
-    option.value = category;
-    option.textContent = category;
-    select.append(option);
-  });
-
-  select.value = selectedCategory;
-  select.addEventListener("change", () => {
-    selectedCategory = String(select.value || "").trim().toLowerCase();
-    renderFilteredProducts();
-  });
-
-  label.append(select);
-  wrap.append(label);
-  productsFilterRoot.append(wrap);
+  productsFilterRoot.replaceChildren();
+  tagElement(ProductFilterApp, productsFilterRoot);
 };
+
+const ProductCard = (product: ProductItem) => {
+  const slug = String(product.slug || product.id || "").trim();
+  const primaryImageUrl = getPrimaryImageUrl(product);
+  const descriptionText = toSnippet(product.description || "", 55);
+  const categories = normalizeProductCategories(product.categories);
+
+  return div.class`home-card home-product-card`(
+    a.class`home-product-link`.href(`./product/${encodeURIComponent(slug)}`)(
+      primaryImageUrl
+        ? div
+            .class`home-product-media`
+            .style(`background-image: url("${primaryImageUrl.replace(/"/g, "%22")}")`)()
+        : null,
+      h2(product.title),
+      descriptionText
+        ? p.class`home-product-snippet`(descriptionText)
+        : null,
+      categories.length
+        ? div.class`home-product-categories`(
+            categories.map((category) =>
+              span.class`home-product-category-chip`(category)
+            )
+          )
+        : null,
+      div.class`home-card-tag`(_=> getDisplayPrice(product))
+    ),
+    HomeCartActions({
+      productId: product.id,
+      getVariationId: () => getDefaultVariation(product)?.id || "",
+      initialQuantity: 1,
+      getQuantityState: () => selectedQuantities.get(product.id) || 1,
+      setQuantityState: (quantity) => {
+        selectedQuantities.set(product.id, quantity);
+      },
+      onBeforeAction: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      requestRender: renderProducts,
+    })
+  );
+};
+
+const ProductGridApp = tag(() => {
+  const items = getFilteredProducts();
+  if (!items.length) {
+    return [
+      div.class`home-card home-card-muted`(
+        h2("No products yet"),
+        p("Products are being prepared. Please check back soon.")
+      ),
+    ];
+  }
+  return items.map((item) => ProductCard(item));
+});
+
+const ProductFilterApp = tag(() =>
+  div.class`home-products-filter-wrap`(
+    label.class`home-products-filter-label`(
+      "Category",
+      select
+        .class`manufacturer-input home-products-filter-select`
+        .value(_=> selectedCategory)
+        .onChange((event) => {
+          selectedCategory = String(event.target.value || "").trim().toLowerCase();
+          renderProducts();
+        })(
+        option.value``("All categories"),
+        PRODUCT_CATEGORIES.map((category) =>
+          option.value(category)(category)
+        )
+      )
+    )
+  )
+);
 
 const load = async () => {
   if (!productsRoot) return;
@@ -213,10 +188,20 @@ const load = async () => {
         categories: normalizeProductCategories(item?.categories),
       }));
     renderFilter();
-    renderFilteredProducts();
+    renderProducts();
   } catch (error) {
     console.error("Failed to load products page data", error);
-    renderEmpty("Products are unavailable right now.");
+    loadedProducts = [];
+    renderFilter();
+    if (!productsRoot) return;
+    productsRoot.replaceChildren();
+    tagElement(
+      tag(() => div.class`home-card home-card-muted`(
+        h2("No products yet"),
+        p("Products are unavailable right now.")
+      )),
+      productsRoot
+    );
   }
 };
 

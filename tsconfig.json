@@ -21,6 +21,7 @@
     "vite.config.js"
   ],
   "exclude": [
+    ".build-html",
     "docs",
     "node_modules"
   ]

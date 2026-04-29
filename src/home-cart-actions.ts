@@ -1,61 +1,74 @@
-import { addToCart } from "./cart-store.js";
-import { createHomeQuantityControl } from "./home-quantity-control.js";
+import { tag, div, button, span } from "taggedjs";
+import { addToCart, getCartItemQuantity } from "./cart-store.js";
+import {
+  HomeQuantityControl,
+  getHomeQuantity,
+  type HomeQuantityControlOptions,
+} from "./home-quantity-control.js";
 
-type HomeCartActionsOptions = {
+type HomeCartActionsOptions = HomeQuantityControlOptions & {
   productId: string;
   getVariationId?: () => string;
-  initialQuantity?: number;
-  getQuantityState?: () => number;
-  setQuantityState?: (quantity: number) => void;
-  onBeforeAction?: (event: Event) => void;
+  requestRender?: () => void;
 };
 
-export const createHomeCartActions = ({
+const addedProductIds = new Set<string>();
+
+const getActionKey = (productId: string, variationId = "") => `${productId}::${variationId}`;
+
+export const HomeCartActions = tag(({
   productId,
   getVariationId,
   initialQuantity = 1,
   getQuantityState,
   setQuantityState,
-  onBeforeAction,
+  onBeforeAction = () => null,
+  requestRender,
 }: HomeCartActionsOptions) => {
-  const actions = document.createElement("div");
-  actions.className = "home-product-actions";
+  const variationId = String(getVariationId?.() || "").trim();
+  const actionKey = getActionKey(productId, variationId);
+  const isAdded = addedProductIds.has(actionKey);
+  const quantityInCart = getCartItemQuantity(productId, variationId);
 
-  const quantityControl = createHomeQuantityControl({
-    initialQuantity,
-    getQuantityState,
-    setQuantityState,
-    onBeforeAction,
-  });
+  const handleAdd = (event: Event) => {
+    const quantity = getHomeQuantity({ initialQuantity, getQuantityState });
+    addToCart(productId, quantity, variationId);
+    addedProductIds.add(actionKey);
+    onBeforeAction(event);
+    requestRender?.();
 
-  const addButton = document.createElement("button");
-  addButton.type = "button";
-  addButton.className = "add-button home-add-cart-btn";
-  addButton.textContent = "Add to cart";
+    window.setTimeout(tag.callback(() => {
+      addedProductIds.delete(actionKey);
+      requestRender?.();
+    }), 1200)
+  };
 
-  const checkoutButton = document.createElement("button");
-  checkoutButton.type = "button";
-  checkoutButton.className = "ghost-button home-checkout-btn";
-  checkoutButton.textContent = "Checkout";
-  checkoutButton.style.display = "none";
-  checkoutButton.addEventListener("click", (event) => {
-    onBeforeAction?.(event);
-    window.location.href = "./cart.html";
-  });
-
-  addButton.addEventListener("click", (event) => {
-    onBeforeAction?.(event);
-    const quantity = quantityControl.getQuantity();
-    addToCart(productId, quantity, String(getVariationId?.() || "").trim());
-    checkoutButton.style.display = "inline-flex";
-    addButton.classList.add("is-success");
-    addButton.textContent = "👍 Added";
-    window.setTimeout(() => {
-      addButton.classList.remove("is-success");
-      addButton.textContent = "Add to cart";
-    }, 1200);
-  });
-
-  actions.append(quantityControl.element, addButton, checkoutButton);
-  return actions;
-};
+  return div.class`home-product-actions`(
+    _=> HomeQuantityControl({
+      initialQuantity,
+      getQuantityState,
+      setQuantityState,
+      onBeforeAction,
+    }),
+    button
+      .type`button`
+      .class(_=> `add-button home-add-cart-btn${isAdded ? " is-success" : ""}`)
+      .onClick(handleAdd)(
+      span.class`home-add-cart-text`(_=> isAdded ? "added" : "add to cart"),
+      quantityInCart > 0
+        ? span.class`home-add-cart-count`(_=> `${quantityInCart} in cart`)
+        : null
+    ),
+    isAdded
+      ? button
+          .type`button`
+          .class`ghost-button home-checkout-btn`
+          .onClick((event) => {
+            onBeforeAction?.(event);
+            window.location.href = "./cart.html";
+          })(
+          "Checkout"
+        )
+      : null
+  );
+});

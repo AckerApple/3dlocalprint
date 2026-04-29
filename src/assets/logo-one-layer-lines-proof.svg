@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title desc">
+  <title id="title">3D Local Print apple logo proof</title>
+  <desc id="desc">A simplified black apple logo with subtle 3D print layer lines.</desc>
+  <defs>
+    <clipPath id="apple-shape">
+      <path d="M390 298c-24-38-82-45-127-8-55 45-58 145-12 218 36 56 85 91 131 91 22 0 36-8 49-8 12 0 28 8 50 8 47 0 96-35 132-91 47-73 43-173-12-218-45-37-104-30-128 8-23-17-60-17-83 0Z" />
+    </clipPath>
+    <linearGradient id="line-fade" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.2" />
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.44" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.2" />
+    </linearGradient>
+  </defs>
+
+  <g fill="none" stroke="#202124" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="18" d="M317 232c14-34 46-53 91-56" />
+    <path stroke-width="18" d="M484 226c-29 5-56-1-75-18 25-27 62-37 104-27 1 21-10 37-29 45Z" fill="#202124" />
+    <path stroke-width="16" d="M399 238v42" />
+    <path stroke-width="14" d="M356 254h88" />
+    <path stroke-width="14" d="M369 229h62" />
+  </g>
+
+  <path d="M390 298c-24-38-82-45-127-8-55 45-58 145-12 218 36 56 85 91 131 91 22 0 36-8 49-8 12 0 28 8 50 8 47 0 96-35 132-91 47-73 43-173-12-218-45-37-104-30-128 8-23-17-60-17-83 0Z" fill="#202124" />
+  <path d="M430 287c-10 31-11 249 0 309" stroke="#fdfbf7" stroke-width="10" stroke-linecap="round" opacity="0.85" />
+
+  <g clip-path="url(#apple-shape)" fill="none" stroke="url(#line-fade)" stroke-width="8" stroke-linecap="round">
+    <path d="M266 346c61 20 206 19 267-1" />
+    <path d="M242 391c78 23 261 22 339-1" />
+    <path d="M238 438c84 23 281 23 365 0" />
+    <path d="M252 485c75 20 252 20 328 0" />
+    <path d="M285 532c52 15 179 15 232 0" />
+  </g>
+
+  <g fill="#fdfbf7" opacity="0.95">
+    <circle cx="318" cy="358" r="7" />
+    <circle cx="283" cy="422" r="6" />
+    <circle cx="332" cy="508" r="6" />
+    <circle cx="534" cy="386" r="6" />
+    <circle cx="563" cy="462" r="7" />
+    <circle cx="501" cy="529" r="6" />
+  </g>
+</svg>

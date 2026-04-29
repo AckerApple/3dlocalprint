@@ -1,10 +1,25 @@
 import { loadProducts } from "./admin/shared/firebase.js";
 import type { ProductItem } from "./types/product.js";
 import { normalizeProductCategories } from "./product-categories.js";
-import { createHomeCartActions } from "./home-cart-actions.js";
+import { HomeCartActions } from "./home-cart-actions.js";
+import {
+  tag,
+  tagElement,
+  div,
+  p,
+  h2,
+  span,
+  label,
+  select,
+  option,
+  a,
+} from "taggedjs";
 
 const detailRoot = document.getElementById("homeProductDetail");
 const pageTitleRoot = document.getElementById("homeProductPageTitle");
+let loadedProduct: ProductItem | null = null;
+let selectedVariationId = "";
+let messageState: { title: string; message: string } | null = null;
 
 type ProductVariationView = {
   id: string;
@@ -57,115 +72,109 @@ const getPrimaryImageUrl = (product: ProductItem) => {
   return String(product?.imageUrl || "").trim();
 };
 
-const renderMessage = (title: string, message: string) => {
+const getSelectedVariation = (product: ProductItem) => {
+  const variations = normalizeVariations(product);
+  return variations.find((variation) => variation.id === selectedVariationId) || variations[0] || null;
+};
+
+const renderProductDetail = () => {
   if (!detailRoot) return;
+  detailRoot.replaceChildren();
+  tagElement(ProductDetailApp, detailRoot);
+};
+
+const renderMessage = (title: string, message: string) => {
+  messageState = { title, message };
+  loadedProduct = null;
   if (pageTitleRoot) {
     pageTitleRoot.textContent = "Products";
   }
-  detailRoot.innerHTML = "";
-  const card = document.createElement("article");
-  card.className = "home-card home-card-muted";
-  const h2 = document.createElement("h2");
-  h2.textContent = title;
-  const p = document.createElement("p");
-  p.textContent = message;
-  card.append(h2, p);
-  detailRoot.append(card);
+  renderProductDetail();
 };
 
-const renderProduct = (product: ProductItem) => {
-  if (!detailRoot) return;
-  if (pageTitleRoot) {
-    pageTitleRoot.textContent = String(product.title || "Products").trim() || "Products";
-  }
-  detailRoot.innerHTML = "";
+const ProductMessage = (title: string, message: string) =>
+  div.class`home-card home-card-muted`(
+    h2(title),
+    p(message)
+  );
 
-  const card = document.createElement("article");
-  card.className = "home-card home-product-detail-card";
+const ProductDetailApp = tag(() => {
+  if (messageState) {
+    return [ProductMessage(messageState.title, messageState.message)];
+  }
+
+  const product = loadedProduct;
+  if (!product) {
+    return [
+      div.class`home-products-loading`(
+        div.class`home-products-spinner`().attr("aria-hidden", "true"),
+        p.class`home-products-loading-text`("Loading product...")
+      ),
+    ];
+  }
 
   const primaryImageUrl = getPrimaryImageUrl(product);
-  if (primaryImageUrl) {
-    const media = document.createElement("div");
-    media.className = "home-product-detail-media";
-    media.style.backgroundImage = `url("${primaryImageUrl.replace(/"/g, "%22")}")`;
-    card.append(media);
-  }
-
   const descriptionText = String(product.description || "").trim();
-  if (descriptionText) {
-    const description = document.createElement("p");
-    description.className = "home-product-description";
-    description.textContent = descriptionText;
-    card.append(description);
-  }
-
   const categories = normalizeProductCategories(product.categories);
-  if (categories.length) {
-    const categoriesWrap = document.createElement("div");
-    categoriesWrap.className = "home-product-categories";
-    categories.forEach((category) => {
-      const chip = document.createElement("span");
-      chip.className = "home-product-category-chip";
-      chip.textContent = category;
-      categoriesWrap.append(chip);
-    });
-    card.append(categoriesWrap);
-  }
-
-  const price = document.createElement("div");
-  price.className = "home-card-tag";
   const variations = normalizeVariations(product);
-  const defaultVariation = variations[0] || null;
-  price.textContent = formatPrice(defaultVariation?.unitAmount ?? product.unitAmount, product.currency);
-  card.append(price);
+  const selectedVariation = getSelectedVariation(product);
 
-  const row = document.createElement("div");
-  row.className = "home-product-detail-actions";
-
-  let selectedVariationId = defaultVariation?.id || "";
-  if (variations.length) {
-    const variationLabel = document.createElement("label");
-    variationLabel.className = "home-products-filter-label";
-    variationLabel.textContent = "OPTIONS";
-
-    const variationSelect = document.createElement("select");
-    variationSelect.className = "manufacturer-input home-products-filter-select";
-    variations.forEach((variation) => {
-      const item = document.createElement("option");
-      item.value = variation.id;
-      item.textContent = `${variation.label} - ${formatPrice(variation.unitAmount, product.currency)}`;
-      variationSelect.append(item);
-    });
-    variationSelect.value = selectedVariationId;
-    variationSelect.addEventListener("change", () => {
-      selectedVariationId = String(variationSelect.value || "").trim();
-      const next = variations.find((variation) => variation.id === selectedVariationId) || defaultVariation;
-      price.textContent = formatPrice(next?.unitAmount ?? product.unitAmount, product.currency);
-    });
-    variationLabel.append(variationSelect);
-    row.append(variationLabel);
-  }
-
-  const cartActions = createHomeCartActions({
-    productId: product.id,
-    getVariationId: () => selectedVariationId,
-    initialQuantity: 1,
-  });
-  cartActions.classList.add("home-product-detail-cart-actions");
-  row.append(cartActions);
-
-  const backLink = document.createElement("a");
-  backLink.className = "ghost-button";
-  backLink.href = "../products.html";
-  backLink.textContent = "Back to Products";
-  row.append(backLink);
-  card.append(row);
-
-  detailRoot.append(card);
-};
+  return [
+    div.class`home-card home-product-detail-card`(
+      primaryImageUrl
+        ? div
+            .class`home-product-detail-media`
+            .style(`background-image: url("${primaryImageUrl.replace(/"/g, "%22")}")`)()
+        : null,
+      descriptionText
+        ? p.class`home-product-description`(descriptionText)
+        : null,
+      categories.length
+        ? div.class`home-product-categories`(
+            categories.map((category) =>
+              span.class`home-product-category-chip`(category)
+            )
+          )
+        : null,
+      div.class`home-card-tag`(
+        _=> formatPrice(selectedVariation?.unitAmount ?? product.unitAmount, product.currency)
+      ),
+      div.class`home-product-detail-actions`(
+        variations.length
+          ? label.class`home-products-filter-label`(
+              "OPTIONS",
+              select
+                .class`manufacturer-input home-products-filter-select`
+                .value(_=> selectedVariation?.id || "")
+                .onChange((event) => {
+                  selectedVariationId = String(event.target.value || "").trim();
+                  renderProductDetail();
+                })(
+                variations.map((variation) =>
+                  option.value(variation.id)(
+                    _=> `${variation.label} - ${formatPrice(variation.unitAmount, product.currency)}`
+                  )
+                )
+              )
+            )
+          : null,
+        div.class`home-product-detail-cart-actions`(
+          HomeCartActions({
+            productId: product.id,
+            getVariationId: () => selectedVariationId,
+            initialQuantity: 1,
+            requestRender: renderProductDetail,
+          })
+        ),
+        a.class`ghost-button`.href("../products.html")("Back to Products")
+      )
+    ),
+  ];
+});
 
 const load = async () => {
   if (!detailRoot) return;
+  renderProductDetail();
   const slug = getSlug();
   if (!slug) {
     renderMessage("Product not found", "This product link is missing its identifier.");
@@ -180,7 +189,13 @@ const load = async () => {
       renderMessage("Product not found", "This product may have been removed or is no longer active.");
       return;
     }
-    renderProduct(match);
+    loadedProduct = match;
+    messageState = null;
+    selectedVariationId = normalizeVariations(match)[0]?.id || "";
+    if (pageTitleRoot) {
+      pageTitleRoot.textContent = String(match.title || "Products").trim() || "Products";
+    }
+    renderProductDetail();
   } catch (error) {
     console.error("Failed to load product detail", error);
     renderMessage("Product unavailable", "Please try again shortly.");

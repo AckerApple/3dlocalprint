@@ -679,7 +679,7 @@ export const ProductsApp = tag(() => [
       Modal({
         modalOpen: ui?.modalOpen ?? false,
         title: ui?.modalMode === "edit" ? "Edit Product" : "Add Product",
-        draggableTitle: true,
+        draggableTitle: false,
         className: "ledger-modal products-modal",
         cardClassName: "ledger-modal-card products-modal-card",
         bodyClassName: "products-modal-body",

@@ -1,17 +1,18 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { renderDocument } from "./html.render.js";
-import { filamentIndexPage } from "../src/page-generators/filament.index.html.js";
-import { filamentStandalonePage } from "../src/page-generators/filament.standalone.html.js";
-import { filamentFastEditPage } from "../src/page-generators/filament.fast-edit.html.js";
+import { filamentIndexPage } from "../.build-html/src/page-generators/filament.index.html.js";
+import { filamentStandalonePage } from "../.build-html/src/page-generators/filament.standalone.html.js";
+import { filamentFastEditPage } from "../.build-html/src/page-generators/filament.fast-edit.html.js";
 import {
   homeLandingPage,
+  homeAboutPage,
   homeProductsPage,
   homeProductDetailPage,
   homeCartPage,
   homeQr1Page,
   homeNotFoundPage,
-} from "../src/page-generators/home.pages.js";
+} from "../.build-html/src/page-generators/home.pages.js";
 
 const locations = ["Fireguys", "Apples"];
 
@@ -28,12 +29,17 @@ const adminDir = resolve(rootDir, "src/admin");
 const adminFilamentDir = resolve(adminDir, "filament");
 const adminAccountingDir = resolve(adminDir, "accounting");
 const adminProductsDir = resolve(adminDir, "products");
+const adminOrdersDir = resolve(adminDir, "orders");
 const adminSecurityDir = resolve(adminDir, "security");
 
 const homePages = [
   {
     path: resolve(homeDir, "index.html"),
     render: () => homeLandingPage(),
+  },
+  {
+    path: resolve(homeDir, "about.html"),
+    render: () => homeAboutPage(),
   },
   {
     path: resolve(homeDir, "products.html"),
@@ -140,6 +146,17 @@ const pages = [
         pageTitle: "Products",
         appId: "productsApp",
         appScript: "./products.tag.ts",
+        stylePath: "../shared/styles.css",
+        versionScriptPath: "../shared/version.ts",
+      }),
+  },
+  {
+    path: resolve(adminOrdersDir, "index.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Orders",
+        appId: "ordersApp",
+        appScript: "./orders.tag.ts",
         stylePath: "../shared/styles.css",
         versionScriptPath: "../shared/version.ts",
       }),

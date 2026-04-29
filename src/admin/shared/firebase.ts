@@ -14,10 +14,14 @@ import {
 } from "firebase/auth";
 import {
   getFirestore,
+  collection,
   doc,
   getDoc,
   setDoc,
   onSnapshot,
+  query,
+  orderBy,
+  limit,
   serverTimestamp,
   runTransaction,
 } from "firebase/firestore";
@@ -30,6 +34,7 @@ import {
 } from "firebase/storage";
 import { slugifyLocation } from "../filament/location-utils.js";
 import type { ManufacturerItem } from "../../types/filament.js";
+import type { OrderLineItem, OrderRecord, OrderStatus } from "../../types/order.js";
 import type { ProductImage, ProductItem } from "../../types/product.js";
 import { normalizeProductCategories } from "../../product-categories.js";
 
@@ -102,6 +107,7 @@ const ADMINS_DOC = doc(db, "admins", "list");
 const LEDGER_DOC = doc(db, "ledger", "entries");
 const MONEY_ACCOUNTS_DOC = doc(db, "ledger", "moneyAccounts");
 const PRODUCTS_DOC = doc(db, "products", "list");
+const ORDERS_COLLECTION = collection(db, "orders");
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
 const normalizeManufacturerItems = (items: unknown): ManufacturerItem[] =>
@@ -543,6 +549,73 @@ const subscribeLedgerEntries = (callback) =>
     }
   );
 
+const ORDER_STATUSES = new Set<OrderStatus>([
+  "checkout_created",
+  "paid",
+  "payment_failed",
+  "canceled",
+  "unknown",
+]);
+
+const normalizeOrderStatus = (value: unknown): OrderStatus => {
+  const status = String(value || "").trim() as OrderStatus;
+  return ORDER_STATUSES.has(status) ? status : "unknown";
+};
+
+const normalizeOrderLineItems = (items: unknown): OrderLineItem[] =>
+  (Array.isArray(items) ? items : [])
+    .reduce<OrderLineItem[]>((acc, item) => {
+      if (!item || typeof item !== "object") return acc;
+      const priceId = String((item as { priceId?: unknown }).priceId || "").trim();
+      const title = String((item as { title?: unknown }).title || "").trim() || "Product";
+      acc.push({
+        priceId,
+        quantity: Math.max(1, Math.round(Number((item as { quantity?: unknown }).quantity) || 1)),
+        title,
+        productId: String((item as { productId?: unknown }).productId || "").trim(),
+        variationId: String((item as { variationId?: unknown }).variationId || "").trim(),
+      });
+      return acc;
+    }, []);
+
+const normalizeOrderRecord = (id: string, data: Record<string, unknown>): OrderRecord => ({
+  id: String(data.id || id || "").trim(),
+  status: normalizeOrderStatus(data.status),
+  lineItems: normalizeOrderLineItems(data.lineItems),
+  currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
+  amountSubtotal: Math.max(0, Math.round(Number(data.amountSubtotal) || 0)),
+  amountTax: Math.max(0, Math.round(Number(data.amountTax) || 0)),
+  amountShipping: Math.max(0, Math.round(Number(data.amountShipping) || 0)),
+  amountTotal: Math.max(0, Math.round(Number(data.amountTotal) || 0)),
+  customerEmail: String(data.customerEmail || "").trim(),
+  customerName: String(data.customerName || "").trim(),
+  checkoutSessionId: String(data.checkoutSessionId || "").trim(),
+  checkoutUrl: String(data.checkoutUrl || "").trim(),
+  paymentIntentId: String(data.paymentIntentId || "").trim(),
+  latestStripeEventId: String(data.latestStripeEventId || "").trim(),
+  stripeMode: ["sandbox", "live"].includes(String(data.stripeMode || ""))
+    ? String(data.stripeMode) as "sandbox" | "live"
+    : "",
+  notificationEmail: String(data.notificationEmail || "").trim(),
+  notificationEmailStatus: String(data.notificationEmailStatus || "").trim(),
+  createdAt: String(data.createdAt || "").trim(),
+  updatedAt: String(data.updatedAt || "").trim(),
+  paidAt: String(data.paidAt || "").trim(),
+  stripeDashboardUrl: String(data.stripeDashboardUrl || "").trim(),
+});
+
+const subscribeOrders = (callback: (items: OrderRecord[]) => void) =>
+  onSnapshot(
+    query(ORDERS_COLLECTION, orderBy("updatedAt", "desc"), limit(100)),
+    (snapshot) => {
+      callback(snapshot.docs.map((orderDoc) => normalizeOrderRecord(orderDoc.id, orderDoc.data())));
+    },
+    (error) => {
+      console.error("Failed to subscribe to orders", error);
+      callback([]);
+    }
+  );
+
 const loadMoneyAccounts = async () => {
   const snapshot = await getDoc(MONEY_ACCOUNTS_DOC);
   if (!snapshot.exists()) {
@@ -715,6 +788,7 @@ export {
   loadLedgerEntries,
   saveLedgerEntries,
   subscribeLedgerEntries,
+  subscribeOrders,
   loadMoneyAccounts,
   saveMoneyAccounts,
   subscribeMoneyAccounts,

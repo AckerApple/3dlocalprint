@@ -7,6 +7,7 @@ import { slugifyLocation } from "./src/admin/filament/location-utils.js";
 const pkg = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf-8")
 );
+const localFunctionsOrigin = process.env.VITE_FUNCTIONS_EMULATOR_ORIGIN || "http://127.0.0.1:5001";
 
 const rewriteProductPath = (url = "") => {
   const [pathname, query = ""] = String(url || "").split("?");
@@ -80,6 +81,13 @@ export default defineConfig({
   publicDir: "../public",
   server: {
     allowedHosts: ["ackers-macbook.local"],
+    proxy: {
+      "/api/create-checkout-session": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/createCheckoutSession",
+      },
+    },
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -90,6 +98,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "src/index.html"),
+        aboutHome: resolve(__dirname, "src/about.html"),
         productsHome: resolve(__dirname, "src/products.html"),
         productDetail: resolve(__dirname, "src/product.html"),
         cartHome: resolve(__dirname, "src/cart.html"),
@@ -103,6 +112,7 @@ export default defineConfig({
         adminLedger: resolve(__dirname, "src/admin/accounting/ledger.html"),
         adminMoneyAccounts: resolve(__dirname, "src/admin/accounting/money-accounts.html"),
         adminProducts: resolve(__dirname, "src/admin/products/index.html"),
+        adminOrders: resolve(__dirname, "src/admin/orders/index.html"),
         adminAdmins: resolve(__dirname, "src/admin/security/admins.html"),
         ...Object.fromEntries(
           locations.map((location) => {
