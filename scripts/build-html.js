@@ -10,6 +10,7 @@ import {
   homeProductsPage,
   homeProductDetailPage,
   homeCartPage,
+  homeReceiptPage,
   homeQr1Page,
   homeNotFoundPage,
 } from "../.build-html/src/page-generators/home.pages.js";
@@ -52,6 +53,10 @@ const homePages = [
   {
     path: resolve(homeDir, "cart.html"),
     render: () => homeCartPage(),
+  },
+  {
+    path: resolve(homeDir, "receipt.html"),
+    render: () => homeReceiptPage(),
   },
   {
     path: resolve(qr1Dir, "index.html"),

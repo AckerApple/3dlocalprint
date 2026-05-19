@@ -572,37 +572,58 @@ const normalizeOrderLineItems = (items: unknown): OrderLineItem[] =>
         priceId,
         quantity: Math.max(1, Math.round(Number((item as { quantity?: unknown }).quantity) || 1)),
         title,
+        unitAmount: Math.max(0, Math.round(Number((item as { unitAmount?: unknown }).unitAmount) || 0)),
+        currency: String((item as { currency?: unknown }).currency || "").trim().toLowerCase(),
         productId: String((item as { productId?: unknown }).productId || "").trim(),
         variationId: String((item as { variationId?: unknown }).variationId || "").trim(),
       });
       return acc;
     }, []);
 
-const normalizeOrderRecord = (id: string, data: Record<string, unknown>): OrderRecord => ({
-  id: String(data.id || id || "").trim(),
-  status: normalizeOrderStatus(data.status),
-  lineItems: normalizeOrderLineItems(data.lineItems),
-  currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
-  amountSubtotal: Math.max(0, Math.round(Number(data.amountSubtotal) || 0)),
-  amountTax: Math.max(0, Math.round(Number(data.amountTax) || 0)),
-  amountShipping: Math.max(0, Math.round(Number(data.amountShipping) || 0)),
-  amountTotal: Math.max(0, Math.round(Number(data.amountTotal) || 0)),
-  customerEmail: String(data.customerEmail || "").trim(),
-  customerName: String(data.customerName || "").trim(),
-  checkoutSessionId: String(data.checkoutSessionId || "").trim(),
-  checkoutUrl: String(data.checkoutUrl || "").trim(),
-  paymentIntentId: String(data.paymentIntentId || "").trim(),
-  latestStripeEventId: String(data.latestStripeEventId || "").trim(),
-  stripeMode: ["sandbox", "live"].includes(String(data.stripeMode || ""))
+const getStripeDashboardBase = (stripeMode: "sandbox" | "live" | "" = "") =>
+  stripeMode === "sandbox"
+    ? "https://dashboard.stripe.com/test"
+    : "https://dashboard.stripe.com";
+
+const getStripePaymentIntentUrl = (paymentIntentId = "", stripeMode: "sandbox" | "live" | "" = "") => {
+  const id = String(paymentIntentId || "").trim();
+  if (!id) return "";
+  return `${getStripeDashboardBase(stripeMode)}/payments/${encodeURIComponent(id)}`;
+};
+
+const normalizeOrderRecord = (id: string, data: Record<string, unknown>): OrderRecord => {
+  const stripeMode = ["sandbox", "live"].includes(String(data.stripeMode || ""))
     ? String(data.stripeMode) as "sandbox" | "live"
-    : "",
-  notificationEmail: String(data.notificationEmail || "").trim(),
-  notificationEmailStatus: String(data.notificationEmailStatus || "").trim(),
-  createdAt: String(data.createdAt || "").trim(),
-  updatedAt: String(data.updatedAt || "").trim(),
-  paidAt: String(data.paidAt || "").trim(),
-  stripeDashboardUrl: String(data.stripeDashboardUrl || "").trim(),
-});
+    : "";
+  const paymentIntentId = String(data.paymentIntentId || "").trim();
+  return {
+    id: String(data.id || id || "").trim(),
+    status: normalizeOrderStatus(data.status),
+    lineItems: normalizeOrderLineItems(data.lineItems),
+    currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
+    amountSubtotal: Math.max(0, Math.round(Number(data.amountSubtotal) || 0)),
+    amountTax: Math.max(0, Math.round(Number(data.amountTax) || 0)),
+    amountShipping: Math.max(0, Math.round(Number(data.amountShipping) || 0)),
+    amountTotal: Math.max(0, Math.round(Number(data.amountTotal) || 0)),
+    customerEmail: String(data.customerEmail || "").trim(),
+    customerName: String(data.customerName || "").trim(),
+    checkoutSessionId: String(data.checkoutSessionId || "").trim(),
+    checkoutUrl: String(data.checkoutUrl || "").trim(),
+    paymentIntentId,
+    stripeCustomerId: String(data.stripeCustomerId || "").trim(),
+    latestStripeEventId: String(data.latestStripeEventId || "").trim(),
+    stripeMode,
+    notificationEmail: String(data.notificationEmail || "").trim(),
+    notificationEmailStatus: String(data.notificationEmailStatus || "").trim(),
+    createdAt: String(data.createdAt || "").trim(),
+    updatedAt: String(data.updatedAt || "").trim(),
+    paidAt: String(data.paidAt || "").trim(),
+    stripeDashboardUrl: getStripePaymentIntentUrl(paymentIntentId, stripeMode)
+      || String(data.stripeDashboardUrl || "").trim(),
+    adminOrderUrl: String(data.adminOrderUrl || "").trim(),
+    publicOrderUrl: String(data.publicOrderUrl || "").trim(),
+  };
+};
 
 const subscribeOrders = (callback: (items: OrderRecord[]) => void) =>
   onSnapshot(

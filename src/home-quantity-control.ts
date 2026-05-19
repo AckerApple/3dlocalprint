@@ -2,8 +2,8 @@ import { tag, div, span, button } from "taggedjs";
 
 export type HomeQuantityControlOptions = {
   initialQuantity?: number;
-  getQuantityState?: () => number;
-  setQuantityState?: (quantity: number) => void;
+  getQuantityState: () => number;
+  setQuantityState: (quantity: number) => void;
   onBeforeAction?: (event: Event) => void;
   onChange?: (quantity: number) => void;
 };
@@ -38,7 +38,9 @@ export const HomeQuantityControl = tag(({
 }: HomeQuantityControlOptions) => {
   let quantity = getHomeQuantity({ initialQuantity, getQuantityState });
 
-  HomeQuantityControl.updates(() => {
+  HomeQuantityControl.inputs(x => {
+    [{ setQuantityState, getQuantityState }] = x
+    setQuantityState = tag.output( setQuantityState )
     quantity = getHomeQuantity({ initialQuantity, getQuantityState });
   })
 

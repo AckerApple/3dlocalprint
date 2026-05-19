@@ -89,7 +89,6 @@ const renderMessage = (title: string, message: string) => {
   if (pageTitleRoot) {
     pageTitleRoot.textContent = "Products";
   }
-  renderProductDetail();
 };
 
 const ProductMessage = (title: string, message: string) =>
@@ -148,7 +147,6 @@ const ProductDetailApp = tag(() => {
                 .value(_=> selectedVariation?.id || "")
                 .onChange((event) => {
                   selectedVariationId = String(event.target.value || "").trim();
-                  renderProductDetail();
                 })(
                 variations.map((variation) =>
                   option.value(variation.id)(
@@ -159,11 +157,10 @@ const ProductDetailApp = tag(() => {
             )
           : null,
         div.class`home-product-detail-cart-actions`(
-          HomeCartActions({
+          _=> HomeCartActions({
             productId: product.id,
             getVariationId: () => selectedVariationId,
             initialQuantity: 1,
-            requestRender: renderProductDetail,
           })
         ),
         a.class`ghost-button`.href("../products.html")("Back to Products")
@@ -195,7 +192,6 @@ const load = async () => {
     if (pageTitleRoot) {
       pageTitleRoot.textContent = String(match.title || "Products").trim() || "Products";
     }
-    renderProductDetail();
   } catch (error) {
     console.error("Failed to load product detail", error);
     renderMessage("Product unavailable", "Please try again shortly.");

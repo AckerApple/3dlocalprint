@@ -234,7 +234,7 @@ export const homeProductsPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
     pageTitle: "Products - 3D Local Print",
     heroLede: "",
-    bodyScripts: ["products.ts"],
+    bodyScripts: ["products/index.ts"],
     mainClass: "home-main home-main-cart",
     assetPrefix,
     mainSections: [
@@ -286,6 +286,26 @@ export const homeCartPage = ({ assetPrefix = "./" } = {}) =>
         div.class`home-products-loading`(
           div.class`home-products-spinner`().attr("aria-hidden", "true"),
           p.class`home-products-loading-text`("Loading cart...")
+        )
+      ),
+    ],
+  });
+
+export const homeReceiptPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Receipt - 3D Local Print",
+    heroLede: "",
+    bodyScripts: ["receipt.ts"],
+    mainClass: "home-main home-main-cart",
+    assetPrefix,
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Receipt")
+      ),
+      section.class`home-grid`.id("receiptRoot")(
+        div.class`home-products-loading`(
+          div.class`home-products-spinner`().attr("aria-hidden", "true"),
+          p.class`home-products-loading-text`("Loading receipt...")
         )
       ),
     ],

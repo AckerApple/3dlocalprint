@@ -9,6 +9,11 @@ const pkg = JSON.parse(
 );
 const localFunctionsOrigin = process.env.VITE_FUNCTIONS_EMULATOR_ORIGIN || "http://127.0.0.1:5001";
 
+const rewriteFunctionPath = (functionName, url = "") => {
+  const [, query = ""] = String(url || "").split("?");
+  return `/threedlocalprint/us-central1/${functionName}${query ? `?${query}` : ""}`;
+};
+
 const rewriteProductPath = (url = "") => {
   const [pathname, query = ""] = String(url || "").split("?");
   const match = pathname.match(/^\/product\/([^/?#]+)\/?$/i);
@@ -87,6 +92,31 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/createCheckoutSession",
       },
+      "/api/public/order-receipt-link": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: (path) => rewriteFunctionPath("getPublicOrderReceiptLink", path),
+      },
+      "/api/public/order": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: (path) => rewriteFunctionPath("getPublicOrder", path),
+      },
+      "/api/admin/orders/resend-email": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/resendOrderNotification",
+      },
+      "/api/admin/orders/resend-customer-email": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/resendCustomerOrderEmail",
+      },
+      "/api/admin/orders/delete-test-order": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/deleteTestOrder",
+      },
     },
   },
   define: {
@@ -102,6 +132,8 @@ export default defineConfig({
         productsHome: resolve(__dirname, "src/products.html"),
         productDetail: resolve(__dirname, "src/product.html"),
         cartHome: resolve(__dirname, "src/cart.html"),
+        receiptHome: resolve(__dirname, "src/receipt.html"),
+        orderHome: resolve(__dirname, "src/order.html"),
         qr1: resolve(__dirname, "src/qr1/index.html"),
         notFound: resolve(__dirname, "src/404.html"),
         adminHome: resolve(__dirname, "src/admin/index.html"),

@@ -9,6 +9,8 @@ export type OrderLineItem = {
   priceId: string;
   quantity: number;
   title: string;
+  unitAmount?: number;
+  currency?: string;
   productId?: string;
   variationId?: string;
 };
@@ -27,6 +29,7 @@ export type OrderRecord = {
   checkoutSessionId: string;
   checkoutUrl: string;
   paymentIntentId: string;
+  stripeCustomerId: string;
   latestStripeEventId: string;
   stripeMode: "sandbox" | "live" | "";
   notificationEmail: string;
@@ -35,4 +38,6 @@ export type OrderRecord = {
   updatedAt: string;
   paidAt: string;
   stripeDashboardUrl: string;
+  adminOrderUrl: string;
+  publicOrderUrl: string;
 };

@@ -18,13 +18,26 @@ export const mountSsoPanel = ({
   onSignIn,
   onSignOut,
   setAppMounted,
+}: {
+  rootRef: any
+  status: any
+  userEmail: string
+  adminEmail: string
+  onSignIn: any
+  onSignOut: any
+  setAppMounted: any
 }) => {
   const root = replaceMountRoot(rootRef);
   if (!root) return;
   if (setAppMounted) setAppMounted(false);
   root.replaceChildren();
-  const SsoApp = tag(() =>
-    SsoPanel(status, userEmail, adminEmail, onSignIn, onSignOut)
-  );
-  tagElement(SsoApp, root);
+  tagElement(SsoApp, root, [
+    status, userEmail, adminEmail, onSignIn, onSignOut
+  ]);
 };
+
+const SsoApp = tag((
+  status, userEmail, adminEmail, onSignIn, onSignOut,
+) =>
+  SsoPanel(status, userEmail, adminEmail, onSignIn, onSignOut)
+);

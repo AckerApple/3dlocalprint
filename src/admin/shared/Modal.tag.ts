@@ -59,7 +59,7 @@ export const Modal = tag(({
   const applyDialogTransform = () => {
     const dialogEl = getDialog();
     if (!dialogEl) return;
-    dialogEl.style.transform = `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px)`;
+    dialogEl.style.transform = `translateX(-50%) translate(${offsetX}px, ${offsetY}px)`;
   };
 
   const onDragMove = (event) => {

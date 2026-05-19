@@ -1,4 +1,5 @@
 import { loadProducts } from "./admin/shared/firebase.js";
+import { fetchApiWithFallback } from "./api-url.js";
 import type { ProductItem } from "./types/product.js";
 import {
   clearCart,
@@ -35,7 +36,6 @@ type ProductVariationView = {
   id: string;
   label: string;
   unitAmount: number;
-  stripePriceId: string;
   active: boolean;
 };
 
@@ -72,7 +72,6 @@ const normalizeVariations = (product: ProductItem): ProductVariationView[] =>
       id: String(variation?.id || "").trim(),
       label: String(variation?.label || "").trim(),
       unitAmount: Math.max(0, Math.round(Number(variation?.unitAmount) || 0)),
-      stripePriceId: String(variation?.stripePriceId || "").trim(),
       active: Boolean(variation?.active),
     }))
     .filter((variation) => variation.id && variation.label && variation.active);
@@ -112,25 +111,14 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
     }))
     .filter((entry) => Boolean(entry.product))
     .map(({ item, product }) => {
-      const variation = product ? getVariationForCart(product, item.variationId || "") : null;
       return {
-        priceId: String(variation?.stripePriceId || product?.stripePriceId || "").trim(),
         quantity: item.quantity,
         productId: String(product?.id || item.productId || "").trim(),
         variationId: String(item.variationId || "").trim(),
-        title: variation
-          ? `${String(product?.title || "Product")} (${variation.label})`
-          : String(product?.title || "Product"),
       };
     });
 
-  const missing = lineItems.filter((entry) => !entry.priceId);
-  if (missing.length) {
-    const names = missing.map((entry) => entry.title).join(", ");
-    throw new Error(`Missing Stripe price ID for: ${names}`);
-  }
-
-  const response = await fetch("/api/create-checkout-session", {
+  const response = await fetchApiWithFallback("/api/create-checkout-session", "createCheckoutSession", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -138,13 +126,11 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
     },
     body: JSON.stringify({
       cartItems: lineItems.map((entry) => ({
-        priceId: entry.priceId,
-        quantity: entry.quantity,
         productId: entry.productId,
         variationId: entry.variationId,
-        title: entry.title,
+        quantity: entry.quantity,
       })),
-      successUrl: `${window.location.origin}/products.html?checkout=success`,
+      successUrl: `${window.location.origin}/receipt.html`,
       cancelUrl: `${window.location.origin}/cart.html`,
     }),
   });
@@ -177,7 +163,6 @@ const renderCartView = () => {
 const setCheckoutStatus = (statusText: string, checkoutLoading = false) => {
   cartState.statusText = statusText;
   cartState.checkoutLoading = checkoutLoading;
-  renderCartView();
 };
 
 const handleCheckout = async () => {
@@ -247,7 +232,7 @@ const CartLineRow = (item: CartItem, product: ProductItem) => {
         })()
     ),
     div.class`home-cart-field home-cart-row-subtotal`(
-      span.class`home-cart-field-label`("Line total"),
+      span.class`home-cart-field-label`("Item total"),
       span.class`home-cart-field-value`(
         _=> formatPrice(unitAmount * item.quantity, product.currency)
       )

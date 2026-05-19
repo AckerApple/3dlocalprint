@@ -28,6 +28,41 @@
         }
       },
       {
+        "source": "/api/public/order",
+        "function": {
+          "functionId": "getPublicOrder",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/public/order-receipt-link",
+        "function": {
+          "functionId": "getPublicOrderReceiptLink",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/resend-email",
+        "function": {
+          "functionId": "resendOrderNotification",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/resend-customer-email",
+        "function": {
+          "functionId": "resendCustomerOrderEmail",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/delete-test-order",
+        "function": {
+          "functionId": "deleteTestOrder",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

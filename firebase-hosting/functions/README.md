@@ -19,7 +19,11 @@ Set these in Firebase Secret Manager (project: `threedlocalprint`):
 ```bash
 firebase functions:secrets:set STRIPE_SECRET_KEY
 firebase functions:secrets:set STRIPE_WEBHOOK_SECRET
+firebase functions:secrets:set SMTP_USER
+firebase functions:secrets:set SMTP_PASS
 ```
+
+`SMTP_USER` and `SMTP_PASS` are used to email `service@3dlocalprint.com` through Gmail SMTP when a Stripe checkout payment completes. Use the full Gmail or Google Workspace email address for `SMTP_USER`, and a Google App Password for `SMTP_PASS`. Sandbox/test Stripe payments include `(test)` in the email subject.
 
 ## Build and deploy
 
@@ -34,14 +38,16 @@ firebase deploy --only functions,hosting
 
 - `POST /api/create-checkout-session`
 - `POST /api/stripe/webhook`
+- `POST /api/admin/orders/resend-email`
+- `POST /api/admin/orders/resend-customer-email`
 
 Example request body for `/api/create-checkout-session`:
 
 ```json
 {
   "cartItems": [
-    { "priceId": "price_123", "quantity": 2 },
-    { "priceId": "price_456", "quantity": 1 }
+    { "productId": "product_123", "variationId": "option_abc", "quantity": 2 },
+    { "productId": "product_456", "quantity": 1 }
   ],
   "successUrl": "https://your-site.com/checkout/success",
   "cancelUrl": "https://your-site.com/cart",
@@ -52,5 +58,5 @@ Example request body for `/api/create-checkout-session`:
 ## Notes
 
 - Never expose `STRIPE_SECRET_KEY` in frontend code.
-- Keep product/catalog/inventory in your database and only use Stripe price IDs during checkout.
-- Webhook handler currently logs events; add Firestore order update logic next.
+- Keep product/catalog/inventory in Firestore; checkout resolves product IDs server-side before creating Stripe line items.
+- The webhook updates Firestore order records and sends admin notification email through Gmail SMTP.

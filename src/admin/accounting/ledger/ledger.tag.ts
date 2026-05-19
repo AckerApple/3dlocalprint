@@ -43,26 +43,62 @@ let isDeleting = false;
 let submitted = false;
 let accountTotals: Record<string, LedgerTotals> = {};
 let handleSignOut = () => Promise.resolve();
-let pendingEntryIdFromUrl = "";
+type PendingLedgerModal =
+  | { mode: "create"; accountTitle: string }
+  | { mode: "edit"; entryId: string }
+  | null;
 
-const getEntryIdFromUrl = (): string => {
+let pendingLedgerModalFromUrl: PendingLedgerModal = null;
+
+const getLedgerModalFromUrl = (): PendingLedgerModal => {
   try {
     const params = new URLSearchParams(window.location.search);
-    return String(params.get("entry") || "").trim();
+    const action = String(params.get("action") || "").trim().toLowerCase();
+    const modal = String(params.get("modal") || "").trim().toLowerCase();
+    const add = String(params.get("add") || "").trim().toLowerCase();
+    const entry = String(params.get("entry") || "").trim();
+    const accountTitle = String(params.get("account") || params.get("moneyAccount") || "").trim();
+
+    if (action === "add" || modal === "add" || add === "1" || entry.toLowerCase() === "new") {
+      return {
+        mode: "create",
+        accountTitle,
+      };
+    }
+
+    if (entry) {
+      return {
+        mode: "edit",
+        entryId: entry,
+      };
+    }
   } catch {
-    return "";
+    return null;
   }
+
+  return null;
 };
 
-const setEntryIdInUrl = (entryId: string) => {
+const setLedgerModalInUrl = (modalRequest: PendingLedgerModal) => {
   try {
-    const nextId = String(entryId || "").trim();
     const url = new URL(window.location.href);
-    if (nextId) {
-      url.searchParams.set("entry", nextId);
-    } else {
-      url.searchParams.delete("entry");
+    url.searchParams.delete("entry");
+    url.searchParams.delete("action");
+    url.searchParams.delete("modal");
+    url.searchParams.delete("add");
+    url.searchParams.delete("account");
+    url.searchParams.delete("moneyAccount");
+
+    if (modalRequest?.mode === "edit") {
+      url.searchParams.set("entry", modalRequest.entryId);
     }
+    if (modalRequest?.mode === "create") {
+      url.searchParams.set("action", "add");
+      if (modalRequest.accountTitle) {
+        url.searchParams.set("account", modalRequest.accountTitle);
+      }
+    }
+
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     window.history.replaceState({}, "", nextUrl);
   } catch {
@@ -70,7 +106,7 @@ const setEntryIdInUrl = (entryId: string) => {
   }
 };
 
-pendingEntryIdFromUrl = getEntryIdFromUrl();
+pendingLedgerModalFromUrl = getLedgerModalFromUrl();
 
 const createFilters = (): LedgerFilterState => ({
   search: "",
@@ -389,11 +425,23 @@ const getMoneyAccountTitles = (items: MoneyAccount[]) =>
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
 
-const openCreateModal = (accountTitle = "") => {
+const openPendingCreateModalFromUrl = (availableAccounts: MoneyAccount[]) => {
+  if (pendingLedgerModalFromUrl?.mode !== "create") {
+    return;
+  }
+
+  const { accountTitle } = pendingLedgerModalFromUrl;
+  pendingLedgerModalFromUrl = null;
+  openCreateModal(accountTitle, false, getMoneyAccountTitles(availableAccounts));
+};
+
+const openCreateModal = (accountTitle = "", syncUrl = true, availableAccountTitles?: string[]) => {
   modalMode = "create";
   activeEntryId = "";
   draft = createDraft();
-  const titles = getMoneyAccountTitles(moneyAccounts$.value);
+  const titles = Array.isArray(availableAccountTitles)
+    ? availableAccountTitles
+    : getMoneyAccountTitles(moneyAccounts$.value);
   const requestedAccountTitle = String(accountTitle || "").trim();
   if (requestedAccountTitle && titles.includes(requestedAccountTitle)) {
     draft.moneyAccountTitle = requestedAccountTitle;
@@ -404,14 +452,19 @@ const openCreateModal = (accountTitle = "") => {
   }
   submitted = false;
   modalOpen = true;
-  setEntryIdInUrl("");
+  if (syncUrl) {
+    setLedgerModalInUrl({
+      mode: "create",
+      accountTitle: draft.moneyAccountTitle || requestedAccountTitle,
+    });
+  }
 };
 
 const openEditModal = (id: string, syncUrl = true) => {
   const entry = entries$.value.find((item) => item.id === id);
 
   if (!entry) {
-    if (syncUrl) setEntryIdInUrl("");
+    if (syncUrl) setLedgerModalInUrl(null);
     return false;
   }
 
@@ -425,7 +478,12 @@ const openEditModal = (id: string, syncUrl = true) => {
   }
   submitted = false;
   modalOpen = true;
-  if (syncUrl) setEntryIdInUrl(id);
+  if (syncUrl) {
+    setLedgerModalInUrl({
+      mode: "edit",
+      entryId: id,
+    });
+  }
   return true;
 };
 
@@ -436,7 +494,7 @@ const closeModal = () => {
   isSaving = false;
   isDeleting = false;
   draft = createDraft();
-  setEntryIdInUrl("");
+  setLedgerModalInUrl(null);
 };
 
 const getSignedAmount = (entry: LedgerEntry): number => {
@@ -707,12 +765,12 @@ const auth = startAdminAppShell({
       stopLedger = subscribeLedgerEntries((items) => {
         isLoading = false;
         replaceEntries((Array.isArray(items) ? items : []).map(normalizeLoadedEntry));
-        if (pendingEntryIdFromUrl) {
-          const restoreId = pendingEntryIdFromUrl;
-          pendingEntryIdFromUrl = "";
+        if (pendingLedgerModalFromUrl?.mode === "edit") {
+          const restoreId = pendingLedgerModalFromUrl.entryId;
+          pendingLedgerModalFromUrl = null;
           const opened = openEditModal(restoreId, false);
           if (!opened) {
-            setEntryIdInUrl("");
+            setLedgerModalInUrl(null);
           }
         }
         if (authState.isAuthorized) {
@@ -729,6 +787,7 @@ const auth = startAdminAppShell({
         const normalized = (Array.isArray(items) ? items : [])
           .map(normalizeLoadedMoneyAccount)
           .filter((item) => item.id && item.title);
+        openPendingCreateModalFromUrl(normalized);
         moneyAccounts$.splice(0, moneyAccounts$.length, ...normalized);
       });
     }
