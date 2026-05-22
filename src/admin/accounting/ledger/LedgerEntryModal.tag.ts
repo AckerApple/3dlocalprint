@@ -49,7 +49,6 @@ const debitOnlyCategories = new Set([
   "Tools",
   "Packaging",
   "Shipping Expense",
-  "Transfer to Credit Card",
   "Marketing",
   "Software",
   "Event Fees",

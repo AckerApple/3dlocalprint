@@ -661,6 +661,7 @@ const serializeMoneyAccounts = (items = []) =>
       id,
       title,
       notes: String(item.notes || "").trim(),
+      rewardsBillingCategory: String(item.rewardsBillingCategory || "").trim(),
       createdAt: Number(item.createdAt) || Date.now(),
       updatedAt: Number(item.updatedAt) || Date.now(),
     };

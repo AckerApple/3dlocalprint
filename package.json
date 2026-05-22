@@ -6,12 +6,19 @@
   "type": "module",
   "scripts": {
     "build:html": "tsc -p tsconfig.build-html.json && node scripts/build-html.js",
-    "dev": "node scripts/dev-local.js",
-    "dev:vite": "npm run build:html && vite",
+    "dev": "node scripts/dev-sites.js",
+    "dev:local": "npm run build:html && vite --host 0.0.0.0 --port 5173 --mode localprint",
+    "dev:pet": "npm run build:html && vite --host 0.0.0.0 --port 5174 --mode pet",
+    "dev:full": "node scripts/dev-local.js",
+    "dev:vite": "npm run dev:local",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "bump": "npm version patch --no-git-tag-version",
-    "build": "npm run build:html && vite build",
-    "preview": "vite preview",
+    "build": "npm run build:local && npm run build:pet",
+    "build:local": "npm run build:html && vite build --mode localprint",
+    "build:pet": "npm run build:html && vite build --mode pet",
+    "preview": "npm run preview:local",
+    "preview:local": "vite preview --port 4173 --outDir dist/3dlocalprint",
+    "preview:pet": "vite preview --port 4174 --outDir dist/3dpetprint",
     "deploy": "npm run bump && npm run build && git add . && git commit -m \"deploy\" && git push"
   },
   "repository": {

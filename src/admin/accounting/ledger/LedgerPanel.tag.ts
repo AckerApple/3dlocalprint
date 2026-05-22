@@ -15,7 +15,11 @@ type LedgerPanelProps = {
   setShowAdvancedFilters?: (value: boolean) => void;
   onFiltersChanged?: (next: LedgerFilterState) => void;
   accountTotals?: Record<string, LedgerTotals>;
-  onCalculateAccountTotals?: (accountTitle: string, entries: LedgerEntry[]) => void;
+  onCalculateAccountTotals?: (
+    accountTitle: string,
+    entries: LedgerEntry[],
+    rewardsBillingCategory?: string
+  ) => void;
   onOpenCreateModalForAccount?: (accountTitle: string) => void;
   openCreateModal?: () => void;
   openEditModal?: (id: string) => void;
@@ -111,6 +115,7 @@ export const LedgerPanel = tag(({
             return {
               key: account?.id || title,
               title,
+              rewardsBillingCategory: String(account?.rewardsBillingCategory || "").trim(),
               entries: filteredEntries.filter(
                 (entry) => entry.moneyAccountTitle === title
               ),
@@ -132,7 +137,11 @@ export const LedgerPanel = tag(({
                     .type`button`
                     .class(_=> `ghost-button ledger-totals-toggle${accountTotals[section.title] ? " is-active" : ""}`)
                     .attr("aria-pressed", _=> accountTotals[section.title] ? "true" : "false")
-                    .onClick(() => onCalculateAccountTotals(section.title, section.entries))(
+                    .onClick(() => onCalculateAccountTotals(
+                      section.title,
+                      section.entries,
+                      section.rewardsBillingCategory
+                    ))(
                     "🧮 Totals"
                   ),
                   button
@@ -170,6 +179,11 @@ export const LedgerPanel = tag(({
                   _=> totals.taxToPayTotal
                     ? p.class`ledger-net-value`(
                         `💰 Tax to pay: ${toDisplayNet(totals.taxToPayTotal)}`
+                      )
+                    : null,
+                  _=> totals.rewardsBillingCategory
+                    ? p.class`ledger-net-value`(
+                        `${totals.rewardsBillingCategory} YTD: ${toDisplayNet(totals.rewardsYtdTotal || 0)}`
                       )
                     : null
                 );

@@ -4,6 +4,7 @@ export interface MoneyAccount {
   id: string;
   title: string;
   notes?: string;
+  rewardsBillingCategory?: string;
   createdAt: number;
   updatedAt: number;
 }

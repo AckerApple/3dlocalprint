@@ -15,62 +15,31 @@ import {
   h3,
   footer,
   script,
+  meta,
+  form,
+  label,
+  input,
+  textarea,
+  button,
+  style,
+  span,
 } from "taggedjs";
 import { htmlPage, favicon } from "../../scripts/html.core.js";
-
-const withPrefix = (prefix, path) => {
-  if (!prefix) return path;
-  if (prefix.endsWith("/")) return `${prefix}${path}`;
-  return `${prefix}/${path}`;
-};
-
-const homeNav = (assetPrefix = "./") =>
-  nav.class`home-menu`(
-    a.class`home-menu-link`.href(withPrefix(assetPrefix, "index.html"))("🏠 Home"),
-    a.class`home-menu-link`.href(withPrefix(assetPrefix, "about.html"))("About"),
-    a.class`home-menu-link`.href(withPrefix(assetPrefix, "products.html"))("🧩 Products"),
-    a
-      .class`home-menu-link`
-      .href(withPrefix(assetPrefix, "cart.html"))
-      .attr("data-cart-link", "true")("🛒 Cart")
-  );
-
-const homeHeader = ({
-  lede,
-  assetPrefix = "./",
-}) =>
-  header.class`page-header home-hero`(
-    img
-      .class("home-logo")
-      .src(withPrefix(assetPrefix, "assets/logo/transparent.svg"))
-      .alt("3D Local Print logo"),
-    homeNav(assetPrefix),
-    lede ? p.class`home-lede`(lede) : null
-  );
-
-const homeFooter = (assetPrefix = "./") =>
-  footer.class`home-footer`(
-    div.class`home-footer-inner`(
-      div.class`home-footer-title`("3D Local Print LLC."),
-      div.class`home-footer-tagline`("Learn. Paint. Assemble. Bring it home."),
-      a.class`home-footer-email`.href("mailto:service@3dlocalprint.com")("service@3dlocalprint.com"),
-      a
-        .class`home-footer-admin`
-        .href(withPrefix(assetPrefix, "admin/index.html"))(
-        "Admin"
-      ),
-      div.class`home-footer-version`.attr("data-app-version", "")
-    )
-  );
+import { homeFooter, homeHeaderMount, withPrefix } from "../components/shared/home.js";
+import { getSiteConfig, type SiteKey } from "../sites/index.js";
+import { themeToCssVariables } from "../theme/tokens.js";
 
 const homeShell = ({
   pageTitle,
+  description = "",
   heroLede,
   mainSections = [],
   bodyScripts = [],
   mainClass = "home-main",
   assetPrefix = "./",
+  siteKey = "local" as SiteKey,
 }) => {
+  const site = getSiteConfig(siteKey);
   const scriptItems = bodyScripts.map((scriptPath) =>
     script.type`module`.src(withPrefix(assetPrefix, scriptPath))
   );
@@ -78,30 +47,41 @@ const homeShell = ({
   return htmlPage({
     pageTitle,
     headItems: [
-      link.rel`icon`.href(favicon),
+      description ? meta.name`description`.content(description) : null,
+      link.rel`icon`.href(
+        site.key === "pet"
+          ? withPrefix(assetPrefix, site.logoPath)
+          : favicon
+      ),
       link.rel`stylesheet`.href(withPrefix(assetPrefix, "admin/shared/styles.css")),
+      style(`:root { ${themeToCssVariables(site.theme)} }`),
     ],
+    bodyClass: `site-${site.key} theme-${site.themeName}`,
     bodyItems: [
-      homeHeader({
+      homeHeaderMount({
+        site,
         lede: heroLede,
         assetPrefix,
       }),
       main.class(mainClass)(...mainSections),
-      homeFooter(assetPrefix),
+      homeFooter(site, assetPrefix),
     ].concat(
       scriptItems,
+      script.type`module`.src(withPrefix(assetPrefix, "public-home.ts")),
       script.type`module`.src(withPrefix(assetPrefix, "nav-cart.ts")),
       script.type`module`.src(withPrefix(assetPrefix, "admin/shared/version.ts"))
     ),
   });
 };
 
-export const homeLandingPage = ({ assetPrefix = "./" } = {}) =>
+export const homeLandingPage = ({ assetPrefix = "./", siteKey = "local" as SiteKey } = {}) =>
   homeShell({
-    pageTitle: "3D Local Print",
+    pageTitle: getSiteConfig(siteKey).title,
+    description: getSiteConfig(siteKey).description,
     heroLede:
-      "A hands-on 3D local print store where you can learn, paint, assemble, and take home custom 3D printed merchandise.",
+      "Custom local 3D prints, kits, and keepsakes.",
     assetPrefix,
+    siteKey,
     mainSections: [
       section.class`cart-page-title`(
         h1("3D Local Print")
@@ -164,6 +144,214 @@ export const homeLandingPage = ({ assetPrefix = "./" } = {}) =>
       ),
     ],
   });
+
+const Field = (fieldLabel, control) =>
+  label.class`pet-upload-field`(
+    span(fieldLabel),
+    control
+  );
+
+export const petLandingPage = ({ assetPrefix = "./" } = {}) => {
+  const site = getSiteConfig("pet");
+  return homeShell({
+    pageTitle: site.title,
+    description: site.description,
+    heroLede:
+      "Choose how you want to begin turning favorite pet photos into a custom 3D printed keepsake.",
+    assetPrefix,
+    siteKey: "pet",
+    mainClass: "home-main pet-choice-main",
+    mainSections: [
+      section.class`cart-page-title pet-hero-title`(
+        h1("Turn Your Pet Photos Into Custom 3D Prints"),
+        p("Start with a quick overview or jump straight into the setup flow.")
+      ),
+      section.class`pet-choice-grid`.attr("aria-label", "3D Pet Print options")(
+        a.class`pet-choice-button pet-choice-button-info`.href(withPrefix(assetPrefix, "how-it-works.html"))(
+          span.class`pet-choice-kicker`("Learn the process"),
+          span.class`pet-choice-title`("How it Works"),
+          span.class`pet-choice-copy`("See how photos become a reviewed, approved, and printed custom pet keepsake."),
+          span.class`pet-choice-arrow`.attr("aria-hidden", "true")("Explore ->")
+        ),
+        a.class`pet-choice-button pet-choice-button-start`.href(withPrefix(assetPrefix, "get-started.html"))(
+          span.class`pet-choice-kicker`("Begin your request"),
+          span.class`pet-choice-title`("Get Started"),
+          span.class`pet-choice-copy`("Sign in, prepare your photos, and follow the project steps as they open."),
+          span.class`pet-choice-arrow`.attr("aria-hidden", "true")("Start ->")
+        )
+      ),
+    ],
+  });
+};
+
+export const petHowItWorksPage = ({ assetPrefix = "./" } = {}) => {
+  const site = getSiteConfig("pet");
+  return homeShell({
+    pageTitle: `How It Works | ${site.name}`,
+    description: site.description,
+    heroLede:
+      "A simple path for turning favorite pet photos into a custom 3D printed keepsake.",
+    assetPrefix,
+    siteKey: "pet",
+    mainSections: [
+      section.class`cart-page-title pet-hero-title`(
+        h1("How 3D Pet Print Works"),
+        div.class`pet-hero-actions`(
+          a.class`add-button`.href(withPrefix(assetPrefix, "get-started.html"))("Get Started"),
+          a.class`ghost-button`.href(withPrefix(assetPrefix, "index.html"))("Back Home")
+        )
+      ),
+      section.class`pet-start-steps pet-how-steps`.id("how-it-works")(
+        div.class`home-card pet-start-step pet-how-step`(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 1"),
+            h2("Sign in first"),
+            div.class`pet-step-status`("Account")
+          ),
+          div.class`pet-step-body`(
+            p("Sign in so your pet print request, uploaded photos, proof previews, messages, and print status can stay connected to you."),
+            p("This also helps us keep each request organized as it moves from photo review to modeling, approval, printing, and pickup or delivery planning."),
+            p("3D Pet Print is operated by 3D Local Print LLC as a specialized pet-focused experience.")
+          )
+        ),
+        div.class`home-card pet-start-step pet-how-step`(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 2"),
+            h2("Upload pet photos"),
+            div.class`pet-step-status`("Photos")
+          ),
+          div.class`pet-step-body`(
+            p("Upload clear, well-lit photos of your dog, cat, or other pet. Front and side angles are especially helpful when you have them."),
+            p("Include markings, ears, tail, favorite poses, and any notes about the type of keepsake you want."),
+            p("Multiple photos help us understand personality and practical modeling details before we begin.")
+          )
+        ),
+        div.class`home-card pet-start-step pet-how-step`(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 3"),
+            h2("Review your proof"),
+            div.class`pet-step-status`("Approval")
+          ),
+          div.class`pet-step-body`(
+            p("After reviewing your photos, we prepare preview details for the custom pet print before production."),
+            p("You will receive proof information to approve, with room for practical adjustments before we commit the design to printing."),
+            p("The goal is to make sure the print direction matches the pet, pose, and keepsake style you expected.")
+          )
+        ),
+        div.class`home-card pet-start-step pet-how-step`(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 4"),
+            h2("Printing your pet"),
+            div.class`pet-step-status`("Print")
+          ),
+          div.class`pet-step-body`(
+            p("Once approved, your pet keepsake is 3D printed, checked, and prepared for finishing, pickup, or delivery planning."),
+            p("Possible keepsakes include custom pet figurines, memorial pieces, ornaments, desk buddies, and gifts for pet lovers."),
+            p("You can track the request through the process as upload, proof, and status tools are added.")
+          )
+        )
+      ),
+      section.class`home-info panel pet-final-cta`(
+        div(
+          h2.class`output-title`("Ready to make your pet printable?"),
+          p("Start with your favorite photos and a few notes about the keepsake you want to create.")
+        ),
+        div.class`home-email-wrap`(
+          a.class`add-button`.href(withPrefix(assetPrefix, "get-started.html"))("Get Started")
+        )
+      ),
+    ],
+  });
+};
+
+export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
+  const site = getSiteConfig("pet");
+  return homeShell({
+    pageTitle: `Get Started | ${site.name}`,
+    description: site.description,
+    heroLede:
+      "Custom pet keepsakes from your favorite photos.",
+    assetPrefix,
+    siteKey: "pet",
+    bodyScripts: ["pet-get-started.ts"],
+    mainClass: "home-main pet-start-main",
+    mainSections: [
+      section.class`cart-page-title pet-hero-title`(
+        h1("Get Started"),
+        div.class`pet-hero-actions`(
+          a.class`ghost-button`.href(withPrefix(assetPrefix, "how-it-works.html"))("How it Works"),
+          a.class`ghost-button`.href(withPrefix(assetPrefix, "index.html"))("Back Home")
+        )
+      ),
+      section.class`pet-start-steps`(
+        div.class`home-card pet-start-step pet-start-step-active`
+          .attr("data-pet-step", "auth")(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 1"),
+            h2.class`pet-step-title`(
+              span("Sign in"),
+              span
+                .class`pet-auth-avatar`
+                .attr("data-pet-auth-avatar", "true")
+                .attr("hidden", "true")
+                .attr("aria-label", "Signed in")
+            ),
+            div.class`pet-step-status`.attr("data-pet-auth-status", "true")("Sign in required")
+          ),
+          div.class`pet-step-body`.attr("data-pet-step-body", "auth")(
+            p.attr("data-pet-auth-message", "true")("Create or access your 3D Pet Print request with major SSO providers."),
+            div.class`pet-sso-grid`(
+              button.class`ghost-button`.type("button").attr("data-pet-google-signin", "true")("Continue with Google"),
+              button.class`ghost-button`.type("button").disabled("true")("Continue with Apple"),
+              button.class`ghost-button`.type("button").disabled("true")("Continue with Microsoft"),
+              button.class`ghost-button`.type("button").disabled("true")("Continue with Facebook")
+            ),
+            p.class`pet-upload-note`("Google sign-in is active. Additional SSO providers are placeholders for now.")
+          )
+        ),
+        div.class`home-card pet-start-step pet-start-step-locked`.attr("data-pet-step", "upload")(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 2"),
+            h2("Upload pet files"),
+            div.class`pet-step-status`("Next")
+          ),
+          p.class`pet-step-lock-note`.attr("data-pet-lock-note", "upload").attr("hidden", "true")("Complete sign in before uploading pet files."),
+          div.class`pet-step-body`.attr("data-pet-step-body", "upload").attr("hidden", "true")(
+            p("This section will collect pet photos, reference angles, and any supporting files."),
+            form.class`pet-upload-form`.attr("aria-label", "Pet print file upload placeholder")(
+              Field("Photos", input.type("file").name("photos").attr("multiple", "true").attr("accept", "image/*")),
+              Field("Notes", textarea.name("notes").placeholder("Tell us about your pet, pose, markings, and desired keepsake.")),
+              // TODO: Connect upload storage and request creation.
+              button.class`add-button`.type("button")("Upload Placeholder")
+            )
+          )
+        ),
+        div.class`home-card pet-start-step pet-start-step-muted pet-start-step-locked`.attr("data-pet-step", "review")(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 3"),
+            h2("Review and approve"),
+            div.class`pet-step-status`("Locked")
+          ),
+          p.class`pet-step-lock-note`.attr("data-pet-lock-note", "review").attr("hidden", "true")("Finish the upload step before reviewing your pet print request."),
+          div.class`pet-step-body`.attr("data-pet-step-body", "review").attr("hidden", "true")(
+            p("As progress continues, this section will show previews, modeling notes, and approval actions.")
+          )
+        ),
+        div.class`home-card pet-start-step pet-start-step-muted pet-start-step-locked`.attr("data-pet-step", "status")(
+          div.class`pet-step-heading`(
+            div.class`home-card-tag`("Section 4"),
+            h2("Print status"),
+            div.class`pet-step-status`("Locked")
+          ),
+          p.class`pet-step-lock-note`.attr("data-pet-lock-note", "status").attr("hidden", "true")("Complete the earlier steps before tracking print status."),
+          div.class`pet-step-body`.attr("data-pet-step-body", "status").attr("hidden", "true")(
+            p("As progress continues, this section will track print preparation, finishing, pickup, or delivery details.")
+          )
+        )
+      ),
+    ],
+  });
+};
 
 export const homeAboutPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({

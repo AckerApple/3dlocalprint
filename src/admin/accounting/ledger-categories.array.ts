@@ -9,6 +9,7 @@ export const ledgerCategories = [
   "Shipping Income",
   "Transfer to Credit Card",
   "Bank Bonus Income",
+  "Cash Back Rewards",
   "Marketing",
   "Software",
   "Event Fees",

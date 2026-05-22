@@ -8,6 +8,8 @@ export type LedgerTotals = {
   pendingAmountsTotal: number;
   pendingTotal: number;
   taxToPayTotal: number;
+  rewardsBillingCategory?: string;
+  rewardsYtdTotal?: number;
 };
 
 export type LedgerFilterState = {

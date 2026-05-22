@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
-import { renderDocument } from "./html.render.js";
+import { renderDocument } from "../.build-html/scripts/html.render.js";
 import { filamentIndexPage } from "../.build-html/src/page-generators/filament.index.html.js";
 import { filamentStandalonePage } from "../.build-html/src/page-generators/filament.standalone.html.js";
 import { filamentFastEditPage } from "../.build-html/src/page-generators/filament.fast-edit.html.js";
@@ -13,6 +13,9 @@ import {
   homeReceiptPage,
   homeQr1Page,
   homeNotFoundPage,
+  petLandingPage,
+  petHowItWorksPage,
+  petGetStartedPage,
 } from "../.build-html/src/page-generators/home.pages.js";
 
 const locations = ["Fireguys", "Apples"];
@@ -37,6 +40,18 @@ const homePages = [
   {
     path: resolve(homeDir, "index.html"),
     render: () => homeLandingPage(),
+  },
+  {
+    path: resolve(homeDir, "pet.html"),
+    render: () => petLandingPage(),
+  },
+  {
+    path: resolve(homeDir, "how-it-works.html"),
+    render: () => petHowItWorksPage(),
+  },
+  {
+    path: resolve(homeDir, "get-started.html"),
+    render: () => petGetStartedPage(),
   },
   {
     path: resolve(homeDir, "about.html"),

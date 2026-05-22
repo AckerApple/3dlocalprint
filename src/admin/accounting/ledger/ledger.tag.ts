@@ -192,7 +192,6 @@ const debitOnlyCategories = new Set([
   "Tools",
   "Packaging",
   "Shipping Expense",
-  "Transfer to Credit Card",
   "Marketing",
   "Software",
   "Event Fees",
@@ -414,6 +413,7 @@ const normalizeLoadedMoneyAccount = (item: MoneyAccount): MoneyAccount => {
     id: String(item?.id || ""),
     title,
     notes: String(item?.notes || "").trim(),
+    rewardsBillingCategory: String(item?.rewardsBillingCategory || "").trim(),
     createdAt: Number(item?.createdAt) || Date.now(),
     updatedAt: Number(item?.updatedAt) || Date.now(),
   };
@@ -501,7 +501,19 @@ const getSignedAmount = (entry: LedgerEntry): number => {
   return Number(entry.amount) || 0;
 };
 
-const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
+const getEntryYear = (entry: LedgerEntry) => {
+  const value = String(entry.applicableDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value.slice(0, 4);
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : String(parsed.getFullYear());
+};
+
+const computeTotalsForEntries = (
+  source: LedgerEntry[],
+  rewardsBillingCategory = ""
+): LedgerTotals => {
   const grossPositiveTotal = source.reduce((acc, entry) => {
     const amount = getSignedAmount(entry);
     return amount > 0 ? acc + amount : acc;
@@ -535,6 +547,20 @@ const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
     return acc + (Number(entry.salesTaxLiability) || 0);
   }, 0);
 
+  const normalizedRewardsCategory = String(rewardsBillingCategory || "").trim();
+  const currentYear = String(new Date().getFullYear());
+  const rewardsYtdTotal = normalizedRewardsCategory
+    ? source.reduce((acc, entry) => {
+        if (String(entry.billingCategory || "").trim() !== normalizedRewardsCategory) {
+          return acc;
+        }
+        if (getEntryYear(entry) !== currentYear) {
+          return acc;
+        }
+        return acc + getSignedAmount(entry);
+      }, 0)
+    : 0;
+
   return {
     grossPositiveTotal,
     grossNegativeTotal,
@@ -543,10 +569,16 @@ const computeTotalsForEntries = (source: LedgerEntry[]): LedgerTotals => {
     pendingAmountsTotal,
     pendingTotal,
     taxToPayTotal,
+    rewardsBillingCategory: normalizedRewardsCategory,
+    rewardsYtdTotal,
   };
 };
 
-const calculateAccountTotals = (accountTitle: string, source: LedgerEntry[]) => {
+const calculateAccountTotals = (
+  accountTitle: string,
+  source: LedgerEntry[],
+  rewardsBillingCategory = ""
+) => {
   if (accountTotals[accountTitle]) {
     const nextTotals = { ...accountTotals };
     delete nextTotals[accountTitle];
@@ -556,7 +588,7 @@ const calculateAccountTotals = (accountTitle: string, source: LedgerEntry[]) => 
 
   accountTotals = {
     ...accountTotals,
-    [accountTitle]: computeTotalsForEntries(source),
+    [accountTitle]: computeTotalsForEntries(source, rewardsBillingCategory),
   };
 };
 

@@ -6,10 +6,16 @@ import {
   meta,
   link,
   div,
-  htmlTag,
 } from "taggedjs";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+
+type HtmlPageOptions = {
+  pageTitle: string;
+  headItems?: any[];
+  bodyItems?: any[];
+  bodyClass?: string;
+};
 
 const faviconSvg = readFileSync(
   resolve(process.cwd(), "src/assets/logo/transparent.svg"),
@@ -23,7 +29,7 @@ export const htmlPage = ({
   headItems = [],
   bodyItems = [],
   bodyClass = "",
-}) => {
+}: HtmlPageOptions) => {
   return html.lang`en`(
     head(
       meta.charset`UTF-8`(),
@@ -38,4 +44,4 @@ export const htmlPage = ({
 export const versionBadge = () =>
   div
     .class`version-badge`
-    .attr('data-app-version', '')
+    .attr("data-app-version", "")

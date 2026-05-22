@@ -8,6 +8,8 @@ import {
   section,
   div,
   input,
+  select,
+  option,
   button,
   p,
   h1,
@@ -19,12 +21,14 @@ import { AdminNav } from "../shared/AdminNav.tag.js";
 import { replaceMountRoot } from "../shared/ssoMount.js";
 import { startAdminAppShell } from "../shared/adminAppShell.js";
 import type { MoneyAccount } from "../../types/ledger.js";
+import { ledgerCategories } from "./ledger-categories.array.js";
 
 let app = document.getElementById("moneyAccountsApp");
 const appRoot = { current: app };
 const moneyAccounts$ = array<MoneyAccount>([]);
 let newTitle = "";
 let newNotes = "";
+let newRewardsBillingCategory = "";
 let stopMoneyAccounts = null;
 let appMounted = false;
 let currentUser = null;
@@ -39,6 +43,7 @@ const createId = () => {
 };
 
 const normalizeTitle = (value = "") => value.trim().toLowerCase();
+const normalizeRewardsBillingCategory = (value = "") => String(value || "").trim();
 
 const sortMoneyAccounts = (items: MoneyAccount[]) =>
   [...items].sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
@@ -46,6 +51,7 @@ const sortMoneyAccounts = (items: MoneyAccount[]) =>
 const addMoneyAccount = () => {
   const title = String(newTitle || "").trim();
   const notes = String(newNotes || "").trim();
+  const rewardsBillingCategory = normalizeRewardsBillingCategory(newRewardsBillingCategory);
   if (!title) {
     toast.error("Enter an account title.");
     return;
@@ -64,6 +70,7 @@ const addMoneyAccount = () => {
     id: createId(),
     title,
     notes,
+    rewardsBillingCategory,
     createdAt: now,
     updatedAt: now,
   });
@@ -71,6 +78,7 @@ const addMoneyAccount = () => {
   moneyAccounts$.splice(0, moneyAccounts$.length, ...sorted);
   newTitle = "";
   newNotes = "";
+  newRewardsBillingCategory = "";
 };
 
 const removeMoneyAccount = (index: number) => {
@@ -90,6 +98,7 @@ const saveList = async () => {
         id: String(item?.id || "").trim() || createId(),
         title: String(item?.title || "").trim(),
         notes: String(item?.notes || "").trim(),
+        rewardsBillingCategory: normalizeRewardsBillingCategory(item?.rewardsBillingCategory),
         createdAt: Number(item?.createdAt) || now,
         updatedAt: now,
       }))
@@ -149,7 +158,23 @@ export const MoneyAccountsApp = tag(() => [
                     notes: String(event.target.value || ""),
                     updatedAt: Date.now(),
                   };
-                }),
+                })(),
+              select
+                .class`manufacturer-input`
+                .attr("aria-label", "Optional rewards billing category")
+                .value(() => item?.rewardsBillingCategory ?? "")
+                .onChange((event) => {
+                  moneyAccounts$[index] = {
+                    ...moneyAccounts$[index],
+                    rewardsBillingCategory: normalizeRewardsBillingCategory(event.target.value),
+                    updatedAt: Date.now(),
+                  };
+                })(
+                option.value``("Rewards category (optional)"),
+                ledgerCategories.map((category) =>
+                  option.value(category)(category)
+                )
+              ),
               button
                 .type`button`
                 .class`ghost-button`
@@ -177,6 +202,18 @@ export const MoneyAccountsApp = tag(() => [
         .onInput((event) => {
           newNotes = event.target.value;
         })(),
+      select
+        .class`manufacturer-input`
+        .attr("aria-label", "Optional rewards billing category")
+        .value(() => newRewardsBillingCategory)
+        .onChange((event) => {
+          newRewardsBillingCategory = normalizeRewardsBillingCategory(event.target.value);
+        })(
+        option.value``("Rewards category (optional)"),
+        ledgerCategories.map((category) =>
+          option.value(category)(category)
+        )
+      ),
       button
         .type`button`
         .class`add-button`
@@ -240,6 +277,7 @@ const auth = startAdminAppShell({
               id: String(item?.id || "").trim(),
               title: String(item?.title || "").trim(),
               notes: String(item?.notes || "").trim(),
+              rewardsBillingCategory: normalizeRewardsBillingCategory(item?.rewardsBillingCategory),
               createdAt: Number(item?.createdAt) || Date.now(),
               updatedAt: Number(item?.updatedAt) || Date.now(),
             }))
