@@ -1,0 +1,1 @@
+const e=["Sales Revenue","Owner Contribution","Filament","Printer Parts","Tools","Packaging","Shipping Expense","Shipping Income","Transfer to Credit Card","Bank Bonus Income","Cash Back Rewards","Marketing","Software","Event Fees","Sales Tax Collected","Other"];export{e as l};

@@ -236,7 +236,7 @@ export default defineConfig(({ mode }) => {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   build: {
-    outDir: activeSiteKey === "pet" ? "../dist/3dpetprint" : "../dist/3dlocalprint",
+    outDir: activeSiteKey === "pet" ? "../docs/pet" : "../docs",
     emptyOutDir: true,
     rollupOptions: {
       input: activeSiteKey === "pet"
