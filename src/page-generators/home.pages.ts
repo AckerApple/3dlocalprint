@@ -39,6 +39,7 @@ const homeShell = ({
   mainClass = "home-main",
   assetPrefix = "./",
   siteKey = "local" as SiteKey,
+  extraHeadItems = [],
 }) => {
   const site = getSiteConfig(siteKey);
   const scriptItems = bodyScripts.map((scriptPath) =>
@@ -56,6 +57,7 @@ const homeShell = ({
       ),
       link.rel`stylesheet`.href(withPrefix(assetPrefix, "admin/shared/styles.css")),
       style(`:root { ${themeToCssVariables(site.theme)} }`),
+      extraHeadItems,
     ],
     bodyClass: `site-${site.key} theme-${site.themeName}`,
     bodyItems: [
@@ -488,6 +490,18 @@ export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
     pageTitle: "PRINT by LINK - 3D Local Print",
     description:
       "Send 3D Local Print a model link for a custom local printing quote.",
+    extraHeadItems: [
+      meta.attr("property", "og:type").content("website"),
+      meta.attr("property", "og:title").content("PRINT by LINK"),
+      meta.attr("property", "og:description").content("Found a model online? We'll print it. Share a link, get a quote, approve and print."),
+      meta.attr("property", "og:url").content("https://3dlocalprint.com/print-model-link.html"),
+      meta.attr("property", "og:image").content("https://3dlocalprint.com/assets/print-by-link-banner-desktop-p1J3u-wC.png"),
+      meta.attr("property", "og:image:alt").content("Found a model online? We'll print it. Share a link, get a quote, approve and print."),
+      meta.name("twitter:card").content("summary_large_image"),
+      meta.name("twitter:title").content("PRINT by LINK"),
+      meta.name("twitter:description").content("Found a model online? We'll print it. Share a link, get a quote, approve and print."),
+      meta.name("twitter:image").content("https://3dlocalprint.com/assets/print-by-link-banner-desktop-p1J3u-wC.png"),
+    ],
     heroLede: "Already found a model online? Send the link and get a print quote.",
     bodyScripts: ["print-model-link.ts"],
     mainClass: "home-main home-main-cart",
