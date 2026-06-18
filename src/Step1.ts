@@ -47,6 +47,10 @@ export const Step1 = tag(() => {
     ],
     () => {
       const acceptedCount = state.links.filter((item) => isAcceptedLink(item.url)).length;
+      if (acceptedCount === 0) {
+        return "";
+      }
+
       return div.class`print-link-step-persistent print-link-link-count`(
         `✅ ${acceptedCount} ${acceptedCount === 1 ? "link" : "links"} accepted`
       );
