@@ -14,7 +14,9 @@ export const fetchApiWithFallback = async (
   const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   const method = String(init?.method || "GET").toUpperCase();
   const shouldFallbackFromLocalProxy = isLocalHost && method === "GET" && response && response.status >= 500;
-  if (response && response.status !== 404 && !contentType.includes("text/html") && !shouldFallbackFromLocalProxy) {
+  const shouldFallbackFromStaticHost = response
+    && ([404, 405].includes(response.status) || contentType.includes("text/html"));
+  if (response && !shouldFallbackFromStaticHost && !shouldFallbackFromLocalProxy) {
     return response;
   }
 
