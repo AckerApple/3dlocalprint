@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import { resolve } from "path";
-import { existsSync, mkdirSync, readFileSync, copyFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, copyFileSync, readdirSync } from "fs";
 import { locations } from "./src/admin/filament/locations.array.js";
 import { slugifyLocation } from "./src/admin/filament/location-utils.js";
 
@@ -79,6 +79,22 @@ const productSlugRewritePlugin = {
   },
 };
 
+const copyLogoAssets = (outputDir) => {
+  const logoSourceDir = resolve(__dirname, "src/assets/logo");
+  if (!outputDir || !existsSync(logoSourceDir)) {
+    return;
+  }
+
+  const logoOutputDir = resolve(outputDir, "assets/logo");
+  mkdirSync(logoOutputDir, { recursive: true });
+
+  readdirSync(logoSourceDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && !entry.name.startsWith("."))
+    .forEach((entry) => {
+      copyFileSync(resolve(logoSourceDir, entry.name), resolve(logoOutputDir, entry.name));
+    });
+};
+
 const siteIndexPlugin = (mode) => ({
   name: "site-index-html",
   configureServer(server) {
@@ -127,19 +143,7 @@ const siteIndexPlugin = (mode) => ({
     return readFileSync(petHtmlPath, "utf-8");
   },
   writeBundle(options) {
-    if (mode !== "pet") {
-      return;
-    }
-
-    const outputDir = String(options.dir || "");
-    const petLogoPath = resolve(__dirname, "src/assets/logo/3DPetPrint.svg");
-    if (!outputDir || !existsSync(petLogoPath)) {
-      return;
-    }
-
-    const logoOutputDir = resolve(outputDir, "assets/logo");
-    mkdirSync(logoOutputDir, { recursive: true });
-    copyFileSync(petLogoPath, resolve(logoOutputDir, "3DPetPrint.svg"));
+    copyLogoAssets(String(options.dir || ""));
   },
 });
 
