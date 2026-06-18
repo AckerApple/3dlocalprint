@@ -1102,7 +1102,7 @@ function getCheckoutErrorResponse(error: unknown): { status: number; message: st
 }
 
 export const submitModelLinkQuoteRequest = onRequest(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", cors: true, invoker: "public", secrets: [SMTP_USER, SMTP_PASS] },
   async (request, response) => {
     setCorsHeaders(response);
 
@@ -1202,7 +1202,7 @@ export const submitModelLinkQuoteRequest = onRequest(
 );
 
 export const getPublicModelLinkQuoteRequest = onRequest(
-  { region: "us-central1" },
+  { region: "us-central1", cors: true, invoker: "public" },
   async (request, response) => {
     setCorsHeaders(response);
 
