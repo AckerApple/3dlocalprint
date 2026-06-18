@@ -495,16 +495,36 @@ export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
     mainSections: [
       section.class`print-link-splash`(
         img
+          .class`print-link-splash-image print-link-splash-image-desktop`
           .src(withPrefix(assetPrefix, "assets/print-by-link-banner-desktop.png"))
-          .attr("srcset", `${withPrefix(assetPrefix, "assets/print-by-link-banner-mobile.png")} 941w, ${withPrefix(assetPrefix, "assets/print-by-link-banner-desktop.png")} 2172w`)
-          .attr("sizes", "(max-width: 760px) 100vw, min(100vw, 1200px)")
           .attr("alt", "Found a model online? We'll print it. Share a link, get a quote, approve and print.")
+          .attr("loading", "eager")
+          .attr("decoding", "async")(),
+        img
+          .class`print-link-splash-image print-link-splash-image-mobile`
+          .src(withPrefix(assetPrefix, "assets/print-by-link-banner-mobile.png"))
+          .attr("alt", "")
+          .attr("aria-hidden", "true")
           .attr("loading", "eager")
           .attr("decoding", "async")()
       ),
       section.class`cart-page-title print-link-title`(
         h1("PRINT by LINK"),
-        p("Share a model from Printables, MakerWorld, Thingiverse, Cults, MyMiniFactory, Etsy, or another source. I will review the model, estimate print time and material, then email a quote before printing.")
+        p(
+          "Share a model from ",
+          a.href("https://www.printables.com/").target("_blank").rel("noopener noreferrer")("Printables"),
+          ", ",
+          a.href("https://makerworld.com/en/3d-models").target("_blank").rel("noopener noreferrer")("MakerWorld"),
+          ", ",
+          a.href("https://www.thingiverse.com/").target("_blank").rel("noopener noreferrer")("Thingiverse"),
+          ", ",
+          a.href("https://cults3d.com/").target("_blank").rel("noopener noreferrer")("Cults"),
+          ", ",
+          a.href("https://www.myminifactory.com/").target("_blank").rel("noopener noreferrer")("MyMiniFactory"),
+          ", ",
+          a.href("https://www.yeggi.com/").target("_blank").rel("noopener noreferrer")("Yeggi.com"),
+          ", or another source. We will review the model, estimate print time and material, then email a quote before printing."
+        )
       ),
       form.class`print-link-wizard`.id("printModelLinkForm")(
         section.class`home-card print-link-step-card is-active`.attr("data-step", "1")(
@@ -513,12 +533,6 @@ export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
             h2("🔗 Paste the link(s)"),
             p("Add one or more model pages. Public links work best because they usually include pictures, license notes, print settings, and downloadable files.")
           ),
-          div.class`print-link-recommended-sites`(
-            strong("Recommended places to find models"),
-            a.href("https://makerworld.com/en/3d-models").target("_blank").rel("noopener noreferrer")("MakerWorld"),
-            a.href("https://www.yeggi.com/").target("_blank").rel("noopener noreferrer")("Yeggi"),
-            a.href("https://www.printables.com/").target("_blank").rel("noopener noreferrer")("Printables")
-          ),
           div.class`print-link-list`.id("modelLinksList")(
             div.class`print-link-row`(
               input.attr("data-model-link-input", "true").attr("name", "modelLinks").attr("type", "url").attr("placeholder", "Paste link to model here..."),
@@ -526,7 +540,7 @@ export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
             )
           ),
           div.class`print-link-actions`(
-            button.class`ghost-button`.id("addModelLinkButton").attr("type", "button")("Add link"),
+            button.class`ghost-button`.id("addModelLinkButton").attr("type", "button")("Add another link"),
             button.class`add-button`.id("step1Next").attr("type", "button").attr("disabled", "true")("Next")
           )
         ),
@@ -534,7 +548,7 @@ export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
           div.class`print-link-step-heading`(
             span.class`home-card-tag`("Step 2"),
             h2("Contact details"),
-            p("I may need to ask about scale, material, color, deadline, or whether a paid model has already been purchased.")
+            p("We may need to ask about scale, material, color, deadline, or whether a paid model has already been purchased.")
           ),
           div.class`print-link-field`(
             label.attr("for", "customerName")("Name"),
@@ -573,7 +587,7 @@ export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
           div.class`print-link-step-heading`(
             span.class`home-card-tag`("Step 4"),
             h2("Review and submit"),
-            p("After you send this, you will receive an email with a request link. I will review the model and reply with a quote before printing.")
+            p("After you send this, you will receive an email with a request link. We will review the model and reply with a quote before printing.")
           ),
           div.class`print-link-review`.id("printModelLinkReview"),
           button.class`add-button print-link-submit`.attr("type", "submit")("SEND FOR QUOTE"),

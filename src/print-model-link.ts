@@ -1,4 +1,8 @@
 import { fetchApiWithFallback } from "./api-url.js";
+import { Step1 } from "./Step1.js";
+import { Step2 } from "./Step2.js";
+import { Step3 } from "./Step3.js";
+import { Step4 } from "./Step4.js";
 import {
   a,
   array,
@@ -14,7 +18,6 @@ import {
   strong,
   tag,
   tagElement,
-  textarea,
   ul,
 } from "taggedjs";
 import { subscribe } from "taggedjs/js/TagJsTags/subscribe.function.js";
@@ -39,7 +42,7 @@ type QuoteRequestPayload = {
   pageUrl: string;
 };
 
-type QuoteUiState = {
+export type QuoteUiState = {
   activeStep: number;
   customerName: string;
   customerEmail: string;
@@ -102,9 +105,19 @@ const initialLinks = Array.isArray(savedState.modelItems) && savedState.modelIte
     }))
   : createEmptyLinks();
 
+const getSavedActiveStep = () =>
+  Math.max(1, Math.min(4, Math.round(Number(savedState.activeStep) || 1)));
+
+const getInitialActiveStep = (state: QuoteUiState) => {
+  const savedActiveStep = getSavedActiveStep();
+  const firstInvalid = getFirstInvalidStep(state);
+  if (!firstInvalid) return 4;
+  return Math.min(savedActiveStep, firstInvalid.step);
+};
+
 const quoteUi$ = array<QuoteUiState>([
   {
-    activeStep: Math.max(1, Math.min(4, Math.round(Number(savedState.activeStep) || 1))),
+    activeStep: 1,
     customerName: String(savedState.customerName || ""),
     customerEmail: String(savedState.customerEmail || ""),
     customerPhone: String(savedState.customerPhone || ""),
@@ -119,7 +132,7 @@ const quoteUi$ = array<QuoteUiState>([
   },
 ]);
 
-const getQuoteUi = () => quoteUi$[0];
+export const getQuoteUi = () => quoteUi$[0];
 
 const getModelItems = (state = getQuoteUi()): ModelItem[] =>
   state.links
@@ -130,7 +143,7 @@ const getModelItems = (state = getQuoteUi()): ModelItem[] =>
     .filter((item) => item.url)
     .filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index);
 
-const buildPayload = (state = getQuoteUi()): QuoteRequestPayload => {
+export const buildPayload = (state = getQuoteUi()): QuoteRequestPayload => {
   const modelItems = getModelItems(state);
   return {
     customerName: state.customerName.trim(),
@@ -174,7 +187,7 @@ const setQuoteUi = (patch: Partial<QuoteUiState>) => {
     ...getQuoteUi(),
     ...patch,
   };
-  quoteUi$[0] = next;
+  quoteUi$.splice(0, 1, next);
   saveState(next);
 };
 
@@ -182,7 +195,7 @@ const setStatus = (statusText: string, statusState: QuoteUiState["statusState"] 
   setQuoteUi({ statusText, statusState });
 };
 
-const validateStep = (step: number, state = getQuoteUi()) => {
+export const validateStep = (step: number, state = getQuoteUi()) => {
   const payload = buildPayload(state);
   if (step === 1) {
     if (!payload.modelItems.length) return { key: "modelLinks", message: "Paste at least one model link." };
@@ -213,7 +226,9 @@ const getFirstInvalidStep = (state = getQuoteUi()) => {
   return { step: 1, error };
 };
 
-const activateStep = (activeStep: number) => {
+quoteUi$[0].activeStep = getInitialActiveStep(quoteUi$[0]);
+
+export const activateStep = (activeStep: number) => {
   const state = getQuoteUi();
   setQuoteUi({
     activeStep: Math.max(0, Math.min(4, activeStep)),
@@ -225,11 +240,13 @@ const activateStep = (activeStep: number) => {
   });
 };
 
-const toggleStep = (step: number) => {
-  activateStep(getQuoteUi().activeStep === step ? 0 : step);
+export const toggleStep = (step: number) => {
+  const state = getQuoteUi()
+  activateStep(state.activeStep === step ? 0 : step);
+  return state
 };
 
-const goNext = (fromStep: number, toStep: number) => {
+export const goNext = (fromStep: number, toStep: number) => {
   const error = validateStep(fromStep);
   if (error) {
     setQuoteUi({
@@ -252,7 +269,7 @@ const updateLink = (id: string, patch: Partial<ModelLinkDraft>) => {
   });
 };
 
-const addLink = () => {
+export const addLink = () => {
   const state = getQuoteUi();
   setQuoteUi({
     links: [...state.links, { id: createDraftId(), url: "", quantity: 1 }],
@@ -269,7 +286,7 @@ const removeLink = (id: string) => {
   });
 };
 
-const updateField = (
+export const updateField = (
   key: "customerName" | "customerEmail" | "customerPhone" | "projectDetails",
   value: string,
 ) => {
@@ -357,98 +374,29 @@ const submitQuoteRequest = async () => {
   }
 };
 
-const StepHeading = (step: number, title: string, description: string) => {
-  const state = getQuoteUi();
-  const isActive = state.activeStep === step;
-  const isComplete = step >= 1 && step <= 3 && !validateStep(step, state);
-  return div
-    .class`print-link-step-heading`
-    .attr("role", "button")
-    .attr("tabindex", "0")
-    .attr("aria-expanded", isActive ? "true" : "false")
-    .onClick(() => toggleStep(step))
-    .onKeyDown((event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        toggleStep(step);
-      }
-    })(
-    div.class`print-link-step-kicker`(
-      span.class`home-card-tag`(isComplete ? `✅ Step ${step}` : `Step ${step}`),
-      span.class`print-link-step-toggle-label`(isActive ? "Collapse" : "Open")
-    ),
-    h2(title),
-    p(description)
-  );
-};
-
-const ErrorText = (message = "") =>
+export const ErrorText = (message = "") =>
   message ? p.class`print-link-error`(message) : null;
 
-const StepSection = (step: number, children: any[]) => {
-  const state = getQuoteUi();
-  const isActive = state.activeStep === step;
-  return section
-    .class(`home-card print-link-step-card${isActive ? " is-active" : " is-collapsed"}`)
-    .attr("data-step", String(step))
-    .attr("aria-hidden", isActive ? "false" : "true")(
-    children
-  );
-};
-
-const RecommendedSites = () =>
-  div.class`print-link-recommended-sites`(
-    strong("Recommended places to find models"),
-    a.href("https://makerworld.com/en/3d-models").target("_blank").rel("noopener noreferrer")("MakerWorld"),
-    a.href("https://www.yeggi.com/").target("_blank").rel("noopener noreferrer")("Yeggi"),
-    a.href("https://www.printables.com/").target("_blank").rel("noopener noreferrer")("Printables")
-  );
-
-const LinkRow = (item: ModelLinkDraft, canRemove: boolean) =>
+export const LinkRow = (item: ModelLinkDraft, canRemove: boolean) =>
   div.class`print-link-row`(
     input
       .attr("data-model-link-input", "true")
       .name("modelLinks")
       .type("url")
       .placeholder("Paste link to model here...")
-      .value(() => item.url)
+      .value(_ => item.url)
       .onInput((event) => updateLink(item.id, { url: String(event.target.value || "") }))(),
     button
       .class`ghost-button print-link-remove`
       .type("button")
       .ariaLabel`Remove model link`
-      .disabled(() => !canRemove)
-      .onClick(() => removeLink(item.id))(
+      .disabled(_ => !canRemove)
+      .onClick(_ => removeLink(item.id))(
       "🗑️"
     )
   ).key(item.id);
 
-const Step1 = (state: QuoteUiState) =>
-  StepSection(1, [
-    StepHeading(
-      1,
-      "🔗 Paste the link(s)",
-      "Add one or more model pages. Public links work best because they usually include pictures, license notes, print settings, and downloadable files.",
-    ),
-    RecommendedSites(),
-    div.class(`print-link-list${state.errors.modelLinks ? " is-invalid" : ""}`).id("modelLinksList")(
-      state.links.map((item) => LinkRow(item, state.links.length > 1)),
-      ErrorText(state.errors.modelLinks)
-    ),
-    div.class`print-link-actions`(
-      button.class`ghost-button`.id("addModelLinkButton").type("button").onClick(addLink)("Add link"),
-      button
-        .class`add-button`
-        .id("step1Next")
-        .type("button")
-        .disabled(() => !state.links.some((item) => item.url.trim()))
-        .onClick(() => goNext(1, 2))(
-        "Next"
-      )
-    ),
-  ]);
-
-const ContactField = (
+export const ContactField = (
   id: "customerName" | "customerEmail" | "customerPhone",
   labelText: string,
   type: string,
@@ -463,7 +411,7 @@ const ContactField = (
       .name(id)
       .type(type)
       .attr("autocomplete", autocomplete)
-      .value(() => value)
+      .value(_ => value)
       .onInput((event) => updateField(id, String(event.target.value || "")))
       .onKeyDown((event) => {
         if (event.key === "Enter") {
@@ -474,23 +422,7 @@ const ContactField = (
     ErrorText(error)
   );
 
-const Step2 = (state: QuoteUiState) =>
-  StepSection(2, [
-    StepHeading(
-      2,
-      "Contact details",
-      "I may need to ask about scale, material, color, deadline, or whether a paid model has already been purchased.",
-    ),
-    ContactField("customerName", "Name", "text", "name", state.customerName, state.errors.customerName),
-    ContactField("customerEmail", "Email", "email", "email", state.customerEmail, state.errors.customerEmail),
-    ContactField("customerPhone", "Phone or text number", "tel", "tel", state.customerPhone, state.errors.customerPhone),
-    div.class`print-link-actions`(
-      button.class`ghost-button`.type("button").onClick(() => activateStep(1))("Back"),
-      button.class`add-button`.id("step2Next").type("button").onClick(() => goNext(2, 3))("Next")
-    ),
-  ]);
-
-const QuantityRows = (state: QuoteUiState) => {
+export const QuantityRows = (state: QuoteUiState) => {
   const validLinks = state.links.filter((item) => item.url.trim());
   if (!validLinks.length) {
     return p.class`print-link-placeholder`("Paste at least one model link in Step 1 to set quantities here.");
@@ -505,40 +437,14 @@ const QuantityRows = (state: QuoteUiState) => {
           .type("number")
           .min("1")
           .max("999")
-          .value(() => String(normalizeQuantity(item.quantity)))
+          .value(_ => String(normalizeQuantity(item.quantity)))
           .onInput((event) => updateLink(item.id, { quantity: normalizeQuantity(event.target.value) }))()
       )
     ).key(`quantity-${item.id}`)
   );
 };
 
-const Step3 = (state: QuoteUiState) =>
-  StepSection(3, [
-    StepHeading(
-      3,
-      "Quantity and quote details",
-      "Set a quantity for each link. Notes about color, size, material, finish, deadline, pickup, or delivery are optional.",
-    ),
-    div.class(`print-link-quantities${state.errors.modelItems ? " is-invalid" : ""}`).id("modelItemQuantities")(
-      QuantityRows(state),
-      ErrorText(state.errors.modelItems)
-    ),
-    div.class`print-link-field`(
-      label.attr("for", "projectDetails")("Additional details optional"),
-      textarea
-        .id("projectDetails")
-        .name("projectDetails")
-        .placeholder("Color, size, deadline, material preference, strength needs, finish, pickup/delivery notes...")
-        .value(() => state.projectDetails)
-        .onInput((event) => updateField("projectDetails", String(event.target.value || "")))()
-    ),
-    div.class`print-link-actions`(
-      button.class`ghost-button`.type("button").onClick(() => activateStep(2))("Back"),
-      button.class`add-button`.id("step3Next").type("button").onClick(() => goNext(3, 4))("Review")
-    ),
-  ]);
-
-const ReviewGroup = (labelText: string, value: any) =>
+export const ReviewGroup = (labelText: string, value: any) =>
   div.class`print-link-review-group`(
     strong(labelText),
     Array.isArray(value)
@@ -546,7 +452,7 @@ const ReviewGroup = (labelText: string, value: any) =>
       : span(value || "—")
   );
 
-const LinkReviewValue = (item: ModelItem) =>
+export const LinkReviewValue = (item: ModelItem) =>
   div.class`print-link-review-model`(
     a.href(item.url).target("_blank").rel("noopener noreferrer")(item.url),
     ul(
@@ -554,91 +460,56 @@ const LinkReviewValue = (item: ModelItem) =>
     )
   );
 
-const Step4 = (state: QuoteUiState) => {
-  const payload = buildPayload(state);
-  const missing: string[] = [];
-  if (validateStep(1, state)) missing.push("Step 1: paste at least one valid model link.");
-  if (validateStep(2, state)) missing.push("Step 2: add your name and email.");
-  if (validateStep(3, state)) missing.push("Step 3: set quantity for each link.");
+const SuccessReceipt = tag(() => {
+  let state = getQuoteUi()
 
-  return StepSection(4, [
-    StepHeading(
-      4,
-      "Review and submit",
-      "After you send this, you will receive an email with a request link. I will review the model and reply with a quote before printing.",
-    ),
-    div.class`print-link-review`.id("printModelLinkReview")(
-      missing.length ? ReviewGroup("Before submitting", missing) : null,
-      ReviewGroup(
-        "Model links",
-        payload.modelItems.length ? payload.modelItems.map(LinkReviewValue) : ["Waiting for Step 1"],
-      ),
-      ReviewGroup("Contact", [
-        payload.customerName || "Waiting for name",
-        payload.customerEmail || "Waiting for email",
-        payload.customerPhone || "No phone provided",
-      ]),
-      ReviewGroup("Total quantity", String(payload.quantity || 1)),
-      ReviewGroup("Additional details", payload.projectDetails || "No optional notes added.")
-    ),
-    button
-      .class`add-button print-link-submit`
-      .type("submit")
-      .disabled(() => state.submitting)(
-      "SEND FOR QUOTE"
-    ),
-    state.statusState === "success"
-      ? null
-      : p
-          .class`print-link-status`
-          .id("printModelLinkStatus")
-          .attr("role", "status")
-          .attr("aria-live", "polite")
-          .attr("data-state", state.statusState)(
-          state.statusText
+  SuccessReceipt.updates(() => {
+    state = getQuoteUi()
+  })
+
+  return [
+    () => {
+      if (state.statusState !== "success" || !state.statusText) return null;
+
+      return section
+        .class`print-link-success-receipt`
+        .id("printModelLinkStatus")
+        .attr("role", "status")
+        .attr("aria-live", "polite")
+        .attr("data-state", "success")(
+        div.class`print-link-success-badge`("Quote sent"),
+        h2("Your quote request is on its way"),
+        p(
+          state.successRequestId
+            ? [
+                "Quote request ",
+                strong(state.successRequestId),
+                " was sent. A confirmation email is on the way.",
+              ]
+            : "Quote request sent. A confirmation email is on the way."
         ),
-  ]);
-};
+        state.successReviewUrl
+          ? p.class`print-link-success-review`(
+              span("Review link:"),
+              a.href(state.successReviewUrl).target("_blank").rel("noopener noreferrer")(state.successReviewUrl)
+            )
+          : null,
+        p.class`print-link-success-note`("The form has been reset so you can send another model link quote request.")
+      ).key("print-link-success-receipt")
 
-const SuccessReceipt = (state: QuoteUiState) => {
-  if (state.statusState !== "success" || !state.statusText) return null;
+    }
+  ]
+})
 
-  return section
-    .class`print-link-success-receipt`
-    .id("printModelLinkStatus")
-    .attr("role", "status")
-    .attr("aria-live", "polite")
-    .attr("data-state", "success")(
-    div.class`print-link-success-badge`("Quote sent"),
-    h2("Your quote request is on its way"),
-    p(
-      state.successRequestId
-        ? [
-            "Quote request ",
-            strong(state.successRequestId),
-            " was sent. A confirmation email is on the way.",
-          ]
-        : "Quote request sent. A confirmation email is on the way."
-    ),
-    state.successReviewUrl
-      ? p.class`print-link-success-review`(
-          span("Review link:"),
-          a.href(state.successReviewUrl).target("_blank").rel("noopener noreferrer")(state.successReviewUrl)
-        )
-      : null,
-    p.class`print-link-success-note`("The form has been reset so you can send another model link quote request.")
-  );
-};
-
-const PrintModelLinkApp = tag(() =>
-  subscribe(quoteUi$, ([state]) => [
-    Step1(state),
-    Step2(state),
-    Step3(state),
-    Step4(state),
-    SuccessReceipt(state),
+const PrintModelLinkApp = tag(function PrintModelLinkAppFn(){
+  return subscribe(quoteUi$, ([state]) => [
+    Step1(),
+    Step2(),
+    Step3(),
+    Step4(),
+    SuccessReceipt(),
   ])
-);
+});
 
 if (form) {
   form.replaceChildren();

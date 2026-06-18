@@ -1,5 +1,6 @@
-import { a, div, footer, header, img, nav, p, tag } from "taggedjs";
+import { a, div, footer, header, img, p, tag } from "taggedjs";
 import type { SiteConfig } from "../../sites/index.js";
+import { homeNav } from "./homeNav.js";
 
 type HomeHeaderOptions = {
   site: SiteConfig;
@@ -15,25 +16,6 @@ export const withPrefix = (prefix: string, path: string) => {
   if (prefix.endsWith("/")) return `${prefix}${path}`;
   return `${prefix}/${path}`;
 };
-
-export const homeNav = tag((
-  site: SiteConfig,
-  assetPrefix = "./",
-) =>
-  nav.class`home-menu`(
-    site.nav.map((item) => {
-      const link = a
-        .class`home-menu-link`
-        .href(withPrefix(assetPrefix, item.href));
-
-      if (item.href === "cart.html") {
-        link.attr("data-cart-link", "true");
-      }
-
-      return link(item.label);
-    }),
-  ),
-);
 
 export const homeHeader = tag(({
   site,
@@ -73,8 +55,8 @@ export const homeHeaderMount = (options: HomeHeaderOptions) =>
       homeHeader(options) as any
     );
 
-export const homeFooter = (site: SiteConfig, assetPrefix = "./") =>
-  footer.class`home-footer`(
+export function homeFooter(site: SiteConfig, assetPrefix = "./") {
+  return footer.class`home-footer`(
     div.class`home-footer-inner`(
       div.class`home-footer-title`(site.key === "pet" ? site.name : `${site.legalName}.`),
       div.class`home-footer-tagline`(site.footerNote),
@@ -85,3 +67,4 @@ export const homeFooter = (site: SiteConfig, assetPrefix = "./") =>
       div.class`home-footer-version`.attr("data-app-version", "")
     )
   );
+}

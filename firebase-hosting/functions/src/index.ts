@@ -679,7 +679,7 @@ function buildCustomerModelLinkQuoteEmail(request: ModelLinkQuoteRequestInput): 
   const text = [
     greeting,
     "",
-    "I received your model link quote request. I will review the model, printability, material, and timing, then reply with a quote before anything is printed.",
+    "We received your model link quote request. We will review the model, printability, material, and timing, then reply with a quote before anything is printed.",
     "",
     `Quote request: ${request.requestId}`,
     `Quantity: ${request.quantity}`,
@@ -711,7 +711,7 @@ function buildCustomerModelLinkQuoteEmail(request: ModelLinkQuoteRequestInput): 
           </div>
           <div style="padding:24px 26px;">
             <p style="margin:0 0 18px;color:#4d3a31;line-height:1.55;">${escapeHtml(greeting)}</p>
-            <p style="margin:0 0 22px;color:#4d3a31;line-height:1.55;">I received your model link quote request. I will review printability, material, and timing, then reply with a quote before anything is printed.</p>
+            <p style="margin:0 0 22px;color:#4d3a31;line-height:1.55;">We received your model link quote request. We will review printability, material, and timing, then reply with a quote before anything is printed.</p>
             ${request.publicReviewUrl ? `<div style="margin:0 0 22px;"><a href="${escapeHtml(request.publicReviewUrl)}" style="display:inline-block;background:#de6a2e;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 16px;font-weight:700;">Review request details</a></div>` : ""}
             <h2 style="margin:0 0 8px;font-size:18px;color:#2c211b;">Model links</h2>
             <ul style="margin:0 0 22px;padding-left:20px;">${htmlLinks}</ul>
