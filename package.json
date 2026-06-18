@@ -1,11 +1,12 @@
 {
   "name": "3dlocalprint",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "description": "[gh-pages display](https://ackerapple.github.io/3dlocalprint/)",
   "private": true,
   "type": "module",
   "scripts": {
     "build:html": "tsc -p tsconfig.build-html.json && node scripts/build-html.js",
+    "start": "node scripts/start-local.js",
     "dev": "node scripts/dev-sites.js",
     "dev:local": "npm run build:html && vite --host 0.0.0.0 --port 5173 --mode localprint",
     "dev:pet": "npm run build:html && vite --host 0.0.0.0 --port 5174 --mode pet",

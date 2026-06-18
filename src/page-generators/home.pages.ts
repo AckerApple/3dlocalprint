@@ -23,6 +23,7 @@ import {
   button,
   style,
   span,
+  strong,
 } from "taggedjs";
 import { htmlPage, favicon } from "../../scripts/html.core.js";
 import { homeFooter, homeHeaderMount, withPrefix } from "../components/shared/home.js";
@@ -145,10 +146,16 @@ export const homeLandingPage = ({ assetPrefix = "./", siteKey = "local" as SiteK
     ],
   });
 
-const Field = (fieldLabel, control) =>
+const Field = (fieldLabel: string, control: any) =>
   label.class`pet-upload-field`(
     span(fieldLabel),
     control
+  );
+
+const StepTitle = (icon: string, title: string) =>
+  h2.class`pet-step-title`(
+    span.class`pet-step-emoji`.attr("aria-hidden", "true")(icon),
+    span(title)
   );
 
 export const petLandingPage = ({ assetPrefix = "./" } = {}) => {
@@ -205,7 +212,7 @@ export const petHowItWorksPage = ({ assetPrefix = "./" } = {}) => {
         div.class`home-card pet-start-step pet-how-step`(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 1"),
-            h2("Sign in first"),
+            StepTitle("🔐", "Sign in first"),
             div.class`pet-step-status`("Account")
           ),
           div.class`pet-step-body`(
@@ -217,7 +224,7 @@ export const petHowItWorksPage = ({ assetPrefix = "./" } = {}) => {
         div.class`home-card pet-start-step pet-how-step`(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 2"),
-            h2("Upload pet photos"),
+            StepTitle("📂", "Upload pet photos"),
             div.class`pet-step-status`("Photos")
           ),
           div.class`pet-step-body`(
@@ -229,7 +236,7 @@ export const petHowItWorksPage = ({ assetPrefix = "./" } = {}) => {
         div.class`home-card pet-start-step pet-how-step`(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 3"),
-            h2("Review your proof"),
+            StepTitle("✅", "Review your proof"),
             div.class`pet-step-status`("Approval")
           ),
           div.class`pet-step-body`(
@@ -241,7 +248,7 @@ export const petHowItWorksPage = ({ assetPrefix = "./" } = {}) => {
         div.class`home-card pet-start-step pet-how-step`(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 4"),
-            h2("Printing your pet"),
+            StepTitle("🖨️", "Printing your pet"),
             div.class`pet-step-status`("Print")
           ),
           div.class`pet-step-body`(
@@ -288,14 +295,7 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
           .attr("data-pet-step", "auth")(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 1"),
-            h2.class`pet-step-title`(
-              span("Sign in"),
-              span
-                .class`pet-auth-avatar`
-                .attr("data-pet-auth-avatar", "true")
-                .attr("hidden", "true")
-                .attr("aria-label", "Signed in")
-            ),
+            StepTitle("🔐", "Sign in"),
             div.class`pet-step-status`.attr("data-pet-auth-status", "true")("Sign in required")
           ),
           div.class`pet-step-body`.attr("data-pet-step-body", "auth")(
@@ -307,12 +307,36 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
               button.class`ghost-button`.type("button").disabled("true")("Continue with Facebook")
             ),
             p.class`pet-upload-note`("Google sign-in is active. Additional SSO providers are placeholders for now.")
+          ),
+          div.class`pet-step-body pet-auth-summary`
+            .attr("data-pet-auth-summary", "true")
+            .attr("hidden", "true")(
+            div.class`pet-auth-user`(
+              span
+                .class`pet-auth-avatar`
+                .attr("data-pet-auth-avatar", "true")
+                .attr("aria-hidden", "true")(
+                img
+                  .class`pet-auth-avatar-image`
+                  .attr("data-pet-auth-avatar-image", "true")
+                  .attr("hidden", "true")
+                  .attr("referrerpolicy", "no-referrer")
+                  .alt(""),
+                span
+                  .class`pet-auth-avatar-fallback`
+                  .attr("data-pet-auth-avatar-fallback", "true")
+              ),
+              span.class`pet-auth-user-copy`(
+                span.class`pet-auth-user-label`("Signed in as"),
+                span.class`pet-auth-user-email`.attr("data-pet-auth-email", "true")("Signed in")
+              )
+            )
           )
         ),
         div.class`home-card pet-start-step pet-start-step-locked`.attr("data-pet-step", "upload")(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 2"),
-            h2("Upload pet files"),
+            StepTitle("📂", "Upload pet files"),
             div.class`pet-step-status`("Next")
           ),
           p.class`pet-step-lock-note`.attr("data-pet-lock-note", "upload").attr("hidden", "true")("Complete sign in before uploading pet files."),
@@ -329,7 +353,7 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
         div.class`home-card pet-start-step pet-start-step-muted pet-start-step-locked`.attr("data-pet-step", "review")(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 3"),
-            h2("Review and approve"),
+            StepTitle("✅", "Review and approve"),
             div.class`pet-step-status`("Locked")
           ),
           p.class`pet-step-lock-note`.attr("data-pet-lock-note", "review").attr("hidden", "true")("Finish the upload step before reviewing your pet print request."),
@@ -340,7 +364,7 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
         div.class`home-card pet-start-step pet-start-step-muted pet-start-step-locked`.attr("data-pet-step", "status")(
           div.class`pet-step-heading`(
             div.class`home-card-tag`("Section 4"),
-            h2("Print status"),
+            StepTitle("🖨️", "Print status"),
             div.class`pet-step-status`("Locked")
           ),
           p.class`pet-step-lock-note`.attr("data-pet-lock-note", "status").attr("hidden", "true")("Complete the earlier steps before tracking print status."),
@@ -454,6 +478,127 @@ export const homeProductDetailPage = ({ assetPrefix = "./" } = {}) =>
         div.class`home-products-loading`(
           div.class`home-products-spinner`().attr("aria-hidden", "true"),
           p.class`home-products-loading-text`("Loading product...")
+        )
+      ),
+    ],
+  });
+
+export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "PRINT by LINK - 3D Local Print",
+    description:
+      "Send 3D Local Print a model link for a custom local printing quote.",
+    heroLede: "Already found a model online? Send the link and get a print quote.",
+    bodyScripts: ["print-model-link.ts"],
+    mainClass: "home-main home-main-cart",
+    assetPrefix,
+    mainSections: [
+      section.class`print-link-splash`(
+        img
+          .src(withPrefix(assetPrefix, "assets/print-by-link-banner-desktop.png"))
+          .attr("srcset", `${withPrefix(assetPrefix, "assets/print-by-link-banner-mobile.png")} 941w, ${withPrefix(assetPrefix, "assets/print-by-link-banner-desktop.png")} 2172w`)
+          .attr("sizes", "(max-width: 760px) 100vw, min(100vw, 1200px)")
+          .attr("alt", "Found a model online? We'll print it. Share a link, get a quote, approve and print.")
+          .attr("loading", "eager")
+          .attr("decoding", "async")()
+      ),
+      section.class`cart-page-title print-link-title`(
+        h1("PRINT by LINK"),
+        p("Share a model from Printables, MakerWorld, Thingiverse, Cults, MyMiniFactory, Etsy, or another source. I will review the model, estimate print time and material, then email a quote before printing.")
+      ),
+      form.class`print-link-wizard`.id("printModelLinkForm")(
+        section.class`home-card print-link-step-card is-active`.attr("data-step", "1")(
+          div.class`print-link-step-heading`(
+            span.class`home-card-tag`("Step 1"),
+            h2("🔗 Paste the link(s)"),
+            p("Add one or more model pages. Public links work best because they usually include pictures, license notes, print settings, and downloadable files.")
+          ),
+          div.class`print-link-recommended-sites`(
+            strong("Recommended places to find models"),
+            a.href("https://makerworld.com/en/3d-models").target("_blank").rel("noopener noreferrer")("MakerWorld"),
+            a.href("https://www.yeggi.com/").target("_blank").rel("noopener noreferrer")("Yeggi"),
+            a.href("https://www.printables.com/").target("_blank").rel("noopener noreferrer")("Printables")
+          ),
+          div.class`print-link-list`.id("modelLinksList")(
+            div.class`print-link-row`(
+              input.attr("data-model-link-input", "true").attr("name", "modelLinks").attr("type", "url").attr("placeholder", "Paste link to model here..."),
+              button.class`ghost-button print-link-remove`.attr("type", "button").attr("aria-label", "Remove model link")("🗑️")
+            )
+          ),
+          div.class`print-link-actions`(
+            button.class`ghost-button`.id("addModelLinkButton").attr("type", "button")("Add link"),
+            button.class`add-button`.id("step1Next").attr("type", "button").attr("disabled", "true")("Next")
+          )
+        ),
+        section.class`home-card print-link-step-card is-collapsed`.attr("data-step", "2").attr("aria-hidden", "true")(
+          div.class`print-link-step-heading`(
+            span.class`home-card-tag`("Step 2"),
+            h2("Contact details"),
+            p("I may need to ask about scale, material, color, deadline, or whether a paid model has already been purchased.")
+          ),
+          div.class`print-link-field`(
+            label.attr("for", "customerName")("Name"),
+            input.id("customerName").attr("name", "customerName").attr("autocomplete", "name")
+          ),
+          div.class`print-link-field`(
+            label.attr("for", "customerEmail")("Email"),
+            input.id("customerEmail").attr("name", "customerEmail").attr("type", "email").attr("autocomplete", "email")
+          ),
+          div.class`print-link-field`(
+            label.attr("for", "customerPhone")("Phone or text number"),
+            input.id("customerPhone").attr("name", "customerPhone").attr("autocomplete", "tel")
+          ),
+          div.class`print-link-actions`(
+            button.class`ghost-button`.attr("type", "button").attr("data-back-step", "1")("Back"),
+            button.class`add-button`.id("step2Next").attr("type", "button")("Next")
+          )
+        ),
+        section.class`home-card print-link-step-card is-collapsed`.attr("data-step", "3").attr("aria-hidden", "true")(
+          div.class`print-link-step-heading`(
+            span.class`home-card-tag`("Step 3"),
+            h2("Quantity and quote details"),
+            p("Set a quantity for each link. Notes about color, size, material, finish, deadline, pickup, or delivery are optional.")
+          ),
+          div.class`print-link-quantities`.id("modelItemQuantities"),
+          div.class`print-link-field`(
+            label.attr("for", "projectDetails")("Additional details optional"),
+            textarea.id("projectDetails").attr("name", "projectDetails").attr("placeholder", "Color, size, deadline, material preference, strength needs, finish, pickup/delivery notes...")
+          ),
+          div.class`print-link-actions`(
+            button.class`ghost-button`.attr("type", "button").attr("data-back-step", "2")("Back"),
+            button.class`add-button`.id("step3Next").attr("type", "button")("Review")
+          )
+        ),
+        section.class`home-card print-link-step-card is-collapsed`.attr("data-step", "4").attr("aria-hidden", "true")(
+          div.class`print-link-step-heading`(
+            span.class`home-card-tag`("Step 4"),
+            h2("Review and submit"),
+            p("After you send this, you will receive an email with a request link. I will review the model and reply with a quote before printing.")
+          ),
+          div.class`print-link-review`.id("printModelLinkReview"),
+          button.class`add-button print-link-submit`.attr("type", "submit")("SEND FOR QUOTE"),
+          p.class`print-link-status`.id("printModelLinkStatus").attr("role", "status").attr("aria-live", "polite")("")
+        )
+      ),
+    ],
+  });
+
+export const homePrintModelLinkOrderPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Model Link Quote Request - 3D Local Print",
+    description: "Review a submitted 3D Local Print model link quote request.",
+    heroLede: "",
+    bodyScripts: ["print-model-link-order.ts"],
+    mainClass: "home-main home-main-cart",
+    assetPrefix,
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Model Link Quote Request")
+      ),
+      section.class`home-grid`.id("printModelLinkOrderRoot")(
+        div.class`home-products-loading`(
+          div.class`home-products-spinner`().attr("aria-hidden", "true"),
+          p.class`home-products-loading-text`("Loading quote request...")
         )
       ),
     ],

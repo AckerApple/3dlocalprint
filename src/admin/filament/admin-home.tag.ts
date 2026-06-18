@@ -69,6 +69,11 @@ export const AdminHomeApp = tag(() => [
           )
         )
       )
+    ),
+    a
+      .class`menu-button admin-home-website-home`
+      .href("../index.html")(
+      "🏠 website home"
     )
   ),
 ]);

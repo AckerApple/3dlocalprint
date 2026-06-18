@@ -63,6 +63,12 @@ export const adminNavGroups = [
         href: "orders/index.html",
         emoji: "🧾",
       },
+      {
+        label: "Link Orders",
+        details: "Review model-link quote requests and reply with quotes.",
+        href: "link-orders/index.html",
+        emoji: "🔗",
+      },
     ],
   },
   {

@@ -70,6 +70,26 @@ type OrderNotificationInput = {
   stripeDashboardUrl: string;
 };
 
+type ModelLinkQuoteRequestInput = {
+  requestId: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  modelItems: ModelLinkQuoteRequestItem[];
+  modelLinks: string[];
+  projectDetails: string;
+  quantity: number;
+  pageUrl: string;
+  publicReviewUrl: string;
+  adminReviewUrl: string;
+  createdAt: string;
+};
+
+type ModelLinkQuoteRequestItem = {
+  url: string;
+  quantity: number;
+};
+
 function getStripeClient(): Stripe {
   return new Stripe(STRIPE_SECRET_KEY.value(), {
     // Keep aligned with Stripe account API versioning strategy.
@@ -108,6 +128,10 @@ function getAdminAuth() {
 function createOrderId(stripeMode: "sandbox" | "live"): string {
   const modeLabel = stripeMode === "sandbox" ? "test_" : "";
   return `order_${modeLabel}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createQuoteRequestId(): string {
+  return `quote_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 function nowIso(): string {
@@ -160,6 +184,21 @@ function getPublicOrderUrl(sourceUrl: string, orderId: string, customerEmail = "
   if (customerEmail) {
     url.searchParams.set("email", customerEmail);
   }
+  return url.toString();
+}
+
+function getModelLinkQuotePublicUrl(sourceUrl: string, requestId: string, customerEmail = ""): string {
+  const url = new URL("/print-model-link-order.html", getOriginFromUrl(sourceUrl));
+  url.searchParams.set("request_id", requestId);
+  if (customerEmail) {
+    url.searchParams.set("email", customerEmail);
+  }
+  return url.toString();
+}
+
+function getModelLinkQuoteAdminUrl(sourceUrl: string, requestId: string): string {
+  const url = new URL("/admin/link-orders/index.html", getOriginFromUrl(sourceUrl));
+  url.searchParams.set("requestId", requestId);
   return url.toString();
 }
 
@@ -232,6 +271,10 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function sanitizeEmailHeader(value = ""): string {
+  return String(value || "").replace(/[\r\n]+/g, " ").trim();
 }
 
 function getLineItemTotal(item: CheckoutLineItem): number {
@@ -513,6 +556,224 @@ async function sendCustomerOrderEmail(order: OrderNotificationInput): Promise<st
   });
 }
 
+function buildModelLinkQuoteRequestEmail(request: ModelLinkQuoteRequestInput): { subject: string; text: string; html: string } {
+  const subject = sanitizeEmailHeader(`Model link quote request ${request.requestId} - ${request.customerName}`);
+  const linkLines = request.modelItems.length
+    ? request.modelItems.map((item) => `- ${item.quantity}x ${item.url}`).join("\n")
+    : "- No model links recorded";
+  const customer = [
+    request.customerName,
+    request.customerEmail,
+    request.customerPhone,
+  ].filter(Boolean).join(" · ");
+  const text = [
+    `Quote request: ${request.requestId}`,
+    `Created: ${request.createdAt}`,
+    `Customer: ${customer}`,
+    `Quantity: ${request.quantity}`,
+    "",
+    "Model links:",
+    linkLines,
+    "",
+    "Project details:",
+    request.projectDetails || "No optional details provided.",
+    "",
+    request.adminReviewUrl ? `Admin review: ${request.adminReviewUrl}` : "",
+    request.publicReviewUrl ? `Customer review: ${request.publicReviewUrl}` : "",
+    request.pageUrl ? `Submitted from: ${request.pageUrl}` : "",
+  ].filter((line) => line !== "").join("\n");
+  const htmlLinks = request.modelItems.length
+    ? request.modelItems.map((item) => `
+      <li style="margin:0 0 8px;">
+        <strong>${item.quantity}x</strong>
+        <a href="${escapeHtml(item.url)}" style="color:#ad4f20;text-decoration:none;font-weight:700;">${escapeHtml(item.url)}</a>
+      </li>
+    `).join("")
+    : `<li style="color:#7b6255;">No model links recorded</li>`;
+  const html = `
+    <div style="margin:0;background:#fff7f1;font-family:Arial,Helvetica,sans-serif;color:#2c211b;">
+      <div style="max-width:680px;margin:0 auto;padding:28px 18px;">
+        <div style="background:#ffffff;border:1px solid #f1d8c9;border-radius:14px;overflow:hidden;">
+          <div style="background:#de6a2e;padding:24px 26px;color:#ffffff;">
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">3D Local Print</div>
+            <h1 style="margin:8px 0 0;font-size:28px;line-height:1.2;">Model link quote request</h1>
+            <div style="margin-top:10px;font-size:16px;">${escapeHtml(request.requestId)}</div>
+          </div>
+          <div style="padding:24px 26px;">
+            <h2 style="margin:0 0 8px;font-size:18px;color:#2c211b;">Customer</h2>
+            <p style="margin:0 0 18px;color:#4d3a31;line-height:1.5;">${escapeHtml(customer || "No customer details recorded")}</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#fffaf6;border:1px solid #f1e2d8;border-radius:10px;margin:0 0 22px;">
+              <tr><td style="padding:14px 16px;color:#7b6255;">Quantity</td><td align="right" style="padding:14px 16px;color:#2c211b;font-weight:700;">${request.quantity}</td></tr>
+              <tr><td style="padding:0 16px 14px;color:#7b6255;">Created</td><td align="right" style="padding:0 16px 14px;color:#2c211b;">${escapeHtml(request.createdAt)}</td></tr>
+            </table>
+            <h2 style="margin:0 0 8px;font-size:18px;color:#2c211b;">Model links</h2>
+            <ul style="margin:0 0 22px;padding-left:20px;">${htmlLinks}</ul>
+            <h2 style="margin:0 0 8px;font-size:18px;color:#2c211b;">Project details</h2>
+            <p style="white-space:pre-wrap;margin:0 0 22px;color:#4d3a31;line-height:1.55;">${escapeHtml(request.projectDetails || "No optional details provided.")}</p>
+            <div style="margin:0 0 22px;">
+              ${request.adminReviewUrl ? `<a href="${escapeHtml(request.adminReviewUrl)}" style="display:inline-block;background:#de6a2e;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 16px;font-weight:700;">Review link order</a>` : ""}
+              ${request.publicReviewUrl ? `<a href="${escapeHtml(request.publicReviewUrl)}" style="display:inline-block;margin-left:10px;color:#ad4f20;text-decoration:none;font-weight:700;">Customer page</a>` : ""}
+            </div>
+            ${request.pageUrl ? `<p style="margin:0;color:#7b6255;font-size:13px;">Submitted from ${escapeHtml(request.pageUrl)}</p>` : ""}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  return { subject, text, html };
+}
+
+async function sendModelLinkQuoteRequestEmail(request: ModelLinkQuoteRequestInput): Promise<string> {
+  const smtpUser = getSmtpSecret(SMTP_USER, "SMTP_USER");
+  const smtpPass = getSmtpSecret(SMTP_PASS, "SMTP_PASS");
+  if (!smtpUser || !smtpPass) {
+    return "not_configured";
+  }
+
+  const email = buildModelLinkQuoteRequestEmail(request);
+  const boundary = `quote-${request.requestId}-${Date.now().toString(36)}`;
+  const headers = [
+    `From: 3D Local Print <${ORDER_NOTIFICATION_EMAIL}>`,
+    `To: ${ORDER_NOTIFICATION_EMAIL}`,
+    request.customerEmail ? `Reply-To: ${sanitizeEmailHeader(request.customerEmail)}` : `Reply-To: ${ORDER_NOTIFICATION_EMAIL}`,
+    `Subject: ${email.subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ].filter(Boolean);
+  const message = [
+    ...headers,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.text,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.html,
+    "",
+    `--${boundary}--`,
+    "",
+  ].join("\r\n").replace(/\r?\n\./g, "\r\n..");
+
+  await sendSmtpMail({
+    host: "smtp.gmail.com",
+    port: 465,
+    user: smtpUser,
+    pass: smtpPass,
+    from: ORDER_NOTIFICATION_EMAIL,
+    to: ORDER_NOTIFICATION_EMAIL,
+    message,
+  });
+
+  return "sent";
+}
+
+function buildCustomerModelLinkQuoteEmail(request: ModelLinkQuoteRequestInput): { subject: string; text: string; html: string } {
+  const subject = sanitizeEmailHeader(`Your 3D Local Print quote request ${request.requestId}`);
+  const greeting = request.customerName ? `Hi ${request.customerName},` : "Hi,";
+  const linkLines = request.modelItems.map((item) => `- ${item.quantity}x ${item.url}`).join("\n");
+  const text = [
+    greeting,
+    "",
+    "I received your model link quote request. I will review the model, printability, material, and timing, then reply with a quote before anything is printed.",
+    "",
+    `Quote request: ${request.requestId}`,
+    `Quantity: ${request.quantity}`,
+    "",
+    "Model links:",
+    linkLines,
+    "",
+    "Project details:",
+    request.projectDetails || "No optional details provided.",
+    "",
+    request.publicReviewUrl ? `Review your request: ${request.publicReviewUrl}` : "",
+    "",
+    "Questions or changes? Reply to this email.",
+  ].filter((line, index, lines) => line !== "" || lines[index - 1] !== "").join("\n");
+  const htmlLinks = request.modelItems.map((item) => `
+    <li style="margin:0 0 8px;">
+      <strong>${item.quantity}x</strong>
+      <a href="${escapeHtml(item.url)}" style="color:#ad4f20;text-decoration:none;font-weight:700;">${escapeHtml(item.url)}</a>
+    </li>
+  `).join("");
+  const html = `
+    <div style="margin:0;background:#fff7f1;font-family:Arial,Helvetica,sans-serif;color:#2c211b;">
+      <div style="max-width:680px;margin:0 auto;padding:28px 18px;">
+        <div style="background:#ffffff;border:1px solid #f1d8c9;border-radius:14px;overflow:hidden;">
+          <div style="background:#de6a2e;padding:24px 26px;color:#ffffff;">
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">3D Local Print</div>
+            <h1 style="margin:8px 0 0;font-size:28px;line-height:1.2;">Quote request received</h1>
+            <div style="margin-top:10px;font-size:16px;">${escapeHtml(request.requestId)}</div>
+          </div>
+          <div style="padding:24px 26px;">
+            <p style="margin:0 0 18px;color:#4d3a31;line-height:1.55;">${escapeHtml(greeting)}</p>
+            <p style="margin:0 0 22px;color:#4d3a31;line-height:1.55;">I received your model link quote request. I will review printability, material, and timing, then reply with a quote before anything is printed.</p>
+            ${request.publicReviewUrl ? `<div style="margin:0 0 22px;"><a href="${escapeHtml(request.publicReviewUrl)}" style="display:inline-block;background:#de6a2e;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 16px;font-weight:700;">Review request details</a></div>` : ""}
+            <h2 style="margin:0 0 8px;font-size:18px;color:#2c211b;">Model links</h2>
+            <ul style="margin:0 0 22px;padding-left:20px;">${htmlLinks}</ul>
+            <h2 style="margin:0 0 8px;font-size:18px;color:#2c211b;">Quote details</h2>
+            <p style="white-space:pre-wrap;margin:0;color:#4d3a31;line-height:1.55;">Total quantity: ${request.quantity}\n\n${escapeHtml(request.projectDetails || "No optional details provided.")}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  return { subject, text, html };
+}
+
+async function sendCustomerModelLinkQuoteEmail(request: ModelLinkQuoteRequestInput): Promise<string> {
+  const smtpUser = getSmtpSecret(SMTP_USER, "SMTP_USER");
+  const smtpPass = getSmtpSecret(SMTP_PASS, "SMTP_PASS");
+  if (!smtpUser || !smtpPass) {
+    return "not_configured";
+  }
+
+  const email = buildCustomerModelLinkQuoteEmail(request);
+  const boundary = `quote-customer-${request.requestId}-${Date.now().toString(36)}`;
+  const headers = [
+    `From: 3D Local Print <${ORDER_NOTIFICATION_EMAIL}>`,
+    `To: ${sanitizeEmailHeader(request.customerEmail)}`,
+    `Reply-To: ${ORDER_NOTIFICATION_EMAIL}`,
+    `Subject: ${email.subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ].filter(Boolean);
+  const message = [
+    ...headers,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.text,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.html,
+    "",
+    `--${boundary}--`,
+    "",
+  ].join("\r\n").replace(/\r?\n\./g, "\r\n..");
+
+  await sendSmtpMail({
+    host: "smtp.gmail.com",
+    port: 465,
+    user: smtpUser,
+    pass: smtpPass,
+    from: ORDER_NOTIFICATION_EMAIL,
+    to: request.customerEmail,
+    message,
+  });
+
+  return "sent";
+}
+
 function normalizeNotificationLineItems(items: unknown, currency = "usd"): CheckoutLineItem[] {
   return (Array.isArray(items) ? items : [])
     .reduce<CheckoutLineItem[]>((acc, item) => {
@@ -763,6 +1024,68 @@ function validateCheckoutBody(body: unknown): body is CreateCheckoutSessionBody 
   });
 }
 
+function normalizeString(value: unknown, maxLength = 1000): string {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+function normalizeModelLinks(value: unknown): string[] {
+  const rawLinks = Array.isArray(value)
+    ? value
+    : String(value || "").split(/\s+/g);
+  return rawLinks
+    .map((link) => normalizeString(link, 2000))
+    .filter(Boolean)
+    .filter((link, index, links) => links.indexOf(link) === index)
+    .slice(0, 12);
+}
+
+function normalizeModelLinkQuoteItems(items: unknown, links: unknown, fallbackQuantity: unknown): ModelLinkQuoteRequestItem[] {
+  const fromItems = (Array.isArray(items) ? items : [])
+    .reduce<ModelLinkQuoteRequestItem[]>((acc, item) => {
+      if (!item || typeof item !== "object") return acc;
+      const raw = item as Record<string, unknown>;
+      const url = normalizeString(raw.url, 2000);
+      if (!url || acc.some((existing) => existing.url === url)) return acc;
+      acc.push({
+        url,
+        quantity: Math.max(1, Math.min(999, Math.round(Number(raw.quantity) || 1))),
+      });
+      return acc;
+    }, [])
+    .slice(0, 12);
+  if (fromItems.length) return fromItems;
+
+  const quantity = Math.max(1, Math.min(999, Math.round(Number(fallbackQuantity) || 1)));
+  return normalizeModelLinks(links).map((url) => ({ url, quantity }));
+}
+
+function isHttpUrl(value = ""): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function getModelLinkQuoteValidationError(request: Omit<ModelLinkQuoteRequestInput, "requestId" | "createdAt">): string {
+  if (!request.customerName) return "Name is required.";
+  if (!request.customerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.customerEmail)) {
+    return "A valid email is required.";
+  }
+  if (!request.modelItems.length) return "At least one model link is required.";
+  if (request.modelItems.some((item) => !isHttpUrl(item.url))) {
+    return "Every model link must start with http:// or https://.";
+  }
+  if (request.modelItems.some((item) => !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 999)) {
+    return "Every quantity must be between 1 and 999.";
+  }
+  if (!Number.isInteger(request.quantity) || request.quantity < 1) {
+    return "Total quantity must be at least 1.";
+  }
+  return "";
+}
+
 function getCheckoutErrorResponse(error: unknown): { status: number; message: string } {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("head office address") && message.includes("automatic tax")) {
@@ -777,6 +1100,164 @@ function getCheckoutErrorResponse(error: unknown): { status: number; message: st
     message: "Failed to create checkout session",
   };
 }
+
+export const submitModelLinkQuoteRequest = onRequest(
+  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  async (request, response) => {
+    setCorsHeaders(response);
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const body = request.body && typeof request.body === "object"
+        ? request.body as Record<string, unknown>
+        : {};
+      const createdAt = nowIso();
+      const requestId = createQuoteRequestId();
+      const sourceUrl = normalizeString(body.pageUrl, 2000) || PUBLIC_SITE_ORIGIN;
+      const customerEmail = normalizeEmail(normalizeString(body.customerEmail, 254));
+      const modelItems = normalizeModelLinkQuoteItems(body.modelItems, body.modelLinks, body.quantity);
+      const quantity = modelItems.reduce((total, item) => total + item.quantity, 0);
+      const quoteRequest: ModelLinkQuoteRequestInput = {
+        requestId,
+        customerName: normalizeString(body.customerName, 160),
+        customerEmail,
+        customerPhone: normalizeString(body.customerPhone, 80),
+        modelItems,
+        modelLinks: modelItems.map((item) => item.url),
+        projectDetails: normalizeString(body.projectDetails, 5000),
+        quantity,
+        pageUrl: sourceUrl,
+        publicReviewUrl: getModelLinkQuotePublicUrl(sourceUrl, requestId, customerEmail),
+        adminReviewUrl: getModelLinkQuoteAdminUrl(sourceUrl, requestId),
+        createdAt,
+      };
+      const validationError = getModelLinkQuoteValidationError(quoteRequest);
+      if (validationError) {
+        response.status(400).json({ error: validationError });
+        return;
+      }
+
+      const requestRef = getAdminDb().collection("model_link_quote_requests").doc(requestId);
+      await requestRef.set({
+        ...quoteRequest,
+        id: requestId,
+        status: "quote_requested",
+        notificationEmail: ORDER_NOTIFICATION_EMAIL,
+        notificationEmailStatus: "pending",
+        customerEmailStatus: "pending",
+        updatedAt: createdAt,
+        userAgent: normalizeString(request.header("user-agent") || "", 500),
+        referrer: normalizeString(request.header("referer") || "", 2000),
+      });
+
+      let notificationEmailStatus = "not_sent";
+      let customerEmailStatus = "not_sent";
+      try {
+        notificationEmailStatus = await sendModelLinkQuoteRequestEmail(quoteRequest);
+      } catch (error) {
+        notificationEmailStatus = isSmtpAuthError(error instanceof Error ? error.message : "")
+          ? "auth_error"
+          : "error";
+        logger.error("model link quote request email failed", { requestId, error });
+      }
+      try {
+        customerEmailStatus = await sendCustomerModelLinkQuoteEmail(quoteRequest);
+      } catch (error) {
+        customerEmailStatus = isSmtpAuthError(error instanceof Error ? error.message : "")
+          ? "auth_error"
+          : "error";
+        logger.error("model link quote customer email failed", { requestId, error });
+      }
+
+      await requestRef.set({
+        notificationEmailStatus,
+        customerEmailStatus,
+        notificationEmailUpdatedAt: nowIso(),
+        customerEmailUpdatedAt: nowIso(),
+        updatedAt: nowIso(),
+      }, { merge: true });
+
+      response.status(200).json({
+        ok: true,
+        requestId,
+        notificationEmailStatus,
+        customerEmailStatus,
+        publicReviewUrl: quoteRequest.publicReviewUrl,
+        adminReviewUrl: quoteRequest.adminReviewUrl,
+      });
+    } catch (error) {
+      logger.error("submitModelLinkQuoteRequest failed", error);
+      response.status(500).json({ error: "Failed to submit quote request." });
+    }
+  },
+);
+
+export const getPublicModelLinkQuoteRequest = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response);
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "GET") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const requestId = String(request.query.requestId || request.query.request_id || "").trim();
+      const email = normalizeEmail(String(request.query.email || ""));
+      if (!requestId || !email) {
+        response.status(400).json({ error: "Missing request id or email." });
+        return;
+      }
+
+      const quoteSnapshot = await getAdminDb().collection("model_link_quote_requests").doc(requestId).get();
+      if (!quoteSnapshot.exists) {
+        response.status(404).json({ error: "Quote request not found." });
+        return;
+      }
+
+      const data = quoteSnapshot.data() || {};
+      if (normalizeEmail(String(data.customerEmail || "")) !== email) {
+        response.status(404).json({ error: "Quote request not found." });
+        return;
+      }
+
+      response.status(200).json({
+        quoteRequest: {
+          id: requestId,
+          status: String(data.status || "quote_requested"),
+          customerName: String(data.customerName || ""),
+          customerEmail: String(data.customerEmail || ""),
+          customerPhone: String(data.customerPhone || ""),
+          modelItems: normalizeModelLinkQuoteItems(data.modelItems, data.modelLinks, data.quantity),
+          modelLinks: Array.isArray(data.modelLinks) ? data.modelLinks.map(String) : [],
+          projectDetails: String(data.projectDetails || ""),
+          quantity: Math.max(1, Math.round(Number(data.quantity) || 1)),
+          publicReviewUrl: String(data.publicReviewUrl || ""),
+          createdAt: String(data.createdAt || ""),
+          updatedAt: String(data.updatedAt || ""),
+        },
+      });
+    } catch (error) {
+      logger.error("getPublicModelLinkQuoteRequest failed", error);
+      response.status(500).json({ error: "Failed to load quote request." });
+    }
+  },
+);
 
 export const createCheckoutSession = onRequest(
   { region: "us-central1", secrets: [STRIPE_SECRET_KEY] },

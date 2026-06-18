@@ -34,6 +34,7 @@ import {
 } from "firebase/storage";
 import { slugifyLocation } from "../filament/location-utils.js";
 import type { ManufacturerItem } from "../../types/filament.js";
+import type { ModelLinkQuoteRequestRecord } from "../../types/model-link-quote-request.js";
 import type { OrderLineItem, OrderRecord, OrderStatus } from "../../types/order.js";
 import type { ProductImage, ProductItem } from "../../types/product.js";
 import { normalizeProductCategories } from "../../product-categories.js";
@@ -108,6 +109,7 @@ const LEDGER_DOC = doc(db, "ledger", "entries");
 const MONEY_ACCOUNTS_DOC = doc(db, "ledger", "moneyAccounts");
 const PRODUCTS_DOC = doc(db, "products", "list");
 const ORDERS_COLLECTION = collection(db, "orders");
+const MODEL_LINK_QUOTE_REQUESTS_COLLECTION = collection(db, "model_link_quote_requests");
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
 const normalizeManufacturerItems = (items: unknown): ManufacturerItem[] =>
@@ -637,6 +639,47 @@ const subscribeOrders = (callback: (items: OrderRecord[]) => void) =>
     }
   );
 
+const normalizeModelLinkQuoteRequestRecord = (id: string, data: Record<string, unknown>): ModelLinkQuoteRequestRecord => ({
+  id: String(data.id || id || "").trim(),
+  status: String(data.status || "quote_requested").trim() || "quote_requested",
+  customerName: String(data.customerName || "").trim(),
+  customerEmail: String(data.customerEmail || "").trim(),
+  customerPhone: String(data.customerPhone || "").trim(),
+  modelItems: (Array.isArray(data.modelItems) ? data.modelItems : [])
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const raw = item as Record<string, unknown>;
+      const url = String(raw.url || "").trim();
+      if (!url) return null;
+      return {
+        url,
+        quantity: Math.max(1, Math.round(Number(raw.quantity) || 1)),
+      };
+    })
+    .filter((item): item is { url: string; quantity: number } => Boolean(item)),
+  modelLinks: (Array.isArray(data.modelLinks) ? data.modelLinks : []).map((link) => String(link || "").trim()).filter(Boolean),
+  projectDetails: String(data.projectDetails || "").trim(),
+  quantity: Math.max(1, Math.round(Number(data.quantity) || 1)),
+  publicReviewUrl: String(data.publicReviewUrl || "").trim(),
+  adminReviewUrl: String(data.adminReviewUrl || "").trim(),
+  notificationEmailStatus: String(data.notificationEmailStatus || "").trim(),
+  customerEmailStatus: String(data.customerEmailStatus || "").trim(),
+  createdAt: String(data.createdAt || "").trim(),
+  updatedAt: String(data.updatedAt || "").trim(),
+});
+
+const subscribeModelLinkQuoteRequests = (callback: (items: ModelLinkQuoteRequestRecord[]) => void) =>
+  onSnapshot(
+    query(MODEL_LINK_QUOTE_REQUESTS_COLLECTION, orderBy("updatedAt", "desc"), limit(100)),
+    (snapshot) => {
+      callback(snapshot.docs.map((requestDoc) => normalizeModelLinkQuoteRequestRecord(requestDoc.id, requestDoc.data())));
+    },
+    (error) => {
+      console.error("Failed to subscribe to model link quote requests", error);
+      callback([]);
+    }
+  );
+
 const loadMoneyAccounts = async () => {
   const snapshot = await getDoc(MONEY_ACCOUNTS_DOC);
   if (!snapshot.exists()) {
@@ -811,6 +854,7 @@ export {
   saveLedgerEntries,
   subscribeLedgerEntries,
   subscribeOrders,
+  subscribeModelLinkQuoteRequests,
   loadMoneyAccounts,
   saveMoneyAccounts,
   subscribeMoneyAccounts,

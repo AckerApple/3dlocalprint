@@ -9,6 +9,8 @@ import {
   homeAboutPage,
   homeProductsPage,
   homeProductDetailPage,
+  homePrintModelLinkPage,
+  homePrintModelLinkOrderPage,
   homeCartPage,
   homeReceiptPage,
   homeQr1Page,
@@ -34,6 +36,7 @@ const adminFilamentDir = resolve(adminDir, "filament");
 const adminAccountingDir = resolve(adminDir, "accounting");
 const adminProductsDir = resolve(adminDir, "products");
 const adminOrdersDir = resolve(adminDir, "orders");
+const adminLinkOrdersDir = resolve(adminDir, "link-orders");
 const adminSecurityDir = resolve(adminDir, "security");
 
 const homePages = [
@@ -64,6 +67,14 @@ const homePages = [
   {
     path: resolve(homeDir, "product.html"),
     render: () => homeProductDetailPage(),
+  },
+  {
+    path: resolve(homeDir, "print-model-link.html"),
+    render: () => homePrintModelLinkPage(),
+  },
+  {
+    path: resolve(homeDir, "print-model-link-order.html"),
+    render: () => homePrintModelLinkOrderPage(),
   },
   {
     path: resolve(homeDir, "cart.html"),
@@ -177,6 +188,17 @@ const pages = [
         pageTitle: "Orders",
         appId: "ordersApp",
         appScript: "./orders.tag.ts",
+        stylePath: "../shared/styles.css",
+        versionScriptPath: "../shared/version.ts",
+      }),
+  },
+  {
+    path: resolve(adminLinkOrdersDir, "index.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Link Orders",
+        appId: "linkOrdersApp",
+        appScript: "./link-orders.tag.ts",
         stylePath: "../shared/styles.css",
         versionScriptPath: "../shared/version.ts",
       }),

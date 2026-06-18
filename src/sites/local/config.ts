@@ -19,6 +19,7 @@ export const localSiteConfig: SiteConfig = {
   nav: [
     { label: "Home", href: "index.html" },
     { label: "About", href: "about.html" },
+    { label: "PRINT by LINK", href: "print-model-link.html" },
     { label: "Products", href: "products.html" },
     { label: "Cart", href: "cart.html" },
   ],

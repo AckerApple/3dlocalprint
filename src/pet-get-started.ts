@@ -12,7 +12,11 @@ const reviewStep = document.querySelector<HTMLElement>("[data-pet-step='review']
 const statusStep = document.querySelector<HTMLElement>("[data-pet-step='status']");
 const authStatus = document.querySelector<HTMLElement>("[data-pet-auth-status]");
 const authMessage = document.querySelector<HTMLElement>("[data-pet-auth-message]");
+const authSummary = document.querySelector<HTMLElement>("[data-pet-auth-summary]");
 const authAvatar = document.querySelector<HTMLElement>("[data-pet-auth-avatar]");
+const authAvatarImage = document.querySelector<HTMLImageElement>("[data-pet-auth-avatar-image]");
+const authAvatarFallback = document.querySelector<HTMLElement>("[data-pet-auth-avatar-fallback]");
+const authEmail = document.querySelector<HTMLElement>("[data-pet-auth-email]");
 const googleButton = document.querySelector<HTMLButtonElement>("[data-pet-google-signin]");
 const stepElements = Array.from(document.querySelectorAll<HTMLElement>("[data-pet-step]"));
 
@@ -53,26 +57,58 @@ const setStepState = (
 const formatUserLabel = (user: AuthLikeUser) =>
   String(user.displayName || user.email || "Signed in").trim();
 
+const formatUserEmail = (user: AuthLikeUser) =>
+  String(user.email || user.displayName || "Signed in").trim();
+
 const userInitial = (user: AuthLikeUser) =>
   formatUserLabel(user).charAt(0).toUpperCase() || "?";
 
 const setAuthAvatar = (user: AuthLikeUser | null) => {
-  if (!authAvatar) return;
   if (!user) {
-    authAvatar.hidden = true;
-    authAvatar.textContent = "";
-    authAvatar.style.removeProperty("background-image");
-    authAvatar.removeAttribute("title");
-    authAvatar.classList.remove("pet-auth-avatar-photo");
+    if (authSummary) {
+      authSummary.hidden = true;
+    }
+    if (authAvatar) {
+      authAvatar.removeAttribute("title");
+      authAvatar.classList.remove("pet-auth-avatar-photo");
+    }
+    if (authAvatarImage) {
+      authAvatarImage.hidden = true;
+      authAvatarImage.removeAttribute("src");
+    }
+    if (authAvatarFallback) {
+      authAvatarFallback.hidden = false;
+      authAvatarFallback.textContent = "";
+    }
+    if (authEmail) {
+      authEmail.textContent = "";
+    }
     return;
   }
 
   const photoURL = String(user.photoURL || "").trim();
-  authAvatar.hidden = false;
-  authAvatar.title = `Signed in as ${formatUserLabel(user)}`;
-  authAvatar.classList.toggle("pet-auth-avatar-photo", Boolean(photoURL));
-  authAvatar.style.backgroundImage = photoURL ? `url("${photoURL}")` : "";
-  authAvatar.textContent = photoURL ? "" : userInitial(user);
+  if (authSummary) {
+    authSummary.hidden = false;
+  }
+  if (authAvatar) {
+    authAvatar.title = `Signed in as ${formatUserLabel(user)}`;
+    authAvatar.classList.toggle("pet-auth-avatar-photo", Boolean(photoURL));
+  }
+  if (authAvatarImage) {
+    authAvatarImage.hidden = !photoURL;
+    if (photoURL) {
+      authAvatarImage.src = photoURL;
+    } else {
+      authAvatarImage.removeAttribute("src");
+    }
+  }
+  if (authAvatarFallback) {
+    authAvatarFallback.hidden = Boolean(photoURL);
+    authAvatarFallback.textContent = photoURL ? "" : userInitial(user);
+  }
+  if (authEmail) {
+    authEmail.textContent = formatUserEmail(user);
+  }
 };
 
 const setSignedOut = () => {

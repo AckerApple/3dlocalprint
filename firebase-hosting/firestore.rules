@@ -1,0 +1,28 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email is string;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/list)
+        && request.auth.token.email in get(/databases/$(database)/documents/admins/list).data.items;
+    }
+
+    match /products/list {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /model_link_quote_requests/{requestId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

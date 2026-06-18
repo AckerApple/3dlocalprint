@@ -148,6 +148,8 @@ const publicSiteInputs = {
   aboutHome: resolve(__dirname, "src/about.html"),
   productsHome: resolve(__dirname, "src/products.html"),
   productDetail: resolve(__dirname, "src/product.html"),
+  printModelLink: resolve(__dirname, "src/print-model-link.html"),
+  printModelLinkOrder: resolve(__dirname, "src/print-model-link-order.html"),
   cartHome: resolve(__dirname, "src/cart.html"),
   receiptHome: resolve(__dirname, "src/receipt.html"),
   orderHome: resolve(__dirname, "src/order.html"),
@@ -162,6 +164,7 @@ const publicSiteInputs = {
   adminMoneyAccounts: resolve(__dirname, "src/admin/accounting/money-accounts.html"),
   adminProducts: resolve(__dirname, "src/admin/products/index.html"),
   adminOrders: resolve(__dirname, "src/admin/orders/index.html"),
+  adminLinkOrders: resolve(__dirname, "src/admin/link-orders/index.html"),
   adminAdmins: resolve(__dirname, "src/admin/security/admins.html"),
   ...Object.fromEntries(
     locations.map((location) => {
@@ -201,6 +204,16 @@ export default defineConfig(({ mode }) => {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: (path) => rewriteFunctionPath("getPublicOrder", path),
+      },
+      "/api/model-link-quote-requests": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/submitModelLinkQuoteRequest",
+      },
+      "/api/public/model-link-quote-request": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: (path) => rewriteFunctionPath("getPublicModelLinkQuoteRequest", path),
       },
       "/api/admin/orders/resend-email": {
         target: localFunctionsOrigin,
