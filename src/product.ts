@@ -13,6 +13,8 @@ import {
   select,
   option,
   a,
+  array,
+  subscribe,
 } from "taggedjs";
 
 const detailRoot = document.getElementById("homeProductDetail");
@@ -20,6 +22,8 @@ const pageTitleRoot = document.getElementById("homeProductPageTitle");
 let loadedProduct: ProductItem | null = null;
 let selectedVariationId = "";
 let messageState: { title: string; message: string } | null = null;
+let selectedQuantity = 1;
+const productDetailRender$ = array([{ version: 0 }]);
 
 type ProductVariationView = {
   id: string;
@@ -77,7 +81,11 @@ const getSelectedVariation = (product: ProductItem) => {
   return variations.find((variation) => variation.id === selectedVariationId) || variations[0] || null;
 };
 
-const renderProductDetail = () => {
+const notifyProductDetail = () => {
+  productDetailRender$[0] = { version: Number(productDetailRender$[0]?.version || 0) + 1 };
+};
+
+const mountProductDetail = () => {
   if (!detailRoot) return;
   detailRoot.replaceChildren();
   tagElement(ProductDetailApp, detailRoot);
@@ -89,6 +97,7 @@ const renderMessage = (title: string, message: string) => {
   if (pageTitleRoot) {
     pageTitleRoot.textContent = "Products";
   }
+  notifyProductDetail();
 };
 
 const ProductMessage = (title: string, message: string) =>
@@ -97,7 +106,7 @@ const ProductMessage = (title: string, message: string) =>
     p(message)
   );
 
-const ProductDetailApp = tag(() => {
+const ProductDetailContent = () => {
   if (messageState) {
     return [ProductMessage(messageState.title, messageState.message)];
   }
@@ -161,17 +170,23 @@ const ProductDetailApp = tag(() => {
             productId: product.id,
             getVariationId: () => selectedVariationId,
             initialQuantity: 1,
+            getQuantityState: () => selectedQuantity,
+            setQuantityState: (quantity) => {
+              selectedQuantity = quantity;
+            },
           })
         ),
         a.class`ghost-button`.href("../products.html")("Back to Products")
       )
     ),
   ];
-});
+};
+
+const ProductDetailApp = tag(() => subscribe(productDetailRender$, ProductDetailContent));
 
 const load = async () => {
   if (!detailRoot) return;
-  renderProductDetail();
+  mountProductDetail();
   const slug = getSlug();
   if (!slug) {
     renderMessage("Product not found", "This product link is missing its identifier.");
@@ -192,6 +207,7 @@ const load = async () => {
     if (pageTitleRoot) {
       pageTitleRoot.textContent = String(match.title || "Products").trim() || "Products";
     }
+    notifyProductDetail();
   } catch (error) {
     console.error("Failed to load product detail", error);
     renderMessage("Product unavailable", "Please try again shortly.");

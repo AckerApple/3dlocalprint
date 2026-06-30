@@ -89,15 +89,24 @@ export const homeLandingPage = ({ assetPrefix = "./", siteKey = "local" as SiteK
       section.class`cart-page-title`(
         h1("3D Local Print")
       ),
-      section.class`home-info panel`(
-        div(
-          h2.class`output-title`("Coming soon"),
-          p(
-            "The storefront is opening soon. For today, we are celebrating with a craft paint party. Drop by or reach out to reserve a spot."
-          )
-        ),
-        div.class`home-email-wrap`(
-          a.class`home-email`.href("mailto:service@3dlocalprint.com")("service@3dlocalprint.com")
+      section.class`home-print-link-feature`(
+        a
+          .class`home-print-link-image-link`
+          .href(withPrefix(assetPrefix, "print-model-link.html"))
+          .ariaLabel`Open PRINT by LINK service`(
+            img
+              .class`home-print-link-image`
+              .src(withPrefix(assetPrefix, "assets/print_link_steps.png"))
+              .alt("Web link icon for PRINT by LINK service")
+              .loading("lazy")
+          ),
+        div.class`home-print-link-copy`(
+          div.class`home-card-tag`("PRINT by LINK"),
+          h2("Have a model link? We can quote the print."),
+          p("Send us a link to a 3D model, add quantities and notes, and we will review the file for a custom print quote."),
+          a
+            .class`add-button`
+            .href(withPrefix(assetPrefix, "print-model-link.html"))("Start a PRINT by LINK request")
         )
       ),
       section.class`home-gallery`(
@@ -159,6 +168,189 @@ const StepTitle = (icon: string, title: string) =>
     span.class`pet-step-emoji`.attr("aria-hidden", "true")(icon),
     span(title)
   );
+
+const PolicySection = (title: string, ...items: any[]) =>
+  section.class`home-card policy-section`(
+    h2(title),
+    ...items
+  );
+
+const PolicyList = (...items: any[]) =>
+  div.class`policy-list`(
+    ...items.map((item) => p(item))
+  );
+
+const PolicyNotice = () =>
+  p.class`policy-updated`("Last updated: June 30, 2026. These policies are general business communications and are not a substitute for legal advice.");
+
+export const homePrivacyPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Privacy Policy - 3D Local Print",
+    description: "Privacy policy for 3D Local Print public website orders, quotes, agreements, and support requests.",
+    heroLede: "",
+    assetPrefix,
+    mainClass: "home-main home-main-cart policy-main",
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Privacy Policy"),
+        PolicyNotice()
+      ),
+      PolicySection(
+        "Information we collect",
+        PolicyList(
+          "Contact details such as name, email address, optional phone number, and support emails you send us.",
+          "Order, quote, cart, agreement, payment status, product, quantity, pickup, delivery, project note, and model-link details you submit.",
+          "Agreement acceptance records, including signer name, acceptance checkbox state, timestamps, customer email/payment status, and browser or device metadata used to document acceptance.",
+          "Google sign-in profile details for pet request access, such as email, display name, and profile photo when provided by Google.",
+          "Local browser storage used for cart contents and draft model-link quote requests."
+        )
+      ),
+      PolicySection(
+        "How we use information",
+        PolicyList(
+          "To fulfill orders, create quotes, process agreements, send transactional emails, provide support, prevent abuse, maintain security, and keep business records.",
+          "To operate admin tools, product catalogs, quote request records, agreement records, receipt and order lookup pages, and customer communications.",
+          "To send optional marketing only when you explicitly opt in. Transactional order, quote, agreement, receipt, and support messages are separate from marketing."
+        )
+      ),
+      PolicySection(
+        "Payments and service providers",
+        PolicyList(
+          "Stripe processes payment card details through secure checkout. 3D Local Print stores payment identifiers, order records, and payment status, but not full card numbers.",
+          "Firebase and Google services support hosting, database records, file storage, authentication, and admin tools. Email providers support transactional email delivery.",
+          "We may use service providers only as needed to operate the website, process transactions, provide customer support, comply with legal obligations, or protect the business."
+        )
+      ),
+      PolicySection(
+        "Children and family requests",
+        PolicyList(
+          "The website is not directed to children. Minors should not submit information directly.",
+          "A parent or guardian may submit requests involving family projects, children, pets, gifts, or keepsakes."
+        )
+      ),
+      PolicySection(
+        "Choices, retention, and contact",
+        PolicyList(
+          "You may contact service@3dlocalprint.com to request access, correction, deletion where feasible, or marketing opt-out.",
+          "We keep order, agreement, payment, quote, support, security, accounting, and legal records as reasonably needed for business operations, tax, dispute, fraud prevention, and compliance purposes.",
+          "Cart and draft quote data stored in your browser can be cleared by clearing site data or using site controls where available."
+        ),
+        p(
+          "Contact: ",
+          a.href("mailto:service@3dlocalprint.com")("service@3dlocalprint.com")
+        )
+      ),
+    ],
+  });
+
+export const homeTermsPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Terms of Service - 3D Local Print",
+    description: "Terms of service for 3D Local Print website use, orders, quote requests, and agreements.",
+    heroLede: "",
+    assetPrefix,
+    mainClass: "home-main home-main-cart policy-main",
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Terms of Service"),
+        PolicyNotice()
+      ),
+      PolicySection(
+        "Using this website",
+        PolicyList(
+          "Use this website only for lawful personal or business purposes. Provide accurate information when requesting quotes, placing orders, accepting agreements, signing in, or contacting us.",
+          "If a project involves a minor, a parent or guardian should submit and manage the request.",
+          "You are responsible for keeping any sign-in credentials secure and for activity submitted through your account or device."
+        )
+      ),
+      PolicySection(
+        "Customer content and print requests",
+        PolicyList(
+          "You are responsible for model links, files, images, notes, product information, and other content you provide.",
+          "Do not submit content or print requests that are unlawful, unsafe, infringing, abusive, regulated, weapon-related, deceptive, or otherwise inappropriate.",
+          "By submitting content, you confirm you have the rights or permissions needed for us to review, quote, print, communicate about, and fulfill the request."
+        )
+      ),
+      PolicySection(
+        "Custom 3D print limitations",
+        PolicyList(
+          "Custom prints may vary in color, finish, strength, size, surface texture, supports, layer lines, fit, and durability.",
+          "We may review feasibility, ask follow-up questions, refuse a request, cancel a request, or recommend changes before accepting or producing work.",
+          "3D printed items may not be suitable for food contact, children, pets, safety-critical uses, medical uses, load-bearing uses, heat exposure, or regulated purposes unless expressly agreed in writing."
+        )
+      ),
+      PolicySection(
+        "Third-party services and limits",
+        PolicyList(
+          "The website may rely on Stripe, Firebase, Google sign-in, email, hosting, database, and storage providers. Their outages, policy changes, fees, or technical limits may affect website features.",
+          "To the fullest extent allowed by law, 3D Local Print LLC is not responsible for indirect, incidental, special, lost-profit, lost-data, business-interruption, or third-party service damages."
+        )
+      ),
+      PolicySection(
+        "Contact",
+        p(
+          "Questions about these terms can be sent to ",
+          a.href("mailto:service@3dlocalprint.com")("service@3dlocalprint.com"),
+          "."
+        )
+      ),
+    ],
+  });
+
+export const homeSalesPolicyPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Sales, Shipping, Refunds, and Custom Work Policy - 3D Local Print",
+    description: "Sales, shipping, refund, cancellation, and custom work policy for 3D Local Print.",
+    heroLede: "",
+    assetPrefix,
+    mainClass: "home-main home-main-cart policy-main",
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Sales, Shipping, Refunds, and Custom Work Policy"),
+        PolicyNotice()
+      ),
+      PolicySection(
+        "Prices and payment",
+        PolicyList(
+          "Prices, taxes, shipping, pickup, and availability may change before checkout or final quote acceptance.",
+          "Online payments are handled through Stripe secure checkout. Orders and agreements are not final until payment is accepted or we confirm the order in writing.",
+          "Failed, disputed, reversed, or incomplete payments may delay, pause, or cancel fulfillment."
+        )
+      ),
+      PolicySection(
+        "Production timing and delivery",
+        PolicyList(
+          "Production timing depends on model complexity, material availability, printer availability, finishing needs, order volume, and customer approvals.",
+          "Shipping, pickup, or delivery timing will be confirmed during checkout, quote review, or direct communication when timing matters.",
+          "If no specific timing is promised, we will communicate a reasonable estimate after reviewing the order or request."
+        )
+      ),
+      PolicySection(
+        "Custom work, cancellations, and refunds",
+        PolicyList(
+          "Custom quote requests are reviewed before printing. We may decline requests that are unsafe, infringing, impractical, unclear, or outside current capabilities.",
+          "Because custom 3D prints use material, machine time, file preparation, and finishing labor, cancellation and refund options may be limited once materials are purchased, files are prepared, printing begins, finishing begins, or custom work is completed.",
+          "For custom 3D print concerns, our usual first step is to review the issue and discuss a practical retry option, such as an adjusted reprint or discounted retry, when another attempt is reasonable.",
+          "Refunds may still be offered when appropriate, including when we cannot complete accepted work, a paid order is canceled before meaningful custom work begins, or another resolution is required by the situation."
+        )
+      ),
+      PolicySection(
+        "Damaged, missing, or incorrect orders",
+        PolicyList(
+          "Contact us promptly at service@3dlocalprint.com with your order details and photos if an item arrives damaged, missing, or materially different from the accepted order.",
+          "We may request photos, return of the item, or additional information before offering a discounted retry, adjusted remake, replacement, refund, or other resolution."
+        )
+      ),
+      PolicySection(
+        "Contact",
+        p(
+          "Questions about sales, shipping, refunds, or custom work can be sent to ",
+          a.href("mailto:service@3dlocalprint.com")("service@3dlocalprint.com"),
+          "."
+        )
+      ),
+    ],
+  });
 
 export const petLandingPage = ({ assetPrefix = "./" } = {}) => {
   const site = getSiteConfig("pet");
@@ -308,7 +500,12 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
               button.class`ghost-button`.type("button").disabled("true")("Continue with Microsoft"),
               button.class`ghost-button`.type("button").disabled("true")("Continue with Facebook")
             ),
-            p.class`pet-upload-note`("Google sign-in is active. Additional SSO providers are placeholders for now.")
+            p.class`pet-upload-note`("Google sign-in is active. Additional SSO providers are placeholders for now."),
+            p.class`legal-notice`(
+              "Google sign-in may share profile information such as your email, display name, and profile photo. 3D Pet Print is not directed to children; a parent or guardian should submit requests involving minors. See our ",
+              a.class`legal-inline-link`.href(withPrefix(assetPrefix, "privacy.html"))("Privacy Policy"),
+              "."
+            )
           ),
           div.class`pet-step-body pet-auth-summary`
             .attr("data-pet-auth-summary", "true")
@@ -344,6 +541,7 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
           p.class`pet-step-lock-note`.attr("data-pet-lock-note", "upload").attr("hidden", "true")("Complete sign in before uploading pet files."),
           div.class`pet-step-body`.attr("data-pet-step-body", "upload").attr("hidden", "true")(
             p("This section will collect pet photos, reference angles, and any supporting files."),
+            p.class`legal-notice`("A parent or guardian should submit pet photos and notes when a request involves a minor or family gift."),
             form.class`pet-upload-form`.attr("aria-label", "Pet print file upload placeholder")(
               Field("Photos", input.type("file").name("photos").attr("multiple", "true").attr("accept", "image/*")),
               Field("Notes", textarea.name("notes").placeholder("Tell us about your pet, pose, markings, and desired keepsake.")),
@@ -663,12 +861,28 @@ export const homeReceiptPage = ({ assetPrefix = "./" } = {}) =>
       section.class`cart-page-title`(
         h1("Receipt")
       ),
-      section.class`home-grid`.id("receiptRoot")(
+      section.class`home-grid receipt-grid`.id("receiptRoot")(
         div.class`home-products-loading`(
           div.class`home-products-spinner`().attr("aria-hidden", "true"),
           p.class`home-products-loading-text`("Loading receipt...")
         )
       ),
+    ],
+  });
+
+export const homeAgreementPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Service Agreement - 3D Local Print",
+    description: "Review and accept a private website technical services agreement.",
+    heroLede: "",
+    bodyScripts: ["agreement.ts"],
+    mainClass: "home-main home-main-cart agreement-main",
+    assetPrefix,
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Service Agreement")
+      ),
+      section.class`home-grid agreement-grid`.id("agreementRoot")(),
     ],
   });
 

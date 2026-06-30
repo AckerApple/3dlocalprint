@@ -9,11 +9,25 @@ type ToastOptions = {
 
 const ensureRoot = () => {
   let root = document.getElementById(ROOT_ID);
-  if (root) return root;
-  root = document.createElement("div");
-  root.id = ROOT_ID;
-  root.className = "toast-root";
-  document.body.appendChild(root);
+  if (!root) {
+    root = document.createElement("div");
+    root.id = ROOT_ID;
+    root.className = "toast-root";
+  }
+  if (!root.hasAttribute("popover")) {
+    root.setAttribute("popover", "manual");
+  }
+  if (root.parentElement !== document.body) {
+    document.body.appendChild(root);
+  }
+  const showPopover = (root as HTMLElement & { showPopover?: () => void }).showPopover;
+  if (showPopover && !root.matches(":popover-open")) {
+    try {
+      showPopover.call(root);
+    } catch (error) {
+      console.warn("Toast popover failed, falling back to fixed root", error);
+    }
+  }
   return root;
 };
 

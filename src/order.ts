@@ -9,6 +9,8 @@ import {
   a,
   span,
   strong,
+  array,
+  subscribe,
 } from "taggedjs";
 import { fetchApiWithFallback } from "./api-url.js";
 
@@ -47,10 +49,27 @@ const params = new URLSearchParams(window.location.search);
 const orderId = String(params.get("order_id") || params.get("orderId") || "").trim();
 const email = String(params.get("email") || "").trim();
 
-const state: PublicOrderState = {
-  loading: true,
-  error: "",
-  order: null,
+const publicOrderState$ = array<PublicOrderState>([
+  {
+    loading: true,
+    error: "",
+    order: null,
+  },
+]);
+
+const getPublicOrderState = () =>
+  publicOrderState$[0] || {
+    loading: true,
+    error: "",
+    order: null,
+  };
+
+const setPublicOrderState = (patch: Partial<PublicOrderState>) => {
+  const current = getPublicOrderState();
+  publicOrderState$[0] = {
+    ...current,
+    ...patch,
+  };
 };
 
 const formatMoney = (cents = 0, currency = "usd") =>
@@ -134,7 +153,7 @@ const OrderDetails = (order: PublicOrderRecord) =>
     )
   );
 
-const PublicOrderApp = tag(() => {
+const PublicOrderContent = (state: PublicOrderState) => {
   if (state.loading) {
     return section.class`home-card receipt-card`(
       div.class`home-products-loading`(
@@ -149,9 +168,11 @@ const PublicOrderApp = tag(() => {
   return state.order
     ? OrderDetails(state.order)
     : OrderMessage("Order unavailable", "We could not load this order.");
-});
+};
 
-const render = () => {
+const PublicOrderApp = tag(() => subscribe(publicOrderState$, ([state]) => PublicOrderContent(state || getPublicOrderState())));
+
+const mountPublicOrderApp = () => {
   if (!root) return;
   root.replaceChildren();
   tagElement(PublicOrderApp, root);
@@ -159,13 +180,13 @@ const render = () => {
 
 const loadOrder = async () => {
   if (!orderId || !email) {
-    state.loading = false;
-    state.error = "This link is missing the order number or customer email.";
-    render();
+    setPublicOrderState({
+      loading: false,
+      error: "This link is missing the order number or customer email.",
+    });
     return;
   }
 
-  render();
   try {
     const requestParams = new URLSearchParams({ orderId, email });
     const response = await fetchApiWithFallback(
@@ -173,20 +194,23 @@ const loadOrder = async () => {
       "getPublicOrder"
     );
     if (!response.ok) {
-      state.error = "The order number and email did not match an order.";
+      setPublicOrderState({ error: "The order number and email did not match an order." });
       console.warn('load order failed', { response })
       return;
     }
     const payload = await response.json();
-    state.order = payload?.order || null;
-    state.error = state.order ? "" : "We could not load this order.";
+    const order = payload?.order || null;
+    setPublicOrderState({
+      order,
+      error: order ? "" : "We could not load this order.",
+    });
   } catch (error) {
     console.error("Failed to load public order", error);
-    state.error = "Order details are unavailable right now.";
+    setPublicOrderState({ error: "Order details are unavailable right now." });
   } finally {
-    state.loading = false;
-    render();
+    setPublicOrderState({ loading: false });
   }
 };
 
+mountPublicOrderApp();
 loadOrder();

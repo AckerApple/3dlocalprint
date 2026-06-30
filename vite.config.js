@@ -33,6 +33,19 @@ const rewriteQr1Path = (url = "") => {
   return `/qr1/index.html${query ? `?${query}` : ""}`;
 };
 
+const functionProxyErrorHandler = (proxy, _options) => {
+  proxy.on("error", (error, _req, res) => {
+    const message = String(error?.message || "Functions emulator proxy failed.");
+    if (!res.headersSent) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+    }
+    res.end(JSON.stringify({
+      error: "Local Firebase Functions emulator is not reachable.",
+      details: `${message}. Start the full local stack with npm run dev:full, or start Firebase emulators on http://127.0.0.1:5001.`,
+    }));
+  });
+};
+
 const productSlugRewritePlugin = {
   name: "product-slug-rewrite",
   configureServer(server) {
@@ -149,6 +162,7 @@ const siteIndexPlugin = (mode) => ({
 
 const publicSiteInputs = {
   main: resolve(__dirname, "src/index.html"),
+  apiDocs: resolve(__dirname, "src/api-docs.html"),
   aboutHome: resolve(__dirname, "src/about.html"),
   productsHome: resolve(__dirname, "src/products.html"),
   productDetail: resolve(__dirname, "src/product.html"),
@@ -156,6 +170,10 @@ const publicSiteInputs = {
   printModelLinkOrder: resolve(__dirname, "src/print-model-link-order.html"),
   cartHome: resolve(__dirname, "src/cart.html"),
   receiptHome: resolve(__dirname, "src/receipt.html"),
+  agreementHome: resolve(__dirname, "src/agreement.html"),
+  privacyHome: resolve(__dirname, "src/privacy.html"),
+  termsHome: resolve(__dirname, "src/terms.html"),
+  salesPolicyHome: resolve(__dirname, "src/sales-policy.html"),
   orderHome: resolve(__dirname, "src/order.html"),
   qr1: resolve(__dirname, "src/qr1/index.html"),
   notFound: resolve(__dirname, "src/404.html"),
@@ -168,7 +186,9 @@ const publicSiteInputs = {
   adminMoneyAccounts: resolve(__dirname, "src/admin/accounting/money-accounts.html"),
   adminProducts: resolve(__dirname, "src/admin/products/index.html"),
   adminOrders: resolve(__dirname, "src/admin/orders/index.html"),
+  adminAgreements: resolve(__dirname, "src/admin/agreements/index.html"),
   adminLinkOrders: resolve(__dirname, "src/admin/link-orders/index.html"),
+  adminAlertTemplates: resolve(__dirname, "src/admin/alert-templates/index.html"),
   adminAdmins: resolve(__dirname, "src/admin/security/admins.html"),
   ...Object.fromEntries(
     locations.map((location) => {
@@ -198,41 +218,97 @@ export default defineConfig(({ mode }) => {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/createCheckoutSession",
+        configure: functionProxyErrorHandler,
       },
       "/api/public/order-receipt-link": {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: (path) => rewriteFunctionPath("getPublicOrderReceiptLink", path),
+        configure: functionProxyErrorHandler,
       },
       "/api/public/order": {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: (path) => rewriteFunctionPath("getPublicOrder", path),
+        configure: functionProxyErrorHandler,
+      },
+      "/api/public/agreement/accept-checkout": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/acceptAgreementAndCreateCheckoutSession",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/public/agreement": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: (path) => rewriteFunctionPath("getPublicAgreement", path),
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/agreements/create-default": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/createDefaultWebsiteServicesAgreement",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/agreements/create": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/createWebsiteServicesAgreement",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/agreements/update": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/updateWebsiteServicesAgreement",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/agreements/send-email": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/sendAgreementEmail",
+        configure: functionProxyErrorHandler,
       },
       "/api/model-link-quote-requests": {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/submitModelLinkQuoteRequest",
+        configure: functionProxyErrorHandler,
       },
       "/api/public/model-link-quote-request": {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: (path) => rewriteFunctionPath("getPublicModelLinkQuoteRequest", path),
+        configure: functionProxyErrorHandler,
       },
       "/api/admin/orders/resend-email": {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/resendOrderNotification",
+        configure: functionProxyErrorHandler,
       },
       "/api/admin/orders/resend-customer-email": {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/resendCustomerOrderEmail",
+        configure: functionProxyErrorHandler,
       },
       "/api/admin/orders/delete-test-order": {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/deleteTestOrder",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/orders/cancel": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/cancelOrder",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/orders/close": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/closeOrder",
+        configure: functionProxyErrorHandler,
       },
     },
   },
@@ -248,6 +324,9 @@ export default defineConfig(({ mode }) => {
             main: resolve(__dirname, "src/index.html"),
             howItWorks: resolve(__dirname, "src/how-it-works.html"),
             getStarted: resolve(__dirname, "src/get-started.html"),
+            privacyHome: resolve(__dirname, "src/privacy.html"),
+            termsHome: resolve(__dirname, "src/terms.html"),
+            salesPolicyHome: resolve(__dirname, "src/sales-policy.html"),
           }
         : publicSiteInputs,
     },

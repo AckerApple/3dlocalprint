@@ -6,33 +6,41 @@ import {
   section,
   div,
   h2,
+  h3,
   p,
   a,
   strong,
   span,
+  array,
+  subscribe,
 } from "taggedjs";
 
 const root = document.getElementById("receiptRoot");
 const params = new URLSearchParams(window.location.search);
 const orderId = String(params.get("order_id") || "").trim();
 const sessionId = String(params.get("session_id") || "").trim();
-let publicOrderUrl = "";
 let receiptEmail = "";
+type ReceiptLineItem = {
+  title?: string;
+  quantity?: number;
+  unitAmount?: number;
+  amountTotal?: number;
+  currency?: string;
+};
+type ReceiptOrderSummary = {
+  lineItems?: ReceiptLineItem[];
+  amountSubtotal?: number;
+  amountTax?: number;
+  amountShipping?: number;
+  amountTotal?: number;
+  currency?: string;
+};
+let receiptOrder: ReceiptOrderSummary | null = null;
+const receiptRender$ = array([{ version: 0 }]);
 
 if (orderId) {
   clearCart();
 }
-
-const contactSubject = orderId
-  ? `Order ${orderId}`
-  : "Receipt support";
-const contactBody = orderId
-  ? `Hello,\n\nI have a question about order ${orderId}.\n`
-  : "Hello,\n\nI have a question about my checkout.\n";
-const contactHref = `mailto:service@3dlocalprint.com?${[
-  `subject=${encodeURIComponent(contactSubject)}`,
-  `body=${encodeURIComponent(contactBody)}`,
-].join("&")}`;
 
 const loadPublicOrderUrl = async (attempt = 1) => {
   if (!orderId || !sessionId) return;
@@ -49,52 +57,87 @@ const loadPublicOrderUrl = async (attempt = 1) => {
       return;
     }
     const payload = await response.json();
-    publicOrderUrl = String(payload?.publicOrderUrl || "").trim();
     receiptEmail = String(payload?.customerEmail || "").trim();
-    renderReceipt();
+    receiptOrder = payload?.order || null;
+    receiptRender$[0] = { version: Number(receiptRender$[0]?.version || 0) + 1 };
   } catch (error) {
     console.warn("Failed to load receipt order link", error);
   }
 };
 
-const ReceiptApp = tag(() =>
-  section.class`home-card receipt-card`(
-    div.class`receipt-status-pill`("Payment received"),
-    h2("Thank you for your order."),
-    orderId
-      ? div.class`receipt-order-number`(
-          span("Order number"),
-          publicOrderUrl
-            ? a.class`receipt-order-link`.href(publicOrderUrl)(orderId)
-            : strong(orderId)
-        )
-      : div.class`receipt-order-number receipt-order-number-missing`(
-          span("Order number"),
-          strong("Unavailable")
-        ),
-    p(
+const ReceiptContent = () =>
+  [
+    section.class`home-card receipt-card public-order-card`(
+      div.class`receipt-status-pill`("Payment received"),
+      h2("Receipt"),
       orderId
-        ? "Your order was received. Please keep this order number for pickup, support, or follow-up questions."
-        : "Checkout returned without an order number. Please contact us if your payment completed."
+        ? div.class`receipt-order-number`(
+            span("Order number"),
+            strong(orderId)
+          )
+        : div.class`receipt-order-number receipt-order-number-missing`(
+            span("Order number"),
+            strong("Unavailable")
+          ),
+      receiptEmail
+        ? p.class`receipt-email-sent`(
+            "Receipt email sent to: ",
+            strong(receiptEmail)
+          )
+        : null,
+      ReceiptItems(receiptOrder)
     ),
-    receiptEmail
-      ? p.class`receipt-email-sent`(
-          "Receipt email sent to: ",
-          strong(receiptEmail)
-        )
-      : null,
-    div.class`receipt-actions`(
-      a.class`ghost-button`.href("./products.html")("Continue shopping"),
-      a.class`add-button`.href(contactHref)("Contact service")
-    )
-  )
-);
+    section.class`receipt-service-suggestions`(
+      div.class`receipt-service-divider`,
+      h3("Be sure to try these services"),
+      div.class`receipt-actions receipt-page-actions`(
+        a.class`ghost-button`.href("./products.html")("Products"),
+        a.class`add-button`.href("./print-model-link.html")("Print By Link")
+      )
+    ),
+  ];
 
-const renderReceipt = () => {
+const formatMoney = (amount = 0, currency = "usd") =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "usd",
+  }).format((Number(amount) || 0) / 100);
+
+const ReceiptItems = (order: ReceiptOrderSummary | null) => {
+  const items = Array.isArray(order?.lineItems) ? order.lineItems : [];
+  if (!items.length) return null;
+  const currency = String(order?.currency || items[0]?.currency || "usd");
+  const lineTotal = (item: ReceiptLineItem) =>
+    Number(item.amountTotal) || ((Number(item.unitAmount) || 0) * (Number(item.quantity) || 0));
+  return div.class`public-order-section receipt-items-section`(
+    h3("Items"),
+    div.class`public-order-lines`(
+      items.map((item, index) =>
+        div.class`public-order-line`(
+          span(`${item.title || "Item"} x ${Number(item.quantity) || 0}`),
+          strong(formatMoney(lineTotal(item), String(item.currency || currency)))
+        ).key(`${item.title || "item"}-${index}`)
+      )
+    ),
+    div.class`public-order-totals`(
+      div(span("Subtotal"), strong(formatMoney(Number(order?.amountSubtotal) || 0, currency))),
+      Number(order?.amountTax) ? div(span("Tax"), strong(formatMoney(Number(order?.amountTax) || 0, currency))) : null,
+      Number(order?.amountShipping) ? div(span("Shipping"), strong(formatMoney(Number(order?.amountShipping) || 0, currency))) : null,
+      div.class`public-order-total`(
+        span("Total"),
+        strong(formatMoney(Number(order?.amountTotal) || 0, currency))
+      )
+    )
+  );
+};
+
+const ReceiptApp = tag(() => subscribe(receiptRender$, ReceiptContent));
+
+const mountReceipt = () => {
   if (!root) return;
   root.replaceChildren();
   tagElement(ReceiptApp, root);
 };
 
-renderReceipt();
+mountReceipt();
 loadPublicOrderUrl();

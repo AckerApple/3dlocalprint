@@ -1,0 +1,774 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "3D Local Print Backend API Map",
+    "version": "1.0.0",
+    "summary": "Firebase Hosting rewrite and HTTPS function surface for 3D Local Print.",
+    "description": "This document maps the supported HTTP backend surface. Firestore collections are implementation storage behind these endpoints, not public APIs."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5173",
+      "description": "Local Vite dev server with Firebase Functions proxy"
+    },
+    {
+      "url": "https://3dlocalprint.com",
+      "description": "Production hosting"
+    }
+  ],
+  "tags": [
+    { "name": "Checkout", "description": "Stripe Checkout creation and payment flow entry points." },
+    { "name": "Public Orders", "description": "Customer-facing order and receipt lookups." },
+    { "name": "Agreements", "description": "Public and admin agreement creation, update, email, and payment actions." },
+    { "name": "Quote Requests", "description": "PRINT by LINK quote request submission and lookup." },
+    { "name": "Admin Orders", "description": "Admin-only order maintenance actions." },
+    { "name": "Email", "description": "Admin-triggered transactional email actions." },
+    { "name": "Stripe Webhooks", "description": "Stripe signed webhook ingestion." }
+  ],
+  "paths": {
+    "/api/create-checkout-session": {
+      "post": {
+        "tags": ["Checkout"],
+        "summary": "Create a Stripe Checkout Session for cart items.",
+        "description": "Public checkout entry point. Product IDs and variation IDs are resolved server-side before creating Stripe line items.",
+        "x-firestore-side-effects": ["Creates or updates an orders document with checkout session metadata."],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateCheckoutSessionRequest" },
+              "example": {
+                "cartItems": [
+                  { "productId": "dragon-keychain", "variationId": "painted", "quantity": 2 }
+                ],
+                "successUrl": "https://3dlocalprint.com/receipt.html",
+                "cancelUrl": "https://3dlocalprint.com/cart.html",
+                "customerEmail": "customer@example.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Checkout session created.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CheckoutSessionResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/stripe/webhook": {
+      "get": {
+        "tags": ["Stripe Webhooks"],
+        "summary": "Webhook route health message.",
+        "responses": {
+          "200": {
+            "description": "Route is reachable.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkMessageResponse" },
+                "example": {
+                  "ok": true,
+                  "route": "stripeWebhook",
+                  "message": "Stripe webhooks must POST signed events to this URL."
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Stripe Webhooks"],
+        "summary": "Receive signed Stripe events.",
+        "security": [{ "stripeSignature": [] }],
+        "description": "Handles checkout.session.completed, payment_intent.succeeded, and payment_intent.payment_failed.",
+        "x-firestore-side-effects": [
+          "Updates orders with payment status, customer, totals, Stripe IDs, and dashboard URLs.",
+          "Marks linked agreements paid when an agreement checkout completes.",
+          "Sends transactional notification email when configured."
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Stripe event payload; validated using the stripe-signature header."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event received.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookReceivedResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" }
+        }
+      }
+    },
+    "/api/public/order": {
+      "get": {
+        "tags": ["Public Orders"],
+        "summary": "Load a public order by order ID and customer email.",
+        "parameters": [
+          { "name": "orderId", "in": "query", "schema": { "type": "string" }, "description": "Order ID. order_id is also accepted." },
+          { "name": "email", "in": "query", "schema": { "type": "string", "format": "email" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order found.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicOrderResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/public/order-receipt-link": {
+      "get": {
+        "tags": ["Public Orders"],
+        "summary": "Resolve a receipt link after Stripe redirects back.",
+        "description": "Uses order ID and Checkout Session ID to find or backfill customer order lookup details.",
+        "x-firestore-side-effects": ["May backfill order payment/customer fields from Stripe session data."],
+        "parameters": [
+          { "name": "orderId", "in": "query", "schema": { "type": "string" }, "description": "Order ID. order_id is also accepted." },
+          { "name": "sessionId", "in": "query", "schema": { "type": "string" }, "description": "Stripe Checkout Session ID. session_id is also accepted." }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt link data found.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicOrderReceiptLinkResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/public/agreement": {
+      "get": {
+        "tags": ["Agreements"],
+        "summary": "Load a public agreement by private token.",
+        "parameters": [
+          { "name": "token", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agreement found.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicAgreementResponse" } } }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/public/agreement/accept-checkout": {
+      "post": {
+        "tags": ["Agreements", "Checkout"],
+        "summary": "Accept an agreement and create a Stripe Checkout Session.",
+        "x-firestore-side-effects": [
+          "Records agreement signer, acceptance, browser metadata, and checkout_created status.",
+          "Creates a linked orders document for the agreement checkout."
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AcceptAgreementCheckoutRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Checkout session created.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CheckoutSessionResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/agreements/create-default": {
+      "post": {
+        "tags": ["Agreements"],
+        "summary": "Create or reuse the default website services agreement.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Creates or updates an agreements document."],
+        "requestBody": { "$ref": "#/components/requestBodies/AdminAgreementSourceUrl" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/AdminAgreementOk" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/agreements/create": {
+      "post": {
+        "tags": ["Agreements"],
+        "summary": "Create a custom website services agreement.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Creates an agreements document."],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateAgreementRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/AdminAgreementOk" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/agreements/update": {
+      "post": {
+        "tags": ["Agreements"],
+        "summary": "Update editable fields on an agreement.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Merges editable fields into an agreements document."],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateAgreementRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/AdminAgreementOk" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/agreements/send-email": {
+      "post": {
+        "tags": ["Agreements", "Email"],
+        "summary": "Send an agreement acceptance email.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Updates agreement email status and manual sent metadata."],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AgreementEmailRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agreement email attempted.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgreementEmailResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/model-link-quote-requests": {
+      "post": {
+        "tags": ["Quote Requests"],
+        "summary": "Submit a PRINT by LINK quote request.",
+        "x-firestore-side-effects": ["Creates a modelLinkQuoteRequests document and attempts notification email."],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModelLinkQuoteRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quote request submitted.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelLinkQuoteSubmitResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/public/model-link-quote-request": {
+      "get": {
+        "tags": ["Quote Requests"],
+        "summary": "Load a public quote request by request ID and email.",
+        "parameters": [
+          { "name": "requestId", "in": "query", "schema": { "type": "string" }, "description": "Quote request ID. request_id is also accepted." },
+          { "name": "email", "in": "query", "schema": { "type": "string", "format": "email" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quote request found.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicModelLinkQuoteResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/orders/resend-email": {
+      "post": {
+        "tags": ["Admin Orders", "Email"],
+        "summary": "Resend internal order notification email.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Updates order notification email status and manual resend metadata."],
+        "requestBody": { "$ref": "#/components/requestBodies/OrderId" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderEmailOk" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/orders/resend-customer-email": {
+      "post": {
+        "tags": ["Admin Orders", "Email"],
+        "summary": "Resend customer order email.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Updates order customer email status and manual resend metadata."],
+        "requestBody": { "$ref": "#/components/requestBodies/OrderId" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/CustomerOrderEmailOk" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/orders/delete-test-order": {
+      "post": {
+        "tags": ["Admin Orders"],
+        "summary": "Delete a sandbox/test order.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Deletes an orders document only when it is identified as a test order."],
+        "requestBody": { "$ref": "#/components/requestBodies/OrderId" },
+        "responses": {
+          "200": {
+            "description": "Test order deleted.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OkResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/orders/cancel": {
+      "post": {
+        "tags": ["Admin Orders"],
+        "summary": "Mark an order canceled in admin.",
+        "description": "Does not refund, void, or cancel anything in Stripe.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Sets order status to canceled and records canceledAt/canceledByAdminEmail."],
+        "requestBody": { "$ref": "#/components/requestBodies/OrderId" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderStatusOk" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/admin/orders/close": {
+      "post": {
+        "tags": ["Admin Orders"],
+        "summary": "Mark an order closed in admin.",
+        "description": "Does not refund, void, or cancel anything in Stripe.",
+        "security": [{ "bearerAuth": [] }],
+        "x-firestore-side-effects": ["Sets order status to closed and records closedAt/closedByAdminEmail."],
+        "requestBody": { "$ref": "#/components/requestBodies/OrderId" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderStatusOk" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Firebase ID token",
+        "description": "Firebase Authentication ID token for an approved admin user."
+      },
+      "stripeSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "stripe-signature",
+        "description": "Stripe webhook signature header."
+      }
+    },
+    "requestBodies": {
+      "OrderId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/OrderIdRequest" },
+            "example": { "orderId": "order_test_sample_123" }
+          }
+        }
+      },
+      "AdminAgreementSourceUrl": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "sourceUrl": { "type": "string", "format": "uri" }
+              }
+            },
+            "example": { "sourceUrl": "https://3dlocalprint.com/admin/agreements/index.html" }
+          }
+        }
+      }
+    },
+    "responses": {
+      "AdminAgreementOk": {
+        "description": "Agreement action completed.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdminAgreementResponse" } } }
+      },
+      "OrderEmailOk": {
+        "description": "Internal order notification email attempted.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrderEmailResponse" } } }
+      },
+      "CustomerOrderEmailOk": {
+        "description": "Customer order email attempted.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CustomerOrderEmailResponse" } } }
+      },
+      "OrderStatusOk": {
+        "description": "Order status action completed.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrderStatusResponse" } } }
+      },
+      "BadRequest": {
+        "description": "Request was invalid.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Unauthorized": {
+        "description": "Authentication is required.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "error": "Sign in required." } } }
+      },
+      "Forbidden": {
+        "description": "Admin access is required.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "error": "Admin access required." } } }
+      },
+      "NotFound": {
+        "description": "Record was not found or lookup details did not match.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "error": "Order not found." } } }
+      },
+      "MethodNotAllowed": {
+        "description": "HTTP method is not supported.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "error": "Method not allowed" } } }
+      },
+      "ServerError": {
+        "description": "Server-side failure.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "details": { "type": "string" },
+          "code": { "type": "string" }
+        },
+        "required": ["error"]
+      },
+      "OkResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" }
+        },
+        "required": ["ok"]
+      },
+      "OkMessageResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "route": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "required": ["ok"]
+      },
+      "WebhookReceivedResponse": {
+        "type": "object",
+        "properties": {
+          "received": { "type": "boolean" }
+        },
+        "required": ["received"]
+      },
+      "CheckoutCartItem": {
+        "type": "object",
+        "properties": {
+          "productId": { "type": "string" },
+          "variationId": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["productId", "quantity"]
+      },
+      "CreateCheckoutSessionRequest": {
+        "type": "object",
+        "properties": {
+          "cartItems": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CheckoutCartItem" },
+            "minItems": 1
+          },
+          "successUrl": { "type": "string", "format": "uri" },
+          "cancelUrl": { "type": "string", "format": "uri" },
+          "customerEmail": { "type": "string", "format": "email" }
+        },
+        "required": ["cartItems", "successUrl", "cancelUrl"]
+      },
+      "CheckoutSessionResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "orderId": { "type": "string" },
+          "stripeMode": { "type": "string", "enum": ["sandbox", "live"] }
+        }
+      },
+      "OrderLineItem": {
+        "type": "object",
+        "properties": {
+          "productId": { "type": "string" },
+          "variationId": { "type": "string" },
+          "title": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "unitAmount": { "type": "integer" },
+          "currency": { "type": "string" }
+        }
+      },
+      "PublicOrder": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/OrderStatus" },
+          "lineItems": { "type": "array", "items": { "$ref": "#/components/schemas/OrderLineItem" } },
+          "currency": { "type": "string" },
+          "amountSubtotal": { "type": "integer" },
+          "amountTax": { "type": "integer" },
+          "amountShipping": { "type": "integer" },
+          "amountTotal": { "type": "integer" },
+          "customerEmail": { "type": "string" },
+          "customerName": { "type": "string" },
+          "paidAt": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" }
+        }
+      },
+      "PublicOrderResponse": {
+        "type": "object",
+        "properties": {
+          "order": { "$ref": "#/components/schemas/PublicOrder" }
+        },
+        "required": ["order"]
+      },
+      "PublicOrderReceiptLinkResponse": {
+        "type": "object",
+        "properties": {
+          "customerEmail": { "type": "string" },
+          "publicOrderUrl": { "type": "string", "format": "uri" },
+          "order": { "$ref": "#/components/schemas/PublicOrder" }
+        }
+      },
+      "OrderStatus": {
+        "type": "string",
+        "enum": ["checkout_created", "paid", "payment_failed", "closed", "canceled", "unknown"]
+      },
+      "PublicAgreement": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string" },
+          "clientBusiness": { "type": "string" },
+          "customerEmail": { "type": "string" },
+          "yearlyAmount": { "type": "integer" },
+          "currency": { "type": "string" },
+          "publicAgreementUrl": { "type": "string" }
+        }
+      },
+      "PublicAgreementResponse": {
+        "type": "object",
+        "properties": {
+          "agreement": { "$ref": "#/components/schemas/PublicAgreement" }
+        },
+        "required": ["agreement"]
+      },
+      "AcceptAgreementCheckoutRequest": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "signerName": { "type": "string" },
+          "accepted": { "type": "boolean" },
+          "successUrl": { "type": "string", "format": "uri" },
+          "cancelUrl": { "type": "string", "format": "uri" },
+          "customerEmail": { "type": "string", "format": "email" },
+          "browserMeta": { "type": "object", "additionalProperties": true }
+        },
+        "required": ["token", "signerName", "accepted", "successUrl", "cancelUrl"]
+      },
+      "AgreementService": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "monthlyValue": { "type": "integer" },
+          "yearlyCost": { "type": "integer" },
+          "included": { "type": "boolean" }
+        }
+      },
+      "CreateAgreementRequest": {
+        "type": "object",
+        "properties": {
+          "sourceUrl": { "type": "string", "format": "uri" },
+          "clientBusiness": { "type": "string" },
+          "customerEmail": { "type": "string", "format": "email" },
+          "providerName": { "type": "string" },
+          "services": { "type": "array", "items": { "$ref": "#/components/schemas/AgreementService" } },
+          "yearlyAmount": { "type": "integer" },
+          "currency": { "type": "string" }
+        },
+        "required": ["clientBusiness", "customerEmail", "services"]
+      },
+      "UpdateAgreementRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/CreateAgreementRequest" },
+          {
+            "type": "object",
+            "properties": {
+              "agreementId": { "type": "string" }
+            },
+            "required": ["agreementId"]
+          }
+        ]
+      },
+      "AdminAgreementResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "agreement": { "$ref": "#/components/schemas/PublicAgreement" },
+          "publicAgreementUrl": { "type": "string", "format": "uri" },
+          "reused": { "type": "boolean" }
+        }
+      },
+      "AgreementEmailRequest": {
+        "type": "object",
+        "properties": {
+          "agreementId": { "type": "string" },
+          "customerEmail": { "type": "string", "format": "email" }
+        },
+        "required": ["agreementId"]
+      },
+      "AgreementEmailResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "agreementEmailStatus": { "type": "string" },
+          "customerEmail": { "type": "string" }
+        }
+      },
+      "ModelLinkQuoteItem": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 999 }
+        },
+        "required": ["url", "quantity"]
+      },
+      "ModelLinkQuoteRequest": {
+        "type": "object",
+        "properties": {
+          "customerName": { "type": "string" },
+          "customerEmail": { "type": "string", "format": "email" },
+          "customerPhone": { "type": "string" },
+          "modelItems": { "type": "array", "items": { "$ref": "#/components/schemas/ModelLinkQuoteItem" } },
+          "modelLinks": { "type": "array", "items": { "type": "string", "format": "uri" } },
+          "projectDetails": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "pageUrl": { "type": "string", "format": "uri" },
+          "marketingOptIn": { "type": "boolean" }
+        },
+        "required": ["customerName", "customerEmail"]
+      },
+      "ModelLinkQuoteSubmitResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "requestId": { "type": "string" },
+          "reviewUrl": { "type": "string", "format": "uri" },
+          "notificationStatus": { "type": "string" }
+        }
+      },
+      "PublicModelLinkQuoteResponse": {
+        "type": "object",
+        "properties": {
+          "request": { "$ref": "#/components/schemas/ModelLinkQuoteRequest" }
+        }
+      },
+      "OrderIdRequest": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" }
+        },
+        "required": ["orderId"]
+      },
+      "OrderEmailResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "notificationStatus": { "type": "string" }
+        }
+      },
+      "CustomerOrderEmailResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "customerEmailStatus": { "type": "string" }
+        }
+      },
+      "OrderStatusResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "status": { "$ref": "#/components/schemas/OrderStatus" },
+          "canceledAt": { "type": "string" },
+          "closedAt": { "type": "string" }
+        }
+      }
+    }
+  }
+}

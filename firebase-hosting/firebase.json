@@ -45,6 +45,48 @@
         }
       },
       {
+        "source": "/api/public/agreement",
+        "function": {
+          "functionId": "getPublicAgreement",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/public/agreement/accept-checkout",
+        "function": {
+          "functionId": "acceptAgreementAndCreateCheckoutSession",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/agreements/create-default",
+        "function": {
+          "functionId": "createDefaultWebsiteServicesAgreement",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/agreements/create",
+        "function": {
+          "functionId": "createWebsiteServicesAgreement",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/agreements/update",
+        "function": {
+          "functionId": "updateWebsiteServicesAgreement",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/agreements/send-email",
+        "function": {
+          "functionId": "sendAgreementEmail",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/model-link-quote-requests",
         "function": {
           "functionId": "submitModelLinkQuoteRequest",
@@ -76,6 +118,20 @@
         "source": "/api/admin/orders/delete-test-order",
         "function": {
           "functionId": "deleteTestOrder",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/cancel",
+        "function": {
+          "functionId": "cancelOrder",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/close",
+        "function": {
+          "functionId": "closeOrder",
           "region": "us-central1"
         }
       },

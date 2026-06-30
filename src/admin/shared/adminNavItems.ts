@@ -64,10 +64,22 @@ export const adminNavGroups = [
         emoji: "🧾",
       },
       {
+        label: "Agreements",
+        details: "Create private agreements and track acceptance, service period, and payment.",
+        href: "agreements/index.html",
+        emoji: "📄",
+      },
+      {
         label: "Link Orders",
         details: "Review model-link quote requests and reply with quotes.",
         href: "link-orders/index.html",
         emoji: "🔗",
+      },
+      {
+        label: "Alert Templates",
+        details: "Review static notification and customer email templates.",
+        href: "alert-templates/index.html",
+        emoji: "📣",
       },
     ],
   },

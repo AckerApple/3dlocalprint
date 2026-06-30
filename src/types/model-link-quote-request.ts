@@ -12,6 +12,7 @@ export type ModelLinkQuoteRequestRecord = {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  marketingOptIn: boolean;
   modelItems: ModelLinkQuoteRequestItem[];
   modelLinks: string[];
   projectDetails: string;

@@ -17,6 +17,8 @@ import {
   p,
   img,
   input,
+  label,
+  a,
   button,
   strong,
   span,
@@ -44,6 +46,7 @@ type CartViewState = {
   products: ProductItem[];
   statusText: string;
   checkoutLoading: boolean;
+  termsAccepted: boolean;
 };
 
 const cartState: CartViewState = {
@@ -53,6 +56,7 @@ const cartState: CartViewState = {
     ? "Local checkout will use Stripe sandbox."
     : "Checkout is not possible while the website is under construction.",
   checkoutLoading: false,
+  termsAccepted: false,
 };
 
 const formatPrice = (unitAmount = 0, currency = "usd") =>
@@ -167,6 +171,11 @@ const setCheckoutStatus = (statusText: string, checkoutLoading = false) => {
 
 const handleCheckout = async () => {
   const { cart, productsById } = getCartViewItems();
+  if (!cartState.termsAccepted) {
+    setCheckoutStatus("Review and accept the Terms of Service and Sales Policy before checkout.", false);
+    renderCartView();
+    return;
+  }
   setCheckoutStatus("Opening secure checkout...", true);
   try {
     await startCheckout(cart, productsById);
@@ -291,6 +300,25 @@ const CartContent = () => {
       ),
       div.class`home-cart-footer`(
         strong(_=> `Total: ${formatPrice(total, "usd")}`),
+        p.class`legal-notice`(
+          "Checkout opens secure Stripe payment. Stripe processes payment details; 3D Local Print receives order and payment status information, not full card numbers."
+        ),
+        label.class`legal-checkbox-row`(
+          input
+            .type`checkbox`
+            .checked(_=> cartState.termsAccepted)
+            .onChange((event) => {
+              cartState.termsAccepted = Boolean(event.target.checked);
+              renderCartView();
+            })(),
+          span(
+            "I agree to the ",
+            a.class`legal-inline-link`.href("./terms.html")("Terms of Service"),
+            " and ",
+            a.class`legal-inline-link`.href("./sales-policy.html")("Sales Policy"),
+            "."
+          )
+        ),
         div.class`home-cart-actions`(
           button
             .type`button`
@@ -303,7 +331,7 @@ const CartContent = () => {
           button
             .type`button`
             .class`add-button`
-            .disabled(_=> !localStripeSandboxEngaged || cartState.checkoutLoading)
+            .disabled(_=> !localStripeSandboxEngaged || cartState.checkoutLoading || !cartState.termsAccepted)
             .onClick(handleCheckout)(
             _=> cartState.checkoutLoading ? "Opening..." : "Checkout"
           )

@@ -29,7 +29,7 @@ import { AdminNav } from "../shared/AdminNav.tag.js";
 import { Modal } from "../shared/Modal.tag.js";
 import { replaceMountRoot } from "../shared/ssoMount.js";
 import { startAdminAppShell } from "../shared/adminAppShell.js";
-import type { OrderRecord } from "../../types/order.js";
+import type { OrderRecord, OrderStatus } from "../../types/order.js";
 
 let app = document.getElementById("ordersApp");
 const appRoot = { current: app };
@@ -38,6 +38,9 @@ const orderModal$ = new Subject<number>(0, (subscription) => {
   subscription.next(0);
 });
 const orderFilters$ = new Subject<number>(0, (subscription) => {
+  subscription.next(0);
+});
+const orderStatusFilterModal$ = new Subject<number>(0, (subscription) => {
   subscription.next(0);
 });
 let stopOrders: null | (() => void) = null;
@@ -49,9 +52,31 @@ let selectedOrderId = "";
 let resendEmailLoadingOrderId = "";
 let resendEmailStatusText = "";
 let deleteOrderLoadingId = "";
+let cancelOrderLoadingId = "";
+let closeOrderLoadingId = "";
 let orderIdFilter = "";
 let orderEmailFilter = "";
 let orderTestFilter: "all" | "test" | "live" = "all";
+let orderStatusFilterModalOpen = false;
+
+const ORDER_STATUS_OPTIONS: Array<{ value: OrderStatus; label: string }> = [
+  { value: "checkout_created", label: "Checkout created" },
+  { value: "paid", label: "Paid" },
+  { value: "payment_failed", label: "Payment failed" },
+  { value: "closed", label: "Closed" },
+  { value: "canceled", label: "Canceled" },
+  { value: "unknown", label: "Unknown" },
+];
+
+const getDefaultOrderStatusFilters = () =>
+  new Set<OrderStatus>(
+    ORDER_STATUS_OPTIONS
+      .map((option) => option.value)
+      .filter((status) => status !== "closed" && status !== "canceled")
+  );
+
+let selectedOrderStatusFilters = getDefaultOrderStatusFilters();
+let draftOrderStatusFilters = new Set<OrderStatus>(selectedOrderStatusFilters);
 
 const getOrderIdFromUrl = () =>
   new URLSearchParams(window.location.search).get("orderId")?.trim()
@@ -149,6 +174,8 @@ const getPublicOrderHref = (order: OrderRecord) => {
   return url.toString();
 };
 
+const getAgreementHref = (order: OrderRecord) => order.agreementPublicUrl || "";
+
 const getFilteredOrders = (orders: OrderRecord[]) => {
   const idNeedle = orderIdFilter.trim().toLowerCase();
   const emailNeedle = orderEmailFilter.trim().toLowerCase();
@@ -157,12 +184,40 @@ const getFilteredOrders = (orders: OrderRecord[]) => {
     if (emailNeedle && !order.customerEmail.toLowerCase().includes(emailNeedle)) return false;
     if (orderTestFilter === "test" && !isTestOrder(order)) return false;
     if (orderTestFilter === "live" && isTestOrder(order)) return false;
+    if (!selectedOrderStatusFilters.has(order.status)) return false;
     return true;
   });
 };
 
 const refreshOrderFilters = () =>
   orderFilters$.next((Number(orderFilters$.value) || 0) + 1);
+
+const refreshOrderStatusFilterModal = () =>
+  orderStatusFilterModal$.next((Number(orderStatusFilterModal$.value) || 0) + 1);
+
+const getStatusFilterCount = () => selectedOrderStatusFilters.size;
+
+const openOrderStatusFilterModal = () => {
+  draftOrderStatusFilters = new Set<OrderStatus>(selectedOrderStatusFilters);
+  orderStatusFilterModalOpen = true;
+  refreshOrderStatusFilterModal();
+};
+
+const closeOrderStatusFilterModal = () => {
+  selectedOrderStatusFilters = new Set<OrderStatus>(draftOrderStatusFilters);
+  orderStatusFilterModalOpen = false;
+  refreshOrderStatusFilterModal();
+  refreshOrderFilters();
+};
+
+const toggleDraftOrderStatusFilter = (status: OrderStatus, checked: boolean) => {
+  if (checked) {
+    draftOrderStatusFilters.add(status);
+  } else {
+    draftOrderStatusFilters.delete(status);
+  }
+  refreshOrderStatusFilterModal();
+};
 
 const getAdminOrderActionUrl = (relativeUrl: string, functionName: string) => {
   const hostname = window.location.hostname;
@@ -186,6 +241,12 @@ const getResendOrderEmailUrl = (target: "internal" | "customer" = "internal") =>
 
 const getDeleteTestOrderUrl = () =>
   getAdminOrderActionUrl("/api/admin/orders/delete-test-order", "deleteTestOrder");
+
+const getCancelOrderUrl = () =>
+  getAdminOrderActionUrl("/api/admin/orders/cancel", "cancelOrder");
+
+const getCloseOrderUrl = () =>
+  getAdminOrderActionUrl("/api/admin/orders/close", "closeOrder");
 
 const getSelectedOrder = () =>
   orders$.find((order) => order.id === selectedOrderId) || null;
@@ -351,6 +412,98 @@ const deleteTestOrder = async (order: OrderRecord) => {
   }
 };
 
+const cancelOrder = async (order: OrderRecord) => {
+  if (!order?.id || cancelOrderLoadingId) return;
+  if (order.status === "canceled") {
+    toast.info("This order is already canceled.");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Cancel order ${order.id}? This only marks the order canceled in admin. It does not refund or void anything in Stripe.`
+  );
+  if (!confirmed) return;
+
+  const user = currentAuthUser || firebaseAuth.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    toast.error("Sign in again to cancel this order.");
+    return;
+  }
+
+  cancelOrderLoadingId = order.id;
+  orderModal$.next((Number(orderModal$.value) || 0) + 1);
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(getCancelOrderUrl(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ orderId: order.id }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(payload?.error || "Failed to cancel order."));
+    }
+
+    toast.success(`Canceled order ${order.id}.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to cancel order.";
+    toast.error(message, { duration: 10000 });
+  } finally {
+    cancelOrderLoadingId = "";
+    orderModal$.next((Number(orderModal$.value) || 0) + 1);
+  }
+};
+
+const closeOrder = async (order: OrderRecord) => {
+  if (!order?.id || closeOrderLoadingId) return;
+  if (order.status === "closed") {
+    toast.info("This order is already closed.");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Close order ${order.id}? This marks the order closed in admin. It does not refund, void, or cancel anything in Stripe.`
+  );
+  if (!confirmed) return;
+
+  const user = currentAuthUser || firebaseAuth.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    toast.error("Sign in again to close this order.");
+    return;
+  }
+
+  closeOrderLoadingId = order.id;
+  orderModal$.next((Number(orderModal$.value) || 0) + 1);
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(getCloseOrderUrl(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ orderId: order.id }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(payload?.error || "Failed to close order."));
+    }
+
+    toast.success(`Closed order ${order.id}.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to close order.";
+    toast.error(message, { duration: 10000 });
+  } finally {
+    closeOrderLoadingId = "";
+    orderModal$.next((Number(orderModal$.value) || 0) + 1);
+  }
+};
+
 const OrderDetailModal = () =>
   subscribe(orderModal$, () => {
     const order = getSelectedOrder();
@@ -398,6 +551,22 @@ const OrderDetailModal = () =>
                     )
                   : p.class`orders-meta`("No line items recorded.")
               ),
+              order.orderType || order.agreementId
+                ? div.class`orders-detail-section orders-detail-section-wide`(
+                    h2.class`orders-detail-section-title`("Agreement"),
+                    DetailItem("Order type", order.orderType || ""),
+                    DetailItem("Agreement", order.agreementId || ""),
+                    div.class`orders-detail-actions`(
+                      getAgreementHref(order)
+                        ? a
+                            .class`ghost-button`
+                            .href(getAgreementHref(order))
+                            .target`_blank`
+                            .rel`noreferrer`("Open agreement")
+                        : null
+                    )
+                  )
+                : null,
               div.class`orders-detail-section orders-detail-section-wide`(
                 h2.class`orders-detail-section-title`("Stripe"),
                 DetailItem("Checkout session", order.checkoutSessionId),
@@ -454,6 +623,40 @@ const OrderDetailModal = () =>
                   ? p.class`orders-email-status`(_=> resendEmailStatusText)
                   : null
               ),
+              div.class`orders-detail-section orders-detail-section-wide orders-info-section`(
+                h2.class`orders-detail-section-title`("Close Order"),
+                p.class`orders-meta`("Mark this order closed in admin. This does not refund, void, or cancel anything in Stripe."),
+                div.class`orders-detail-actions`(
+                  button
+                    .type`button`
+                    .class`ghost-button`
+                    .disabled(_=> order.status === "closed" || closeOrderLoadingId === order.id)
+                    .onClick(() => closeOrder(order))(
+                    _=> order.status === "closed"
+                      ? "Order closed"
+                      : closeOrderLoadingId === order.id
+                        ? "Closing..."
+                        : "Close order"
+                  )
+                )
+              ),
+              div.class`orders-detail-section orders-detail-section-wide orders-danger-section`(
+                h2.class`orders-detail-section-title`("Cancel Order"),
+                p.class`orders-meta`("Mark this order canceled in admin. This does not refund, void, or cancel anything in Stripe."),
+                div.class`orders-detail-actions`(
+                  button
+                    .type`button`
+                    .class`ghost-button delete-button`
+                    .disabled(_=> order.status === "canceled" || cancelOrderLoadingId === order.id)
+                    .onClick(() => cancelOrder(order))(
+                    _=> order.status === "canceled"
+                      ? "Order canceled"
+                      : cancelOrderLoadingId === order.id
+                        ? "Canceling..."
+                        : "Cancel order"
+                  )
+                )
+              ),
               isTestOrder(order)
                 ? div.class`orders-detail-section orders-detail-section-wide orders-danger-section`(
                     h2.class`orders-detail-section-title`("Test Order"),
@@ -482,46 +685,84 @@ const stopOrderSubscription = () => {
 };
 
 const OrderFilters = () =>
-  div.class`orders-filters`(
-    label.class`orders-filter-field`(
-      span("Order ID"),
-      input
-        .class`manufacturer-input`
-        .type`search`
-        .placeholder`Search order id`
-        .value(_=> orderIdFilter)
-        .onInput((event) => {
-          orderIdFilter = String(event.target.value || "");
-          refreshOrderFilters();
-        })()
-    ),
-    label.class`orders-filter-field`(
-      span("Email"),
-      input
-        .class`manufacturer-input`
-        .type`search`
-        .placeholder`Search customer email`
-        .value(_=> orderEmailFilter)
-        .onInput((event) => {
-          orderEmailFilter = String(event.target.value || "");
-          refreshOrderFilters();
-        })()
-    ),
-    label.class`orders-filter-field`(
-      span("Type"),
-      select
-        .class`manufacturer-input`
-        .value(_=> orderTestFilter)
-        .onChange((event) => {
-          const value = String(event.target.value || "all");
-          orderTestFilter = value === "test" || value === "live" ? value : "all";
-          refreshOrderFilters();
-        })(
-        option.value`all`("All orders"),
-        option.value`test`("Test only"),
-        option.value`live`("Live only")
+  subscribe(orderFilters$, () =>
+    div.class`orders-filters`(
+      label.class`orders-filter-field`(
+        span("Order ID"),
+        input
+          .class`manufacturer-input`
+          .type`search`
+          .placeholder`Search order id`
+          .value(_=> orderIdFilter)
+          .onInput((event) => {
+            orderIdFilter = String(event.target.value || "");
+            refreshOrderFilters();
+          })()
+      ),
+      label.class`orders-filter-field`(
+        span("Email"),
+        input
+          .class`manufacturer-input`
+          .type`search`
+          .placeholder`Search customer email`
+          .value(_=> orderEmailFilter)
+          .onInput((event) => {
+            orderEmailFilter = String(event.target.value || "");
+            refreshOrderFilters();
+          })()
+      ),
+      label.class`orders-filter-field`(
+        span("Type"),
+        select
+          .class`manufacturer-input`
+          .value(_=> orderTestFilter)
+          .onChange((event) => {
+            const value = String(event.target.value || "all");
+            orderTestFilter = value === "test" || value === "live" ? value : "all";
+            refreshOrderFilters();
+          })(
+          option.value`all`("All orders"),
+          option.value`test`("Test only"),
+          option.value`live`("Live only")
+        )
+      ),
+      div.class`orders-filter-field`(
+        span("Status"),
+        button
+          .type`button`
+          .class`ghost-button orders-status-filter-button`
+          .onClick(openOrderStatusFilterModal)(
+          _=> `Status (${getStatusFilterCount()})`
+        )
       )
     )
+  );
+
+const OrderStatusFilterModal = () =>
+  subscribe(orderStatusFilterModal$, () =>
+    Modal({
+      modalOpen: orderStatusFilterModalOpen,
+      title: "Order Status Filters",
+      className: "orders-status-filter-modal",
+      cardClassName: "orders-status-filter-card",
+      bodyClassName: "orders-status-filter-body",
+      onClose: closeOrderStatusFilterModal,
+      closeLabel: "Apply",
+      content: () =>
+        div.class`orders-status-filter-list`(
+          ORDER_STATUS_OPTIONS.map((option) =>
+            label.class`orders-status-filter-option`(
+              input
+                .type`checkbox`
+                .checked(_=> draftOrderStatusFilters.has(option.value))
+                .onChange((event) => {
+                  toggleDraftOrderStatusFilter(option.value, Boolean(event.target.checked));
+                })(),
+              span(option.label)
+            ).key(option.value)
+          )
+        ),
+    })
   );
 
 export const OrdersApp = tag(() => [
@@ -549,8 +790,7 @@ export const OrdersApp = tag(() => [
                       th("Status"),
                       th("Customer"),
                       th("Items"),
-                      th("Total"),
-                      th("Stripe")
+                      th("Total")
                     )
                   ),
                   tbody(
@@ -610,17 +850,6 @@ export const OrdersApp = tag(() => [
                               ? p.class`orders-meta`(_=> `shipping ${formatMoney(order.amountShipping, order.currency)}`)
                               : null
                           )
-                        ),
-                        td(
-                          getStripeHref(order)
-                            ? button
-                                .type`button`
-                                .class`orders-stripe-link`
-                                .onClick((event) => {
-                                  event.stopPropagation();
-                                  window.open(getStripeHref(order), "_blank", "noopener,noreferrer");
-                                })("Open")
-                            : span.class`orders-meta`("—")
                         )
                       ).key(order.id)
                     )
@@ -632,6 +861,7 @@ export const OrdersApp = tag(() => [
           : p.class`ledger-empty`("No orders match the current filters.")
         })
     ),
+    OrderStatusFilterModal(),
     OrderDetailModal()
   ),
 ]);
@@ -673,7 +903,7 @@ const adminShell = startAdminAppShell({
     if (!stopOrders) {
       stopOrders = subscribeOrders((items) => {
         orders$.splice(0, orders$.length, ...items);
-        if (selectedOrderId && !orders$.some((order) => order.id === selectedOrderId)) {
+        if (selectedOrderId && !items.some((order) => order.id === selectedOrderId)) {
           syncModalFromUrl();
         } else if (!selectedOrderId && getOrderIdFromUrl()) {
           syncModalFromUrl();

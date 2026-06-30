@@ -40,6 +40,7 @@ type QuoteRequestPayload = {
   projectDetails: string;
   quantity: number;
   pageUrl: string;
+  marketingOptIn: boolean;
 };
 
 export type QuoteUiState = {
@@ -49,6 +50,7 @@ export type QuoteUiState = {
   customerPhone: string;
   links: ModelLinkDraft[];
   projectDetails: string;
+  marketingOptIn: boolean;
   statusText: string;
   statusState: "idle" | "success" | "error";
   successRequestId: string;
@@ -63,6 +65,7 @@ type SavedQuoteRequestState = {
   customerPhone: string;
   modelItems: ModelItem[];
   projectDetails: string;
+  marketingOptIn: boolean;
   activeStep: number;
 };
 
@@ -123,6 +126,7 @@ const quoteUi$ = array<QuoteUiState>([
     customerPhone: String(savedState.customerPhone || ""),
     links: initialLinks,
     projectDetails: String(savedState.projectDetails || ""),
+    marketingOptIn: Boolean(savedState.marketingOptIn),
     statusText: "",
     statusState: "idle",
     successRequestId: "",
@@ -154,6 +158,7 @@ export const buildPayload = (state = getQuoteUi()): QuoteRequestPayload => {
     projectDetails: state.projectDetails.trim(),
     quantity: modelItems.reduce((total, item) => total + item.quantity, 0) || 1,
     pageUrl: window.location.href,
+    marketingOptIn: Boolean(state.marketingOptIn),
   };
 };
 
@@ -166,6 +171,7 @@ const saveState = (state = getQuoteUi()) => {
       customerPhone: state.customerPhone,
       modelItems: payload.modelItems,
       projectDetails: state.projectDetails,
+      marketingOptIn: Boolean(state.marketingOptIn),
       activeStep: state.activeStep,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -287,8 +293,8 @@ const removeLink = (id: string) => {
 };
 
 export const updateField = (
-  key: "customerName" | "customerEmail" | "customerPhone" | "projectDetails",
-  value: string,
+  key: "customerName" | "customerEmail" | "customerPhone" | "projectDetails" | "marketingOptIn",
+  value: string | boolean,
 ) => {
   const state = getQuoteUi();
   setQuoteUi({
@@ -353,6 +359,7 @@ const submitQuoteRequest = async () => {
       customerPhone: "",
       links: createEmptyLinks(),
       projectDetails: "",
+      marketingOptIn: false,
       submitting: false,
       statusText: requestId
         ? `Quote request ${requestId} was sent. A confirmation email is on the way.${publicReviewUrl ? ` Review link: ${publicReviewUrl}` : ""}`

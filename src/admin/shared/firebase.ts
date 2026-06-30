@@ -34,6 +34,7 @@ import {
 } from "firebase/storage";
 import { slugifyLocation } from "../filament/location-utils.js";
 import type { ManufacturerItem } from "../../types/filament.js";
+import type { AgreementRecord, AgreementServiceItem, AgreementStatus } from "../../types/agreement.js";
 import type { ModelLinkQuoteRequestRecord } from "../../types/model-link-quote-request.js";
 import type { OrderLineItem, OrderRecord, OrderStatus } from "../../types/order.js";
 import type { ProductImage, ProductItem } from "../../types/product.js";
@@ -109,6 +110,7 @@ const LEDGER_DOC = doc(db, "ledger", "entries");
 const MONEY_ACCOUNTS_DOC = doc(db, "ledger", "moneyAccounts");
 const PRODUCTS_DOC = doc(db, "products", "list");
 const ORDERS_COLLECTION = collection(db, "orders");
+const AGREEMENTS_COLLECTION = collection(db, "agreements");
 const MODEL_LINK_QUOTE_REQUESTS_COLLECTION = collection(db, "model_link_quote_requests");
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
@@ -555,8 +557,19 @@ const ORDER_STATUSES = new Set<OrderStatus>([
   "checkout_created",
   "paid",
   "payment_failed",
+  "closed",
   "canceled",
   "unknown",
+]);
+
+const AGREEMENT_STATUSES = new Set<AgreementStatus>([
+  "draft",
+  "sent",
+  "accepted",
+  "checkout_created",
+  "paid_active",
+  "expired",
+  "canceled",
 ]);
 
 const normalizeOrderStatus = (value: unknown): OrderStatus => {
@@ -600,6 +613,9 @@ const normalizeOrderRecord = (id: string, data: Record<string, unknown>): OrderR
   const paymentIntentId = String(data.paymentIntentId || "").trim();
   return {
     id: String(data.id || id || "").trim(),
+    orderType: String(data.orderType || "").trim(),
+    agreementId: String(data.agreementId || "").trim(),
+    agreementPublicUrl: String(data.agreementPublicUrl || "").trim(),
     status: normalizeOrderStatus(data.status),
     lineItems: normalizeOrderLineItems(data.lineItems),
     currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
@@ -639,12 +655,97 @@ const subscribeOrders = (callback: (items: OrderRecord[]) => void) =>
     }
   );
 
+const normalizeAgreementStatus = (value: unknown): AgreementStatus => {
+  const status = String(value || "").trim() as AgreementStatus;
+  return AGREEMENT_STATUSES.has(status) ? status : "draft";
+};
+
+const normalizeAgreementServices = (items: unknown): AgreementServiceItem[] =>
+  (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const raw = item as Record<string, unknown>;
+      const label = String(raw.label || "").trim();
+      if (!label) return null;
+      return {
+        label,
+        included: Boolean(raw.included),
+        monthlyValue: Math.max(0, Math.round(Number(raw.monthlyValue) || 0)),
+        yearlyCost: Math.max(0, Math.round(Number(raw.yearlyCost) || 0)),
+      };
+    })
+    .filter((item): item is AgreementServiceItem => Boolean(item));
+
+const normalizeStringRecord = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.entries(value as Record<string, unknown>).reduce<Record<string, string>>((next, [key, item]) => {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) return next;
+    next[normalizedKey] = String(item ?? "").trim();
+    return next;
+  }, {});
+};
+
+const normalizeAgreementRecord = (id: string, data: Record<string, unknown>): AgreementRecord => ({
+  id: String(data.id || id || "").trim(),
+  agreementTemplateId: String(data.agreementTemplateId || "").trim(),
+  agreementVersion: String(data.agreementVersion || "").trim(),
+  status: normalizeAgreementStatus(data.status),
+  clientBusiness: String(data.clientBusiness || "").trim(),
+  clientRepresentative: String(data.clientRepresentative || "").trim(),
+  customerEmail: String(data.customerEmail || "").trim(),
+  providerName: String(data.providerName || "").trim(),
+  effectiveDate: String(data.effectiveDate || "").trim(),
+  paymentDueDate: String(data.paymentDueDate || "").trim(),
+  serviceStartDate: String(data.serviceStartDate || "").trim(),
+  serviceEndDate: String(data.serviceEndDate || "").trim(),
+  yearlyAmount: Math.max(0, Math.round(Number(data.yearlyAmount) || 0)),
+  currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
+  services: normalizeAgreementServices(data.services),
+  totalSelectedServices: Math.max(0, Math.round(Number(data.totalSelectedServices) || 0)),
+  totalMonthlyValue: Math.max(0, Math.round(Number(data.totalMonthlyValue) || 0)),
+  privateToken: String(data.privateToken || "").trim(),
+  publicAgreementUrl: String(data.publicAgreementUrl || "").trim(),
+  acceptedSignerName: String(data.acceptedSignerName || "").trim(),
+  acceptedAt: String(data.acceptedAt || "").trim(),
+  acceptedIp: String(data.acceptedIp || "").trim(),
+  acceptedUserAgent: String(data.acceptedUserAgent || "").trim(),
+  acceptedBrowserMeta: normalizeStringRecord(data.acceptedBrowserMeta),
+  orderId: String(data.orderId || "").trim(),
+  checkoutSessionId: String(data.checkoutSessionId || "").trim(),
+  checkoutUrl: String(data.checkoutUrl || "").trim(),
+  paidAt: String(data.paidAt || "").trim(),
+  amountTotal: Math.max(0, Math.round(Number(data.amountTotal) || 0)),
+  stripeDashboardUrl: String(data.stripeDashboardUrl || "").trim(),
+  agreementEmail: String(data.agreementEmail || "").trim(),
+  agreementEmailStatus: String(data.agreementEmailStatus || "").trim(),
+  agreementEmailUpdatedAt: String(data.agreementEmailUpdatedAt || "").trim(),
+  agreementEmailManualSentAt: String(data.agreementEmailManualSentAt || "").trim(),
+  renewalReminderStatus: String(data.renewalReminderStatus || "").trim(),
+  renewalReminderSentAt: String(data.renewalReminderSentAt || "").trim(),
+  createdAt: String(data.createdAt || "").trim(),
+  updatedAt: String(data.updatedAt || "").trim(),
+});
+
+const subscribeAgreements = (callback: (items: AgreementRecord[]) => void) =>
+  onSnapshot(
+    query(AGREEMENTS_COLLECTION, orderBy("updatedAt", "desc"), limit(100)),
+    (snapshot) => {
+      callback(snapshot.docs.map((agreementDoc) => normalizeAgreementRecord(agreementDoc.id, agreementDoc.data())));
+    },
+    (error) => {
+      console.error("Failed to subscribe to agreements", error);
+      callback([]);
+    }
+  );
+
 const normalizeModelLinkQuoteRequestRecord = (id: string, data: Record<string, unknown>): ModelLinkQuoteRequestRecord => ({
   id: String(data.id || id || "").trim(),
   status: String(data.status || "quote_requested").trim() || "quote_requested",
   customerName: String(data.customerName || "").trim(),
   customerEmail: String(data.customerEmail || "").trim(),
   customerPhone: String(data.customerPhone || "").trim(),
+  marketingOptIn: Boolean(data.marketingOptIn),
   modelItems: (Array.isArray(data.modelItems) ? data.modelItems : [])
     .map((item) => {
       if (!item || typeof item !== "object") return null;
@@ -854,6 +955,7 @@ export {
   saveLedgerEntries,
   subscribeLedgerEntries,
   subscribeOrders,
+  subscribeAgreements,
   subscribeModelLinkQuoteRequests,
   loadMoneyAccounts,
   saveMoneyAccounts,

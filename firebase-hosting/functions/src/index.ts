@@ -4,8 +4,17 @@ import { logger } from "firebase-functions";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { randomBytes } from "node:crypto";
 import tls from "node:tls";
 import Stripe from "stripe";
+import {
+  buildAgreementPaymentNotificationEmail as renderAgreementPaymentNotificationEmail,
+  buildAgreementSignRequestEmail as renderAgreementSignRequestEmail,
+  buildCustomerModelLinkQuoteEmail as renderCustomerModelLinkQuoteEmail,
+  buildCustomerOrderEmail as renderCustomerOrderEmail,
+  buildModelLinkQuoteRequestEmail as renderModelLinkQuoteRequestEmail,
+  buildOrderNotificationEmail as renderOrderNotificationEmail,
+} from "./notificationTemplates";
 
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
@@ -14,6 +23,11 @@ const SMTP_PASS = defineSecret("SMTP_PASS");
 const ORDER_NOTIFICATION_EMAIL = "service@3dlocalprint.com";
 const PUBLIC_SITE_ORIGIN = "https://3dlocalprint.com";
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+const ALLOWED_CORS_ORIGINS = [
+  "https://3dlocalprint.com",
+  "https://www.3dlocalprint.com",
+  /^http:\/\/localhost(?::\d+)?$/,
+];
 
 type CheckoutCartItem = {
   quantity: number;
@@ -75,6 +89,7 @@ type ModelLinkQuoteRequestInput = {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  marketingOptIn: boolean;
   modelItems: ModelLinkQuoteRequestItem[];
   modelLinks: string[];
   projectDetails: string;
@@ -89,6 +104,93 @@ type ModelLinkQuoteRequestItem = {
   url: string;
   quantity: number;
 };
+
+type AgreementSignRequestInput = {
+  agreementId: string;
+  clientBusiness: string;
+  clientRepresentative: string;
+  customerEmail: string;
+  providerName: string;
+  serviceStartDate: string;
+  serviceEndDate: string;
+  yearlyAmount: number;
+  currency: string;
+  publicAgreementUrl: string;
+};
+
+type AgreementPaymentNotificationInput = {
+  agreementId: string;
+  clientBusiness: string;
+  customerEmail: string;
+  customerName: string;
+  acceptedSignerName: string;
+  paidAt: string;
+  amountTotal: number;
+  currency: string;
+  orderId: string;
+  stripeMode: "sandbox" | "live" | "";
+  adminAgreementUrl: string;
+  adminOrderUrl: string;
+  publicAgreementUrl: string;
+  stripeDashboardUrl: string;
+};
+
+type AgreementServiceItem = {
+  label: string;
+  included: boolean;
+  monthlyValue: number;
+  yearlyCost: number;
+};
+
+type AgreementRecordInput = {
+  id: string;
+  agreementTemplateId: string;
+  agreementVersion: string;
+  status: string;
+  clientBusiness: string;
+  clientRepresentative: string;
+  customerEmail: string;
+  providerName: string;
+  effectiveDate: string;
+  paymentDueDate: string;
+  serviceStartDate: string;
+  serviceEndDate: string;
+  yearlyAmount: number;
+  currency: string;
+  services: AgreementServiceItem[];
+  totalSelectedServices: number;
+  totalMonthlyValue: number;
+  privateToken: string;
+  publicAgreementUrl: string;
+  acceptedSignerName: string;
+  acceptedAt: string;
+  acceptedIp: string;
+  acceptedUserAgent: string;
+  acceptedBrowserMeta: Record<string, string>;
+  orderId: string;
+  checkoutSessionId: string;
+  checkoutUrl: string;
+  paidAt: string;
+  amountTotal: number;
+  stripeDashboardUrl: string;
+  renewalReminderStatus: string;
+  renewalReminderSentAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const AGREEMENT_ORDER_TYPE = "website_technical_services";
+const WEBSITE_SERVICES_AGREEMENT_TEMPLATE_ID = "dds-sweet-shack-website-technical-services";
+const CUSTOM_WEBSITE_SERVICES_AGREEMENT_TEMPLATE_ID = "custom-website-technical-services";
+const WEBSITE_SERVICES_AGREEMENT_VERSION = "website-technical-services-2026-01";
+const WEBSITE_SERVICES_CURRENT_AGREEMENT_ID = "agreement_dds_sweet_shack_current";
+const WEBSITE_SERVICES_AGREEMENT_SERVICES: AgreementServiceItem[] = [
+  { label: "Email Order Notifications", included: true, monthlyValue: 500, yearlyCost: 6000 },
+  { label: "Online Order Tracking System", included: false, monthlyValue: 0, yearlyCost: 0 },
+  { label: "Admin Login System", included: true, monthlyValue: 500, yearlyCost: 6000 },
+  { label: "Image Storage", included: true, monthlyValue: 500, yearlyCost: 6000 },
+  { label: "Live Product Catalog", included: true, monthlyValue: 500, yearlyCost: 6000 },
+];
 
 function getStripeClient(): Stripe {
   return new Stripe(STRIPE_SECRET_KEY.value(), {
@@ -134,8 +236,26 @@ function createQuoteRequestId(): string {
   return `quote_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function createAgreementId(): string {
+  return `agreement_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function formatDateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function addYears(date: Date, years: number): Date {
+  const next = new Date(date);
+  next.setFullYear(next.getFullYear() + years);
+  return next;
+}
+
+function createPrivateToken(): string {
+  return randomBytes(24).toString("base64url");
 }
 
 function appendUrlParams(sourceUrl: string, params: Record<string, string>): string {
@@ -199,6 +319,18 @@ function getModelLinkQuotePublicUrl(sourceUrl: string, requestId: string, custom
 function getModelLinkQuoteAdminUrl(sourceUrl: string, requestId: string): string {
   const url = new URL("/admin/link-orders/index.html", getOriginFromUrl(sourceUrl));
   url.searchParams.set("requestId", requestId);
+  return url.toString();
+}
+
+function getAgreementPublicUrl(token: string, sourceUrl = PUBLIC_SITE_ORIGIN): string {
+  const url = new URL("/agreement.html", getOriginFromUrl(sourceUrl));
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+function getAgreementAdminUrl(agreementId: string, sourceUrl = PUBLIC_SITE_ORIGIN): string {
+  const url = new URL("/admin/agreements/index.html", getOriginFromUrl(sourceUrl));
+  url.searchParams.set("agreementId", agreementId);
   return url.toString();
 }
 
@@ -537,7 +669,7 @@ async function sendOrderNotificationEmail(order: OrderNotificationInput): Promis
   return sendOrderEmail({
     order,
     to: ORDER_NOTIFICATION_EMAIL,
-    email: buildOrderNotificationEmail(order),
+    email: renderOrderNotificationEmail(order),
     logLabel: "order notification email",
   });
 }
@@ -551,7 +683,7 @@ async function sendCustomerOrderEmail(order: OrderNotificationInput): Promise<st
   return sendOrderEmail({
     order,
     to: customerEmail,
-    email: buildCustomerOrderEmail(order),
+    email: renderCustomerOrderEmail(order),
     logLabel: "customer order email",
   });
 }
@@ -630,7 +762,7 @@ async function sendModelLinkQuoteRequestEmail(request: ModelLinkQuoteRequestInpu
     return "not_configured";
   }
 
-  const email = buildModelLinkQuoteRequestEmail(request);
+  const email = renderModelLinkQuoteRequestEmail(request);
   const boundary = `quote-${request.requestId}-${Date.now().toString(36)}`;
   const headers = [
     `From: 3D Local Print <${ORDER_NOTIFICATION_EMAIL}>`,
@@ -732,7 +864,7 @@ async function sendCustomerModelLinkQuoteEmail(request: ModelLinkQuoteRequestInp
     return "not_configured";
   }
 
-  const email = buildCustomerModelLinkQuoteEmail(request);
+  const email = renderCustomerModelLinkQuoteEmail(request);
   const boundary = `quote-customer-${request.requestId}-${Date.now().toString(36)}`;
   const headers = [
     `From: 3D Local Print <${ORDER_NOTIFICATION_EMAIL}>`,
@@ -768,6 +900,163 @@ async function sendCustomerModelLinkQuoteEmail(request: ModelLinkQuoteRequestInp
     pass: smtpPass,
     from: ORDER_NOTIFICATION_EMAIL,
     to: request.customerEmail,
+    message,
+  });
+
+  return "sent";
+}
+
+function getAgreementSignRequestInput(agreementId: string, data: Record<string, unknown>): AgreementSignRequestInput {
+  return {
+    agreementId,
+    clientBusiness: String(data.clientBusiness || "").trim(),
+    clientRepresentative: String(data.clientRepresentative || "").trim(),
+    customerEmail: normalizeEmail(String(data.customerEmail || "").trim()),
+    providerName: String(data.providerName || "").trim() || "3D Local Print LLC",
+    serviceStartDate: String(data.serviceStartDate || "").trim(),
+    serviceEndDate: String(data.serviceEndDate || "").trim(),
+    yearlyAmount: Math.max(0, Math.round(Number(data.yearlyAmount) || Number(data.amountTotal) || 0)),
+    currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
+    publicAgreementUrl: String(data.publicAgreementUrl || "").trim(),
+  };
+}
+
+async function sendAgreementSignRequestEmail(agreement: AgreementSignRequestInput): Promise<string> {
+  const customerEmail = normalizeEmail(agreement.customerEmail);
+  if (!customerEmail) {
+    return "missing_customer_email";
+  }
+  if (!agreement.publicAgreementUrl) {
+    return "missing_public_agreement_url";
+  }
+
+  const smtpUser = getSmtpSecret(SMTP_USER, "SMTP_USER");
+  const smtpPass = getSmtpSecret(SMTP_PASS, "SMTP_PASS");
+  if (!smtpUser || !smtpPass) {
+    return "not_configured";
+  }
+
+  const email = renderAgreementSignRequestEmail(agreement);
+  const boundary = `agreement-${agreement.agreementId}-${Date.now().toString(36)}`;
+  const headers = [
+    `From: 3D Local Print <${ORDER_NOTIFICATION_EMAIL}>`,
+    `To: ${sanitizeEmailHeader(customerEmail)}`,
+    `Reply-To: ${ORDER_NOTIFICATION_EMAIL}`,
+    `Subject: ${email.subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ].filter(Boolean);
+  const message = [
+    ...headers,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.text,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.html,
+    "",
+    `--${boundary}--`,
+    "",
+  ].join("\r\n").replace(/\r?\n\./g, "\r\n..");
+
+  await sendSmtpMail({
+    host: "smtp.gmail.com",
+    port: 465,
+    user: smtpUser,
+    pass: smtpPass,
+    from: ORDER_NOTIFICATION_EMAIL,
+    to: customerEmail,
+    message,
+  });
+
+  return "sent";
+}
+
+function getAgreementPaymentNotificationInput(
+  agreementId: string,
+  agreementData: Record<string, unknown>,
+  orderId: string,
+  orderData: Record<string, unknown>,
+  paidOrder: {
+    amountTotal: number;
+    currency: string;
+    stripeDashboardUrl: string;
+    customerEmail?: string;
+    customerName?: string;
+    adminOrderUrl?: string;
+    publicOrderUrl?: string;
+    stripeMode?: "sandbox" | "live";
+  },
+  paidAt: string,
+): AgreementPaymentNotificationInput {
+  const stripeMode = String(orderData.stripeMode || paidOrder.stripeMode || "") as "sandbox" | "live" | "";
+  return {
+    agreementId,
+    clientBusiness: String(agreementData.clientBusiness || "").trim(),
+    customerEmail: String(agreementData.customerEmail || orderData.customerEmail || paidOrder.customerEmail || "").trim(),
+    customerName: String(orderData.customerName || paidOrder.customerName || agreementData.clientRepresentative || "").trim(),
+    acceptedSignerName: String(agreementData.acceptedSignerName || "").trim(),
+    paidAt,
+    amountTotal: Math.max(0, Math.round(Number(paidOrder.amountTotal) || Number(orderData.amountTotal) || Number(agreementData.amountTotal) || 0)),
+    currency: String(paidOrder.currency || orderData.currency || agreementData.currency || "usd").trim().toLowerCase() || "usd",
+    orderId,
+    stripeMode,
+    adminAgreementUrl: getAgreementAdminUrl(agreementId, PUBLIC_SITE_ORIGIN),
+    adminOrderUrl: String(orderData.adminOrderUrl || paidOrder.adminOrderUrl || getAdminOrderUrl(PUBLIC_SITE_ORIGIN, orderId)).trim(),
+    publicAgreementUrl: String(agreementData.publicAgreementUrl || "").trim(),
+    stripeDashboardUrl: String(paidOrder.stripeDashboardUrl || orderData.stripeDashboardUrl || agreementData.stripeDashboardUrl || "").trim(),
+  };
+}
+
+async function sendAgreementPaymentNotificationEmail(agreement: AgreementPaymentNotificationInput): Promise<string> {
+  const smtpUser = getSmtpSecret(SMTP_USER, "SMTP_USER");
+  const smtpPass = getSmtpSecret(SMTP_PASS, "SMTP_PASS");
+  if (!smtpUser || !smtpPass) {
+    return "not_configured";
+  }
+
+  const email = renderAgreementPaymentNotificationEmail(agreement);
+  const boundary = `agreement-payment-${agreement.agreementId}-${Date.now().toString(36)}`;
+  const headers = [
+    `From: 3D Local Print <${ORDER_NOTIFICATION_EMAIL}>`,
+    `To: ${ORDER_NOTIFICATION_EMAIL}`,
+    `Reply-To: ${ORDER_NOTIFICATION_EMAIL}`,
+    `Subject: ${email.subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ].filter(Boolean);
+  const message = [
+    ...headers,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.text,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.html,
+    "",
+    `--${boundary}--`,
+    "",
+  ].join("\r\n").replace(/\r?\n\./g, "\r\n..");
+
+  await sendSmtpMail({
+    host: "smtp.gmail.com",
+    port: 465,
+    user: smtpUser,
+    pass: smtpPass,
+    from: ORDER_NOTIFICATION_EMAIL,
+    to: ORDER_NOTIFICATION_EMAIL,
     message,
   });
 
@@ -993,8 +1282,19 @@ function resolveCheckoutLineItems(
   });
 }
 
-function setCorsHeaders(response: { set: (field: string, value: string) => void }): void {
-  response.set("Access-Control-Allow-Origin", "*");
+function isAllowedCorsOrigin(origin = ""): boolean {
+  return ALLOWED_CORS_ORIGINS.some((allowedOrigin) => {
+    return typeof allowedOrigin === "string"
+      ? allowedOrigin === origin
+      : allowedOrigin.test(origin);
+  });
+}
+
+function setCorsHeaders(response: { set: (field: string, value: string) => void }, origin = ""): void {
+  if (isAllowedCorsOrigin(origin)) {
+    response.set("Access-Control-Allow-Origin", origin);
+  }
+  response.set("Vary", "Origin");
   response.set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Idempotency-Key");
   response.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 }
@@ -1101,10 +1401,823 @@ function getCheckoutErrorResponse(error: unknown): { status: number; message: st
   };
 }
 
-export const submitModelLinkQuoteRequest = onRequest(
-  { region: "us-central1", cors: true, invoker: "public", secrets: [SMTP_USER, SMTP_PASS] },
+function buildDefaultWebsiteServicesAgreement(sourceUrl = PUBLIC_SITE_ORIGIN, agreementId = createAgreementId()): AgreementRecordInput {
+  const id = agreementId;
+  const token = createPrivateToken();
+  const createdAt = nowIso();
+  const today = new Date();
+  const serviceEnd = addYears(today, 1);
+  serviceEnd.setDate(serviceEnd.getDate() - 1);
+  const includedServices = WEBSITE_SERVICES_AGREEMENT_SERVICES.filter((service) => service.included);
+  return {
+    id,
+    agreementTemplateId: WEBSITE_SERVICES_AGREEMENT_TEMPLATE_ID,
+    agreementVersion: WEBSITE_SERVICES_AGREEMENT_VERSION,
+    status: "sent",
+    clientBusiness: "DD's Sweet Shack",
+    clientRepresentative: "",
+    customerEmail: "",
+    providerName: "",
+    effectiveDate: formatDateOnly(today),
+    paymentDueDate: formatDateOnly(today),
+    serviceStartDate: formatDateOnly(today),
+    serviceEndDate: formatDateOnly(serviceEnd),
+    yearlyAmount: includedServices.reduce((total, service) => total + service.yearlyCost, 0),
+    currency: "usd",
+    services: WEBSITE_SERVICES_AGREEMENT_SERVICES,
+    totalSelectedServices: includedServices.length,
+    totalMonthlyValue: includedServices.reduce((total, service) => total + service.monthlyValue, 0),
+    privateToken: token,
+    publicAgreementUrl: getAgreementPublicUrl(token, sourceUrl),
+    acceptedSignerName: "",
+    acceptedAt: "",
+    acceptedIp: "",
+    acceptedUserAgent: "",
+    acceptedBrowserMeta: {},
+    orderId: "",
+    checkoutSessionId: "",
+    checkoutUrl: "",
+    paidAt: "",
+    amountTotal: 0,
+    stripeDashboardUrl: "",
+    renewalReminderStatus: "not_sent",
+    renewalReminderSentAt: "",
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+function normalizeAgreementServiceItems(value: unknown): AgreementServiceItem[] {
+  const rawItems = Array.isArray(value) ? value : [];
+  return rawItems
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const raw = item as Record<string, unknown>;
+      const label = normalizeString(raw.label, 120);
+      if (!label) return null;
+      return {
+        label,
+        included: Boolean(raw.included),
+        monthlyValue: Math.max(0, Math.round(Number(raw.monthlyValue) || 0)),
+        yearlyCost: Math.max(0, Math.round(Number(raw.yearlyCost) || 0)),
+      };
+    })
+    .filter((item): item is AgreementServiceItem => Boolean(item));
+}
+
+function normalizeBrowserMeta(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.entries(value as Record<string, unknown>)
+    .slice(0, 30)
+    .reduce<Record<string, string>>((next, [key, item]) => {
+      const normalizedKey = normalizeString(key, 80);
+      if (!normalizedKey) return next;
+      next[normalizedKey] = normalizeString(String(item ?? ""), 500);
+      return next;
+    }, {});
+}
+
+function buildCustomWebsiteServicesAgreement(
+  input: Record<string, unknown>,
+  sourceUrl = PUBLIC_SITE_ORIGIN,
+  agreementId = createAgreementId(),
+): AgreementRecordInput {
+  const id = agreementId;
+  const token = createPrivateToken();
+  const createdAt = nowIso();
+  const today = new Date();
+  const serviceStartDate = normalizeString(input.serviceStartDate, 20) || formatDateOnly(today);
+  const fallbackEnd = addYears(new Date(`${serviceStartDate}T00:00:00`), 1);
+  fallbackEnd.setDate(fallbackEnd.getDate() - 1);
+  const services = normalizeAgreementServiceItems(input.services);
+  const includedServices = services.filter((service) => service.included);
+  const yearlyAmount = Math.max(
+    1,
+    Math.round(Number(input.yearlyAmount) || includedServices.reduce((total, service) => total + service.yearlyCost, 0))
+  );
+  const clientBusiness = normalizeString(input.clientBusiness, 160);
+  if (!clientBusiness) {
+    throw new Error("client_business_required");
+  }
+  const customerEmail = normalizeEmail(normalizeString(input.customerEmail, 254));
+  if (!customerEmail) {
+    throw new Error("customer_email_required");
+  }
+  if (!services.length) {
+    throw new Error("agreement_services_required");
+  }
+  return {
+    id,
+    agreementTemplateId: CUSTOM_WEBSITE_SERVICES_AGREEMENT_TEMPLATE_ID,
+    agreementVersion: WEBSITE_SERVICES_AGREEMENT_VERSION,
+    status: "sent",
+    clientBusiness,
+    clientRepresentative: normalizeString(input.clientRepresentative, 160),
+    customerEmail,
+    providerName: normalizeString(input.providerName, 160),
+    effectiveDate: normalizeString(input.effectiveDate, 20) || formatDateOnly(today),
+    paymentDueDate: normalizeString(input.paymentDueDate, 20) || formatDateOnly(today),
+    serviceStartDate,
+    serviceEndDate: normalizeString(input.serviceEndDate, 20) || formatDateOnly(fallbackEnd),
+    yearlyAmount,
+    currency: normalizeString(input.currency, 10).toLowerCase() || "usd",
+    services,
+    totalSelectedServices: includedServices.length,
+    totalMonthlyValue: includedServices.reduce((total, service) => total + service.monthlyValue, 0),
+    privateToken: token,
+    publicAgreementUrl: getAgreementPublicUrl(token, sourceUrl),
+    acceptedSignerName: "",
+    acceptedAt: "",
+    acceptedIp: "",
+    acceptedUserAgent: "",
+    acceptedBrowserMeta: {},
+    orderId: "",
+    checkoutSessionId: "",
+    checkoutUrl: "",
+    paidAt: "",
+    amountTotal: 0,
+    stripeDashboardUrl: "",
+    renewalReminderStatus: "not_sent",
+    renewalReminderSentAt: "",
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+function buildWebsiteServicesAgreementEditableFields(input: Record<string, unknown>) {
+  const today = new Date();
+  const serviceStartDate = normalizeString(input.serviceStartDate, 20) || formatDateOnly(today);
+  const fallbackEnd = addYears(new Date(`${serviceStartDate}T00:00:00`), 1);
+  fallbackEnd.setDate(fallbackEnd.getDate() - 1);
+  const services = normalizeAgreementServiceItems(input.services);
+  const includedServices = services.filter((service) => service.included);
+  const yearlyAmount = Math.max(
+    1,
+    Math.round(Number(input.yearlyAmount) || includedServices.reduce((total, service) => total + service.yearlyCost, 0))
+  );
+  const clientBusiness = normalizeString(input.clientBusiness, 160);
+  if (!clientBusiness) {
+    throw new Error("client_business_required");
+  }
+  const customerEmail = normalizeEmail(normalizeString(input.customerEmail, 254));
+  if (!customerEmail) {
+    throw new Error("customer_email_required");
+  }
+  if (!services.length) {
+    throw new Error("agreement_services_required");
+  }
+  return {
+    clientBusiness,
+    clientRepresentative: normalizeString(input.clientRepresentative, 160),
+    customerEmail,
+    providerName: normalizeString(input.providerName, 160),
+    effectiveDate: normalizeString(input.effectiveDate, 20) || formatDateOnly(today),
+    paymentDueDate: normalizeString(input.paymentDueDate, 20) || formatDateOnly(today),
+    serviceStartDate,
+    serviceEndDate: normalizeString(input.serviceEndDate, 20) || formatDateOnly(fallbackEnd),
+    yearlyAmount,
+    currency: normalizeString(input.currency, 10).toLowerCase() || "usd",
+    services,
+    totalSelectedServices: includedServices.length,
+    totalMonthlyValue: includedServices.reduce((total, service) => total + service.monthlyValue, 0),
+  };
+}
+
+function getPublicAgreementPayload(agreementId: string, data: Record<string, unknown>) {
+  return {
+    id: agreementId,
+    agreementTemplateId: String(data.agreementTemplateId || ""),
+    agreementVersion: String(data.agreementVersion || ""),
+    status: String(data.status || "draft"),
+    clientBusiness: String(data.clientBusiness || ""),
+    clientRepresentative: String(data.clientRepresentative || ""),
+    customerEmail: String(data.customerEmail || ""),
+    providerName: String(data.providerName || ""),
+    effectiveDate: String(data.effectiveDate || ""),
+    paymentDueDate: String(data.paymentDueDate || ""),
+    serviceStartDate: String(data.serviceStartDate || ""),
+    serviceEndDate: String(data.serviceEndDate || ""),
+    yearlyAmount: Math.max(0, Math.round(Number(data.yearlyAmount) || 0)),
+    currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
+    services: Array.isArray(data.services) ? data.services : [],
+    totalSelectedServices: Math.max(0, Math.round(Number(data.totalSelectedServices) || 0)),
+    totalMonthlyValue: Math.max(0, Math.round(Number(data.totalMonthlyValue) || 0)),
+    acceptedSignerName: String(data.acceptedSignerName || ""),
+    acceptedAt: String(data.acceptedAt || ""),
+    paidAt: String(data.paidAt || ""),
+    amountTotal: Math.max(0, Math.round(Number(data.amountTotal) || 0)),
+    orderId: String(data.orderId || ""),
+    publicAgreementUrl: String(data.publicAgreementUrl || ""),
+  };
+}
+
+async function findAgreementByToken(token = "") {
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) return null;
+  const snapshot = await getAdminDb()
+    .collection("agreements")
+    .where("privateToken", "==", normalizedToken)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return {
+    id: doc.id,
+    ref: doc.ref,
+    data: doc.data() || {},
+  };
+}
+
+function getClientIp(request: { header: (name: string) => string | undefined }): string {
+  const forwarded = String(request.header("x-forwarded-for") || "").split(",")[0]?.trim();
+  return forwarded || String(request.header("fastly-client-ip") || request.header("x-real-ip") || "").trim();
+}
+
+async function markLinkedAgreementPaid(
+  orderId: string,
+  orderData: Record<string, unknown>,
+  paidOrder: {
+    amountTotal: number;
+    currency: string;
+    stripeDashboardUrl: string;
+    customerEmail?: string;
+    customerName?: string;
+    adminOrderUrl?: string;
+    publicOrderUrl?: string;
+    stripeMode?: "sandbox" | "live";
+  },
+  paidAt: string,
+  checkoutSessionId: string,
+): Promise<void> {
+  const linkedAgreementId = String(orderData.agreementId || "").trim();
+  const orderType = String(orderData.orderType || "").trim();
+  if (!linkedAgreementId || orderType !== AGREEMENT_ORDER_TYPE) {
+    return;
+  }
+
+  const agreementRef = getAdminDb().collection("agreements").doc(linkedAgreementId);
+  const agreementSnapshot = await agreementRef.get();
+  const agreementData = agreementSnapshot.data() || {};
+  const paidAgreementFields = {
+    status: "paid_active",
+    orderId,
+    checkoutSessionId,
+    paidAt,
+    amountTotal: paidOrder.amountTotal,
+    currency: paidOrder.currency,
+    stripeDashboardUrl: paidOrder.stripeDashboardUrl,
+    updatedAt: paidAt,
+  };
+
+  await agreementRef.set(paidAgreementFields, { merge: true });
+
+  if (String(agreementData.agreementPaymentNotificationStatus || "") === "sent") {
+    return;
+  }
+
+  try {
+    const agreementEmail = getAgreementPaymentNotificationInput(
+      linkedAgreementId,
+      { ...agreementData, ...paidAgreementFields },
+      orderId,
+      orderData,
+      paidOrder,
+      paidAt,
+    );
+    const agreementPaymentNotificationStatus = await sendAgreementPaymentNotificationEmail(agreementEmail);
+    await agreementRef.set({
+      agreementPaymentNotificationEmail: ORDER_NOTIFICATION_EMAIL,
+      agreementPaymentNotificationStatus,
+      agreementPaymentNotificationUpdatedAt: nowIso(),
+    }, { merge: true });
+  } catch (error) {
+    logger.error("agreement payment notification email failed", { agreementId: linkedAgreementId, orderId, error });
+    await agreementRef.set({
+      agreementPaymentNotificationEmail: ORDER_NOTIFICATION_EMAIL,
+      agreementPaymentNotificationStatus: error instanceof Error ? `failed: ${error.message.slice(0, 160)}` : "failed",
+      agreementPaymentNotificationUpdatedAt: nowIso(),
+    }, { merge: true });
+  }
+}
+
+export const createDefaultWebsiteServicesAgreement = onRequest(
+  { region: "us-central1" },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const sourceUrl = normalizeString(request.body?.sourceUrl, 2000) || PUBLIC_SITE_ORIGIN;
+      const currentAgreementRef = getAdminDb().collection("agreements").doc(WEBSITE_SERVICES_CURRENT_AGREEMENT_ID);
+      const currentAgreementSnapshot = await currentAgreementRef.get();
+      if (currentAgreementSnapshot.exists) {
+        const data = currentAgreementSnapshot.data() || {};
+        const status = String(data.status || "");
+        if (["draft", "sent", "accepted", "checkout_created"].includes(status)) {
+          if (!String(data.publicAgreementUrl || "").trim() && String(data.privateToken || "").trim()) {
+            await currentAgreementRef.set({
+              publicAgreementUrl: getAgreementPublicUrl(String(data.privateToken || ""), sourceUrl),
+              updatedAt: nowIso(),
+              updatedByAdminEmail: requestedByAdminEmail,
+            }, { merge: true });
+          }
+          const updatedSnapshot = await currentAgreementRef.get();
+          const updatedData = updatedSnapshot.data() || data;
+          response.status(200).json({
+            ok: true,
+            agreement: getPublicAgreementPayload(currentAgreementSnapshot.id, updatedData),
+            publicAgreementUrl: String(updatedData.publicAgreementUrl || ""),
+            reused: true,
+          });
+          return;
+        }
+      }
+
+      const agreementId = currentAgreementSnapshot.exists
+        ? createAgreementId()
+        : WEBSITE_SERVICES_CURRENT_AGREEMENT_ID;
+      const agreement = buildDefaultWebsiteServicesAgreement(sourceUrl, agreementId);
+      await getAdminDb().collection("agreements").doc(agreement.id).set({
+        ...agreement,
+        createdByAdminEmail: requestedByAdminEmail,
+        updatedByAdminEmail: requestedByAdminEmail,
+      });
+      response.status(200).json({
+        ok: true,
+        agreement: getPublicAgreementPayload(agreement.id, agreement),
+        publicAgreementUrl: agreement.publicAgreementUrl,
+        reused: false,
+      });
+    } catch (error) {
+      logger.error("createDefaultWebsiteServicesAgreement failed", error);
+      const message = error instanceof Error ? error.message : "";
+      const code = error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code || "")
+        : "";
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+        return;
+      }
+      if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+        return;
+      }
+      response.status(500).json({
+        error: "Failed to create agreement.",
+        details: message ? message.slice(0, 500) : "No error message was provided by the server.",
+        code,
+      });
+    }
+  },
+);
+
+export const createWebsiteServicesAgreement = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const sourceUrl = normalizeString(request.body?.sourceUrl, 2000) || PUBLIC_SITE_ORIGIN;
+      const agreement = buildCustomWebsiteServicesAgreement(request.body || {}, sourceUrl);
+      await getAdminDb().collection("agreements").doc(agreement.id).set({
+        ...agreement,
+        createdByAdminEmail: requestedByAdminEmail,
+        updatedByAdminEmail: requestedByAdminEmail,
+      });
+      response.status(200).json({
+        ok: true,
+        agreement: getPublicAgreementPayload(agreement.id, agreement),
+        publicAgreementUrl: agreement.publicAgreementUrl,
+        reused: false,
+      });
+    } catch (error) {
+      logger.error("createWebsiteServicesAgreement failed", error);
+      const message = error instanceof Error ? error.message : "";
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+        return;
+      }
+      if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+        return;
+      }
+      if (message === "client_business_required") {
+        response.status(400).json({ error: "Client business is required." });
+        return;
+      }
+      if (message === "customer_email_required") {
+        response.status(400).json({ error: "Customer email is required." });
+        return;
+      }
+      if (message === "agreement_services_required") {
+        response.status(400).json({ error: "Add at least one service to the agreement." });
+        return;
+      }
+      response.status(500).json({
+        error: "Failed to create agreement.",
+        details: message ? message.slice(0, 500) : "No error message was provided by the server.",
+      });
+    }
+  },
+);
+
+export const updateWebsiteServicesAgreement = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const agreementId = normalizeString(request.body?.agreementId, 200);
+      if (!agreementId) {
+        response.status(400).json({ error: "Agreement ID is required." });
+        return;
+      }
+      const agreementRef = getAdminDb().collection("agreements").doc(agreementId);
+      const agreementSnapshot = await agreementRef.get();
+      if (!agreementSnapshot.exists) {
+        response.status(404).json({ error: "Agreement not found." });
+        return;
+      }
+
+      const editableFields = buildWebsiteServicesAgreementEditableFields(request.body || {});
+      await agreementRef.set({
+        ...editableFields,
+        updatedAt: nowIso(),
+        updatedByAdminEmail: requestedByAdminEmail,
+      }, { merge: true });
+      const updatedSnapshot = await agreementRef.get();
+      const updatedData = updatedSnapshot.data() || {};
+      response.status(200).json({
+        ok: true,
+        agreement: getPublicAgreementPayload(updatedSnapshot.id, updatedData),
+        publicAgreementUrl: String(updatedData.publicAgreementUrl || ""),
+      });
+    } catch (error) {
+      logger.error("updateWebsiteServicesAgreement failed", error);
+      const message = error instanceof Error ? error.message : "";
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+        return;
+      }
+      if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+        return;
+      }
+      if (message === "client_business_required") {
+        response.status(400).json({ error: "Client business is required." });
+        return;
+      }
+      if (message === "customer_email_required") {
+        response.status(400).json({ error: "Customer email is required." });
+        return;
+      }
+      if (message === "agreement_services_required") {
+        response.status(400).json({ error: "Add at least one service to the agreement." });
+        return;
+      }
+      response.status(500).json({
+        error: "Failed to update agreement.",
+        details: message ? message.slice(0, 500) : "No error message was provided by the server.",
+      });
+    }
+  },
+);
+
+export const sendAgreementEmail = onRequest(
+  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const agreementId = normalizeString(request.body?.agreementId, 200);
+      logger.info("send agreement email request received", {
+        agreementId,
+        hasAuthorization: Boolean(request.header("authorization")),
+      });
+      const requestedByAdminEmail = await requireAdmin(request);
+      if (!agreementId) {
+        response.status(400).json({ error: "Agreement ID is required." });
+        return;
+      }
+
+      const agreementRef = getAdminDb().collection("agreements").doc(agreementId);
+      const agreementSnapshot = await agreementRef.get();
+      if (!agreementSnapshot.exists) {
+        response.status(404).json({ error: "Agreement not found." });
+        return;
+      }
+
+      const requestedCustomerEmail = normalizeEmail(normalizeString(request.body?.customerEmail, 254));
+      const agreementData = {
+        ...(agreementSnapshot.data() || {}),
+        ...(requestedCustomerEmail ? { customerEmail: requestedCustomerEmail } : {}),
+      };
+      const agreement = getAgreementSignRequestInput(agreementSnapshot.id, agreementData);
+      const emailStatus = await sendAgreementSignRequestEmail(agreement);
+      logger.info("agreement email attempted", {
+        agreementId,
+        requestedByAdminEmail,
+        customerEmail: agreement.customerEmail,
+        emailStatus,
+      });
+
+      if (emailStatus === "missing_customer_email") {
+        response.status(400).json({ error: "Agreement does not have a customer email." });
+        return;
+      }
+      if (emailStatus === "missing_public_agreement_url") {
+        response.status(400).json({ error: "Agreement does not have a public agreement link." });
+        return;
+      }
+      if (emailStatus === "not_configured") {
+        response.status(400).json({ error: "Gmail SMTP is not configured." });
+        return;
+      }
+
+      await agreementRef.set({
+        customerEmail: agreement.customerEmail,
+        agreementEmail: agreement.customerEmail,
+        agreementEmailStatus: emailStatus,
+        agreementEmailUpdatedAt: nowIso(),
+        agreementEmailManualSentAt: nowIso(),
+        agreementEmailSentByAdminEmail: requestedByAdminEmail,
+        updatedAt: nowIso(),
+        updatedByAdminEmail: requestedByAdminEmail,
+      }, { merge: true });
+
+      response.status(200).json({
+        ok: true,
+        agreementEmailStatus: emailStatus,
+        customerEmail: agreement.customerEmail,
+      });
+    } catch (error) {
+      logger.error("send agreement email failed", error);
+      const message = error instanceof Error ? error.message : "";
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+        return;
+      }
+      if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+        return;
+      }
+      if (isSmtpAuthError(message)) {
+        response.status(400).json({
+          error: "Gmail SMTP rejected SMTP_USER/SMTP_PASS. Use a Google App Password for SMTP_PASS and restart the emulator after updating firebase-hosting/.secret.local.",
+        });
+        return;
+      }
+      response.status(500).json({ error: "Failed to send agreement email." });
+    }
+  },
+);
+
+export const getPublicAgreement = onRequest(
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "GET") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const found = await findAgreementByToken(String(request.query.token || ""));
+      if (!found || String(found.data.status || "") === "canceled") {
+        response.status(404).json({ error: "Agreement not found." });
+        return;
+      }
+
+      response.status(200).json({
+        agreement: getPublicAgreementPayload(found.id, found.data),
+      });
+    } catch (error) {
+      logger.error("getPublicAgreement failed", error);
+      response.status(500).json({ error: "Failed to load agreement." });
+    }
+  },
+);
+
+export const acceptAgreementAndCreateCheckoutSession = onRequest(
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public", secrets: [STRIPE_SECRET_KEY] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const body = request.body && typeof request.body === "object"
+        ? request.body as Record<string, unknown>
+        : {};
+      const token = normalizeString(body.token, 256);
+      const signerName = normalizeString(body.signerName, 160);
+      const accepted = Boolean(body.accepted);
+      const successUrl = normalizeString(body.successUrl, 2000);
+      const cancelUrl = normalizeString(body.cancelUrl, 2000);
+      const customerEmail = normalizeEmail(normalizeString(body.customerEmail, 254));
+      const acceptedBrowserMeta = normalizeBrowserMeta(body.browserMeta);
+
+      if (!token || !signerName || !accepted || !successUrl || !cancelUrl) {
+        response.status(400).json({ error: "Agreement acceptance is incomplete." });
+        return;
+      }
+
+      const found = await findAgreementByToken(token);
+      if (!found || String(found.data.status || "") === "canceled") {
+        response.status(404).json({ error: "Agreement not found." });
+        return;
+      }
+      if (String(found.data.status || "") === "paid_active") {
+        response.status(400).json({ error: "This agreement has already been paid." });
+        return;
+      }
+
+      const stripeMode = getStripeMode();
+      if (isLocalRequest(request) && stripeMode !== "sandbox") {
+        response.status(400).json({
+          error: "Local checkout requires a Stripe sandbox secret key.",
+        });
+        return;
+      }
+
+      const now = nowIso();
+      const orderId = createOrderId(stripeMode);
+      const agreement = getPublicAgreementPayload(found.id, found.data);
+      const unitAmount = Math.max(1, Math.round(Number(agreement.yearlyAmount) || 24000));
+      const currency = String(agreement.currency || "usd").trim().toLowerCase() || "usd";
+      const publicOrderUrl = getPublicOrderUrl(successUrl, orderId, customerEmail);
+      const adminOrderUrl = getAdminOrderUrl(successUrl, orderId);
+      const lineItems: CheckoutLineItem[] = [{
+        productId: AGREEMENT_ORDER_TYPE,
+        variationId: agreement.agreementVersion || WEBSITE_SERVICES_AGREEMENT_VERSION,
+        quantity: 1,
+        title: `${agreement.clientBusiness || "Client"} yearly website technical services`,
+        unitAmount,
+        currency,
+      }];
+
+      const stripe = getStripeClient();
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        success_url: appendUrlParams(successUrl, {
+          order_id: orderId,
+          session_id: "{CHECKOUT_SESSION_ID}",
+        }),
+        cancel_url: appendUrlParams(cancelUrl, { agreement_id: found.id }),
+        client_reference_id: orderId,
+        customer_email: customerEmail || undefined,
+        line_items: [{
+          price_data: {
+            currency,
+            unit_amount: unitAmount,
+            product_data: {
+              name: lineItems[0].title,
+              metadata: {
+                productId: AGREEMENT_ORDER_TYPE,
+                agreementId: found.id,
+                agreementVersion: agreement.agreementVersion,
+              },
+            },
+          },
+          quantity: 1,
+        }],
+        automatic_tax: { enabled: false },
+        allow_promotion_codes: false,
+        billing_address_collection: "required",
+        metadata: {
+          orderId,
+          orderType: AGREEMENT_ORDER_TYPE,
+          agreementId: found.id,
+        },
+        payment_intent_data: {
+          metadata: {
+            orderId,
+            orderType: AGREEMENT_ORDER_TYPE,
+            agreementId: found.id,
+          },
+        },
+      });
+
+      await getAdminDb().collection("orders").doc(orderId).set({
+        id: orderId,
+        orderType: AGREEMENT_ORDER_TYPE,
+        agreementId: found.id,
+        agreementPublicUrl: String(found.data.publicAgreementUrl || ""),
+        status: "checkout_created",
+        lineItems,
+        currency,
+        amountSubtotal: unitAmount,
+        amountTax: 0,
+        amountShipping: 0,
+        amountTotal: unitAmount,
+        customerEmail,
+        customerName: signerName,
+        checkoutSessionId: session.id,
+        checkoutUrl: session.url || "",
+        paymentIntentId: "",
+        latestStripeEventId: "",
+        stripeMode,
+        notificationEmail: ORDER_NOTIFICATION_EMAIL,
+        notificationEmailStatus: "pending_payment",
+        publicOrderUrl,
+        createdAt: now,
+        updatedAt: now,
+        paidAt: "",
+        stripeDashboardUrl: getStripePaymentSearchUrl(session.id, stripeMode),
+        adminOrderUrl,
+      });
+
+      await found.ref.set({
+        status: "checkout_created",
+        acceptedSignerName: signerName,
+        acceptedAt: String(found.data.acceptedAt || "") || now,
+        acceptedIp: getClientIp(request),
+        acceptedUserAgent: normalizeString(request.header("user-agent") || "", 500),
+        acceptedBrowserMeta,
+        orderId,
+        checkoutSessionId: session.id,
+        checkoutUrl: session.url || "",
+        amountTotal: unitAmount,
+        currency,
+        updatedAt: now,
+      }, { merge: true });
+
+      response.status(200).json({
+        ok: true,
+        agreementId: found.id,
+        orderId,
+        sessionId: session.id,
+        stripeMode,
+        url: session.url,
+      });
+    } catch (error) {
+      logger.error("acceptAgreementAndCreateCheckoutSession failed", error);
+      const errorResponse = getCheckoutErrorResponse(error);
+      response.status(errorResponse.status).json({ error: errorResponse.message });
+    }
+  },
+);
+
+export const submitModelLinkQuoteRequest = onRequest(
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public", secrets: [SMTP_USER, SMTP_PASS] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1131,6 +2244,7 @@ export const submitModelLinkQuoteRequest = onRequest(
         customerName: normalizeString(body.customerName, 160),
         customerEmail,
         customerPhone: normalizeString(body.customerPhone, 80),
+        marketingOptIn: Boolean(body.marketingOptIn),
         modelItems,
         modelLinks: modelItems.map((item) => item.url),
         projectDetails: normalizeString(body.projectDetails, 5000),
@@ -1202,9 +2316,9 @@ export const submitModelLinkQuoteRequest = onRequest(
 );
 
 export const getPublicModelLinkQuoteRequest = onRequest(
-  { region: "us-central1", cors: true, invoker: "public" },
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public" },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1243,6 +2357,7 @@ export const getPublicModelLinkQuoteRequest = onRequest(
           customerName: String(data.customerName || ""),
           customerEmail: String(data.customerEmail || ""),
           customerPhone: String(data.customerPhone || ""),
+          marketingOptIn: Boolean(data.marketingOptIn),
           modelItems: normalizeModelLinkQuoteItems(data.modelItems, data.modelLinks, data.quantity),
           modelLinks: Array.isArray(data.modelLinks) ? data.modelLinks.map(String) : [],
           projectDetails: String(data.projectDetails || ""),
@@ -1262,7 +2377,7 @@ export const getPublicModelLinkQuoteRequest = onRequest(
 export const createCheckoutSession = onRequest(
   { region: "us-central1", secrets: [STRIPE_SECRET_KEY] },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1382,7 +2497,7 @@ export const createCheckoutSession = onRequest(
 export const getPublicOrder = onRequest(
   { region: "us-central1" },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1443,7 +2558,7 @@ export const getPublicOrder = onRequest(
 export const getPublicOrderReceiptLink = onRequest(
   { region: "us-central1", secrets: [STRIPE_SECRET_KEY] },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1492,6 +2607,7 @@ export const getPublicOrderReceiptLink = onRequest(
         customerEmail,
         String(data.publicOrderUrl || ""),
       );
+      let receiptOrderData: Record<string, unknown> = data;
       const hasStoredPaymentDetails = Boolean(String(data.paymentIntentId || "").trim())
         && String(data.status || "") === "paid"
         && Boolean(String(data.paidAt || "").trim());
@@ -1542,21 +2658,28 @@ export const getPublicOrderReceiptLink = onRequest(
           customerEmail,
           getPublicOrderUrl(String(session.success_url || ""), orderId, customerEmail),
         );
-
-        await orderSnapshot.ref.set({
+        const lineItems = session.line_items?.data.map((item) => {
+          const priceMetadata = typeof item.price === "string" ? {} : item.price?.metadata || {};
+          return {
+            productId: String(priceMetadata.productId || ""),
+            variationId: String(priceMetadata.variationId || ""),
+            quantity: item.quantity || 0,
+            title: item.description || "Product",
+            unitAmount: item.amount_subtotal && item.quantity ? Math.round(item.amount_subtotal / item.quantity) : 0,
+            currency: String(session.currency || "usd").toLowerCase(),
+          };
+        }) || [];
+        const paidAt = isPaid ? String(data.paidAt || nowIso()) : String(data.paidAt || "");
+        const stripeDashboardUrl = paymentIntentId
+          ? getStripePaymentIntentUrl(paymentIntentId, stripeMode)
+          : getStripePaymentSearchUrl(session.id, stripeMode);
+        receiptOrderData = {
+          ...data,
           id: orderId,
+          agreementId: String(data.agreementId || session.metadata?.agreementId || "").trim(),
+          orderType: String(data.orderType || session.metadata?.orderType || "").trim(),
           status: isPaid ? "paid" : String(data.status || "checkout_created"),
-          lineItems: session.line_items?.data.map((item) => {
-            const priceMetadata = typeof item.price === "string" ? {} : item.price?.metadata || {};
-            return {
-              productId: String(priceMetadata.productId || ""),
-              variationId: String(priceMetadata.variationId || ""),
-              quantity: item.quantity || 0,
-              title: item.description || "Product",
-              unitAmount: item.amount_subtotal && item.quantity ? Math.round(item.amount_subtotal / item.quantity) : 0,
-              currency: String(session.currency || "usd").toLowerCase(),
-            };
-          }) || [],
+          lineItems,
           currency: String(session.currency || data.currency || "").toLowerCase(),
           amountSubtotal: Number(session.amount_subtotal) || Number(data.amountSubtotal) || 0,
           amountTax: Number(totalDetails?.amount_tax) || Number(data.amountTax) || 0,
@@ -1569,13 +2692,26 @@ export const getPublicOrderReceiptLink = onRequest(
           stripeCustomerId,
           stripeMode,
           publicOrderUrl,
-          paidAt: isPaid ? String(data.paidAt || nowIso()) : String(data.paidAt || ""),
+          paidAt,
           updatedAt: nowIso(),
-          stripeDashboardUrl: paymentIntentId
-            ? getStripePaymentIntentUrl(paymentIntentId, stripeMode)
-            : getStripePaymentSearchUrl(session.id, stripeMode),
+          stripeDashboardUrl,
           adminOrderUrl: String(data.adminOrderUrl || getAdminOrderUrl(String(session.success_url || ""), orderId)),
-        }, { merge: true });
+        };
+
+        await orderSnapshot.ref.set(receiptOrderData, { merge: true });
+        if (isPaid) {
+          await markLinkedAgreementPaid(
+            orderId,
+            receiptOrderData,
+            {
+              amountTotal: Number(receiptOrderData.amountTotal) || 0,
+              currency: String(receiptOrderData.currency || "usd"),
+              stripeDashboardUrl,
+            },
+            paidAt || nowIso(),
+            session.id,
+          );
+        }
         logger.info("public order receipt link backfill saved", {
           orderId,
           sessionId,
@@ -1583,6 +2719,20 @@ export const getPublicOrderReceiptLink = onRequest(
           paymentIntentId,
           status: isPaid ? "paid" : String(data.status || "checkout_created"),
         });
+      }
+
+      if (String(receiptOrderData.status || "") === "paid") {
+        await markLinkedAgreementPaid(
+          orderId,
+          receiptOrderData,
+          {
+            amountTotal: Number(receiptOrderData.amountTotal) || 0,
+            currency: String(receiptOrderData.currency || "usd"),
+            stripeDashboardUrl: String(receiptOrderData.stripeDashboardUrl || ""),
+          },
+          String(receiptOrderData.paidAt || nowIso()),
+          String(receiptOrderData.checkoutSessionId || sessionId),
+        );
       }
 
       if (!customerEmail) {
@@ -1593,6 +2743,19 @@ export const getPublicOrderReceiptLink = onRequest(
       response.status(200).json({
         customerEmail,
         publicOrderUrl,
+        order: {
+          id: orderId,
+          status: String(receiptOrderData.status || ""),
+          lineItems: Array.isArray(receiptOrderData.lineItems) ? receiptOrderData.lineItems : [],
+          currency: String(receiptOrderData.currency || ""),
+          amountSubtotal: Number(receiptOrderData.amountSubtotal) || 0,
+          amountTax: Number(receiptOrderData.amountTax) || 0,
+          amountShipping: Number(receiptOrderData.amountShipping) || 0,
+          amountTotal: Number(receiptOrderData.amountTotal) || 0,
+          customerEmail,
+          customerName: String(receiptOrderData.customerName || ""),
+          paidAt: String(receiptOrderData.paidAt || ""),
+        },
       });
     } catch (error) {
       logger.error("getPublicOrderReceiptLink failed", error);
@@ -1671,7 +2834,7 @@ export const stripeWebhook = onRequest(
 export const resendOrderNotification = onRequest(
   { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1749,7 +2912,7 @@ export const resendOrderNotification = onRequest(
 export const resendCustomerOrderEmail = onRequest(
   { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1834,7 +2997,7 @@ export const resendCustomerOrderEmail = onRequest(
 export const deleteTestOrder = onRequest(
   { region: "us-central1" },
   async (request, response) => {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request.header("origin") || "");
 
     if (request.method === "OPTIONS") {
       response.status(204).send("");
@@ -1892,6 +3055,140 @@ export const deleteTestOrder = onRequest(
         return;
       }
       response.status(500).json({ error: "Failed to delete test order." });
+    }
+  },
+);
+
+export const cancelOrder = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const orderId = String(request.body?.orderId || "").trim();
+      logger.info("cancel order request received", {
+        orderId,
+        hasAuthorization: Boolean(request.header("authorization")),
+      });
+      const requestedByAdminEmail = await requireAdmin(request);
+      if (!orderId) {
+        response.status(400).json({ error: "Missing orderId" });
+        return;
+      }
+
+      const orderRef = getAdminDb().collection("orders").doc(orderId);
+      const orderSnapshot = await orderRef.get();
+      if (!orderSnapshot.exists) {
+        logger.warn("cancel order order not found", { orderId, requestedByAdminEmail });
+        response.status(404).json({ error: "Order not found" });
+        return;
+      }
+
+      const data = orderSnapshot.data() || {};
+      if (String(data.status || "") === "canceled") {
+        response.status(200).json({ ok: true, status: "canceled" });
+        return;
+      }
+
+      const updatedAt = nowIso();
+      await orderRef.set({
+        status: "canceled",
+        canceledAt: updatedAt,
+        canceledByAdminEmail: requestedByAdminEmail,
+        updatedAt,
+      }, { merge: true });
+
+      logger.info("cancel order completed", { orderId, requestedByAdminEmail });
+      response.status(200).json({ ok: true, status: "canceled", canceledAt: updatedAt });
+    } catch (error) {
+      logger.error("cancel order failed", error);
+      const message = error instanceof Error ? error.message : "";
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+        return;
+      }
+      if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+        return;
+      }
+      response.status(500).json({ error: "Failed to cancel order." });
+    }
+  },
+);
+
+export const closeOrder = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const orderId = String(request.body?.orderId || "").trim();
+      logger.info("close order request received", {
+        orderId,
+        hasAuthorization: Boolean(request.header("authorization")),
+      });
+      const requestedByAdminEmail = await requireAdmin(request);
+      if (!orderId) {
+        response.status(400).json({ error: "Missing orderId" });
+        return;
+      }
+
+      const orderRef = getAdminDb().collection("orders").doc(orderId);
+      const orderSnapshot = await orderRef.get();
+      if (!orderSnapshot.exists) {
+        logger.warn("close order order not found", { orderId, requestedByAdminEmail });
+        response.status(404).json({ error: "Order not found" });
+        return;
+      }
+
+      const data = orderSnapshot.data() || {};
+      if (String(data.status || "") === "closed") {
+        response.status(200).json({ ok: true, status: "closed" });
+        return;
+      }
+
+      const updatedAt = nowIso();
+      await orderRef.set({
+        status: "closed",
+        closedAt: updatedAt,
+        closedByAdminEmail: requestedByAdminEmail,
+        updatedAt,
+      }, { merge: true });
+
+      logger.info("close order completed", { orderId, requestedByAdminEmail });
+      response.status(200).json({ ok: true, status: "closed", closedAt: updatedAt });
+    } catch (error) {
+      logger.error("close order failed", error);
+      const message = error instanceof Error ? error.message : "";
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+        return;
+      }
+      if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+        return;
+      }
+      response.status(500).json({ error: "Failed to close order." });
     }
   },
 );
@@ -2003,6 +3300,18 @@ async function savePaidCheckoutSession(
   })
 
   await orderRef.set(saveOrder, { merge: true });
+
+  await markLinkedAgreementPaid(
+    orderId,
+    {
+      ...existingOrderData,
+      agreementId: String(existingOrderData.agreementId || session.metadata?.agreementId || "").trim(),
+      orderType: String(existingOrderData.orderType || session.metadata?.orderType || "").trim(),
+    },
+    paidOrder,
+    updatedAt,
+    session.id,
+  );
 
   if (previousNotificationStatus !== "sent") {
     try {

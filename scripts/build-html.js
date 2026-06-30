@@ -13,6 +13,10 @@ import {
   homePrintModelLinkOrderPage,
   homeCartPage,
   homeReceiptPage,
+  homeAgreementPage,
+  homePrivacyPage,
+  homeTermsPage,
+  homeSalesPolicyPage,
   homeQr1Page,
   homeNotFoundPage,
   petLandingPage,
@@ -36,7 +40,9 @@ const adminFilamentDir = resolve(adminDir, "filament");
 const adminAccountingDir = resolve(adminDir, "accounting");
 const adminProductsDir = resolve(adminDir, "products");
 const adminOrdersDir = resolve(adminDir, "orders");
+const adminAgreementsDir = resolve(adminDir, "agreements");
 const adminLinkOrdersDir = resolve(adminDir, "link-orders");
+const adminAlertTemplatesDir = resolve(adminDir, "alert-templates");
 const adminSecurityDir = resolve(adminDir, "security");
 
 const homePages = [
@@ -83,6 +89,22 @@ const homePages = [
   {
     path: resolve(homeDir, "receipt.html"),
     render: () => homeReceiptPage(),
+  },
+  {
+    path: resolve(homeDir, "agreement.html"),
+    render: () => homeAgreementPage(),
+  },
+  {
+    path: resolve(homeDir, "privacy.html"),
+    render: () => homePrivacyPage(),
+  },
+  {
+    path: resolve(homeDir, "terms.html"),
+    render: () => homeTermsPage(),
+  },
+  {
+    path: resolve(homeDir, "sales-policy.html"),
+    render: () => homeSalesPolicyPage(),
   },
   {
     path: resolve(qr1Dir, "index.html"),
@@ -193,12 +215,34 @@ const pages = [
       }),
   },
   {
+    path: resolve(adminAgreementsDir, "index.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Agreements",
+        appId: "agreementsApp",
+        appScript: "./agreements.tag.ts",
+        stylePath: "../shared/styles.css",
+        versionScriptPath: "../shared/version.ts",
+      }),
+  },
+  {
     path: resolve(adminLinkOrdersDir, "index.html"),
     render: () =>
       filamentStandalonePage({
         pageTitle: "Link Orders",
         appId: "linkOrdersApp",
         appScript: "./link-orders.tag.ts",
+        stylePath: "../shared/styles.css",
+        versionScriptPath: "../shared/version.ts",
+      }),
+  },
+  {
+    path: resolve(adminAlertTemplatesDir, "index.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Alert Templates",
+        appId: "alertTemplatesApp",
+        appScript: "./alert-templates.tag.ts",
         stylePath: "../shared/styles.css",
         versionScriptPath: "../shared/version.ts",
       }),

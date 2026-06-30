@@ -2,6 +2,7 @@ export type OrderStatus =
   | "checkout_created"
   | "paid"
   | "payment_failed"
+  | "closed"
   | "canceled"
   | "unknown";
 
@@ -17,6 +18,9 @@ export type OrderLineItem = {
 
 export type OrderRecord = {
   id: string;
+  orderType?: string;
+  agreementId?: string;
+  agreementPublicUrl?: string;
   status: OrderStatus;
   lineItems: OrderLineItem[];
   currency: string;

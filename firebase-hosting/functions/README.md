@@ -36,10 +36,13 @@ firebase deploy --only functions,hosting
 
 ## Endpoints (via Hosting rewrites)
 
-- `POST /api/create-checkout-session`
-- `POST /api/stripe/webhook`
-- `POST /api/admin/orders/resend-email`
-- `POST /api/admin/orders/resend-customer-email`
+The supported HTTP surface is documented in:
+
+- Swagger UI page: `src/api-docs.html` in source, built to `docs/api-docs.html`
+- OpenAPI spec: `public/backend/openapi.json`, copied to `docs/backend/openapi.json`
+- Firestore/storage side-effect map: `firebase-hosting/functions/BACKEND_MAP.md`
+
+The OpenAPI spec maps the Firebase Hosting `/api/...` rewrites to HTTPS functions and marks each endpoint as public, admin-token protected, or Stripe-signature protected.
 
 Example request body for `/api/create-checkout-session`:
 
