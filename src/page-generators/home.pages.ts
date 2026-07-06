@@ -89,24 +89,20 @@ export const homeLandingPage = ({ assetPrefix = "./", siteKey = "local" as SiteK
       section.class`cart-page-title`(
         h1("3D Local Print")
       ),
-      section.class`home-print-link-feature`(
-        a
-          .class`home-print-link-image-link`
-          .href(withPrefix(assetPrefix, "print-model-link.html"))
-          .ariaLabel`Open PRINT by LINK service`(
-            img
-              .class`home-print-link-image`
-              .src(withPrefix(assetPrefix, "assets/print_link_steps.png"))
-              .alt("Web link icon for PRINT by LINK service")
-              .loading("lazy")
-          ),
+      a
+        .class`home-print-link-feature home-print-link-feature-link`
+        .href(withPrefix(assetPrefix, "print-model-link.html"))
+        .ariaLabel`Start a PRINT by LINK request`(
+        img
+          .class`home-print-link-image`
+          .src(withPrefix(assetPrefix, "assets/print_link_steps.png"))
+          .alt("Web link icon for PRINT by LINK service")
+          .loading("lazy"),
         div.class`home-print-link-copy`(
           div.class`home-card-tag`("PRINT by LINK"),
           h2("Have a model link? We can quote the print."),
           p("Send us a link to a 3D model, add quantities and notes, and we will review the file for a custom print quote."),
-          a
-            .class`add-button`
-            .href(withPrefix(assetPrefix, "print-model-link.html"))("Start a PRINT by LINK request")
+          span.class`add-button home-print-link-cta`("Start a PRINT by LINK request")
         )
       ),
       section.class`home-gallery`(
