@@ -368,7 +368,6 @@ const AgreementDetails = (agreement: PublicAgreement, state: AgreementState) =>
       div.class`receipt-status-pill`(agreement.status.replace(/_/g, " ")),
       h2(agreement.clientBusiness || "Service Agreement"),
       div.class`public-order-meta`(
-        div(strong("Agreement"), span(agreement.id)),
         div(strong("Effective"), span(formatDate(agreement.effectiveDate))),
         div(strong("Due"), span(formatDate(agreement.paymentDueDate))),
         div(strong("Service period"), span(`${formatDate(agreement.serviceStartDate)} - ${formatDate(agreement.serviceEndDate)}`))
