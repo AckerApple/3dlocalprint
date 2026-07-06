@@ -20,6 +20,11 @@ export const fetchApiWithFallback = async (
   functionName: string,
   init?: RequestInit,
 ) => {
+  const isLiveStaticHost = ["3dlocalprint.com", "www.3dlocalprint.com"].includes(window.location.hostname);
+  if (isLiveStaticHost) {
+    return fetchCloudFunction(relativeUrl, functionName, init);
+  }
+
   const response = await fetch(relativeUrl, init).catch(() => null);
   const contentType = response?.headers.get("content-type") || "";
   const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
