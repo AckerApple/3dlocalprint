@@ -137,6 +137,7 @@ type AgreementPaymentNotificationInput = {
 
 type AgreementServiceItem = {
   label: string;
+  description: string;
   included: boolean;
   monthlyValue: number;
   yearlyCost: number;
@@ -157,6 +158,7 @@ type AgreementRecordInput = {
   serviceEndDate: string;
   yearlyAmount: number;
   currency: string;
+  termsMarkdown: string;
   services: AgreementServiceItem[];
   totalSelectedServices: number;
   totalMonthlyValue: number;
@@ -185,12 +187,55 @@ const CUSTOM_WEBSITE_SERVICES_AGREEMENT_TEMPLATE_ID = "custom-website-technical-
 const WEBSITE_SERVICES_AGREEMENT_VERSION = "website-technical-services-2026-01";
 const WEBSITE_SERVICES_CURRENT_AGREEMENT_ID = "agreement_dds_sweet_shack_current";
 const WEBSITE_SERVICES_AGREEMENT_SERVICES: AgreementServiceItem[] = [
-  { label: "Email Order Notifications", included: true, monthlyValue: 500, yearlyCost: 6000 },
-  { label: "Online Order Tracking System", included: false, monthlyValue: 0, yearlyCost: 0 },
-  { label: "Admin Login System", included: true, monthlyValue: 500, yearlyCost: 6000 },
-  { label: "Image Storage", included: true, monthlyValue: 500, yearlyCost: 6000 },
-  { label: "Live Product Catalog", included: true, monthlyValue: 500, yearlyCost: 6000 },
+  {
+    label: "Email Order Notifications",
+    description: "Automated email notifications for website-submitted order requests, customer inquiries, and product requests. Delivery can be affected by third-party email systems, spam filtering, and customer mail settings.",
+    included: true,
+    monthlyValue: 500,
+    yearlyCost: 6000,
+  },
+  {
+    label: "Admin Login System",
+    description: "Protected admin access for approved business users to manage site information. This does not include customer accounts, customer dashboards, or public customer login access.",
+    included: true,
+    monthlyValue: 500,
+    yearlyCost: 6000,
+  },
+  {
+    label: "Image Storage",
+    description: "Storage for product, catalog, and website images used by the client website. This is not intended for unrelated file storage, backups, video hosting, or excessive unrelated uploads.",
+    included: true,
+    monthlyValue: 500,
+    yearlyCost: 6000,
+  },
+  {
+    label: "Live Product Catalog",
+    description: "A live website product catalog that can be updated through the website system and shown to customers with current product information supplied by the client.",
+    included: true,
+    monthlyValue: 500,
+    yearlyCost: 6000,
+  },
 ];
+
+function getDefaultAgreementServiceDescription(label = ""): string {
+  const normalizedLabel = label.toLowerCase();
+  if (normalizedLabel.includes("email")) {
+    return "Automated email notifications for website-submitted order requests, customer inquiries, and product requests. Delivery can be affected by third-party email systems, spam filtering, and customer mail settings.";
+  }
+  if (normalizedLabel.includes("order tracking")) {
+    return "Customer-facing order lookup or tracking features for checking order status online.";
+  }
+  if (normalizedLabel.includes("admin")) {
+    return "Protected admin access for approved business users to manage site information. This does not include customer accounts, customer dashboards, or public customer login access.";
+  }
+  if (normalizedLabel.includes("image")) {
+    return "Storage for product, catalog, and website images used by the client website. This is not intended for unrelated file storage, backups, video hosting, or excessive unrelated uploads.";
+  }
+  if (normalizedLabel.includes("catalog")) {
+    return "A live website product catalog that can be updated through the website system and shown to customers with current product information supplied by the client.";
+  }
+  return "";
+}
 
 function getStripeClient(): Stripe {
   return new Stripe(STRIPE_SECRET_KEY.value(), {
@@ -1424,6 +1469,7 @@ function buildDefaultWebsiteServicesAgreement(sourceUrl = PUBLIC_SITE_ORIGIN, ag
     serviceEndDate: formatDateOnly(serviceEnd),
     yearlyAmount: includedServices.reduce((total, service) => total + service.yearlyCost, 0),
     currency: "usd",
+    termsMarkdown: "",
     services: WEBSITE_SERVICES_AGREEMENT_SERVICES,
     totalSelectedServices: includedServices.length,
     totalMonthlyValue: includedServices.reduce((total, service) => total + service.monthlyValue, 0),
@@ -1457,6 +1503,7 @@ function normalizeAgreementServiceItems(value: unknown): AgreementServiceItem[] 
       if (!label) return null;
       return {
         label,
+        description: normalizeString(raw.description, 700) || getDefaultAgreementServiceDescription(label),
         included: Boolean(raw.included),
         monthlyValue: Math.max(0, Math.round(Number(raw.monthlyValue) || 0)),
         yearlyCost: Math.max(0, Math.round(Number(raw.yearlyCost) || 0)),
@@ -1521,6 +1568,7 @@ function buildCustomWebsiteServicesAgreement(
     serviceEndDate: normalizeString(input.serviceEndDate, 20) || formatDateOnly(fallbackEnd),
     yearlyAmount,
     currency: normalizeString(input.currency, 10).toLowerCase() || "usd",
+    termsMarkdown: normalizeString(input.termsMarkdown, 30000),
     services,
     totalSelectedServices: includedServices.length,
     totalMonthlyValue: includedServices.reduce((total, service) => total + service.monthlyValue, 0),
@@ -1577,6 +1625,7 @@ function buildWebsiteServicesAgreementEditableFields(input: Record<string, unkno
     serviceEndDate: normalizeString(input.serviceEndDate, 20) || formatDateOnly(fallbackEnd),
     yearlyAmount,
     currency: normalizeString(input.currency, 10).toLowerCase() || "usd",
+    termsMarkdown: normalizeString(input.termsMarkdown, 30000),
     services,
     totalSelectedServices: includedServices.length,
     totalMonthlyValue: includedServices.reduce((total, service) => total + service.monthlyValue, 0),
@@ -1599,6 +1648,7 @@ function getPublicAgreementPayload(agreementId: string, data: Record<string, unk
     serviceEndDate: String(data.serviceEndDate || ""),
     yearlyAmount: Math.max(0, Math.round(Number(data.yearlyAmount) || 0)),
     currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
+    termsMarkdown: String(data.termsMarkdown || ""),
     services: Array.isArray(data.services) ? data.services : [],
     totalSelectedServices: Math.max(0, Math.round(Number(data.totalSelectedServices) || 0)),
     totalMonthlyValue: Math.max(0, Math.round(Number(data.totalMonthlyValue) || 0)),
@@ -1911,6 +1961,60 @@ export const updateWebsiteServicesAgreement = onRequest(
         error: "Failed to update agreement.",
         details: message ? message.slice(0, 500) : "No error message was provided by the server.",
       });
+    }
+  },
+);
+
+export const deleteWebsiteServicesAgreement = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const agreementId = normalizeString(request.body?.agreementId, 200);
+      logger.info("delete agreement request received", {
+        agreementId,
+        hasAuthorization: Boolean(request.header("authorization")),
+      });
+      const requestedByAdminEmail = await requireAdmin(request);
+      if (!agreementId) {
+        response.status(400).json({ error: "Agreement ID is required." });
+        return;
+      }
+
+      const agreementRef = getAdminDb().collection("agreements").doc(agreementId);
+      const agreementSnapshot = await agreementRef.get();
+      if (!agreementSnapshot.exists) {
+        logger.warn("delete agreement agreement not found", { agreementId, requestedByAdminEmail });
+        response.status(404).json({ error: "Agreement not found." });
+        return;
+      }
+
+      await agreementRef.delete();
+      logger.info("delete agreement completed", { agreementId, requestedByAdminEmail });
+      response.status(200).json({ ok: true });
+    } catch (error) {
+      logger.error("deleteWebsiteServicesAgreement failed", error);
+      const message = error instanceof Error ? error.message : "";
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+        return;
+      }
+      if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+        return;
+      }
+      response.status(500).json({ error: "Failed to delete agreement." });
     }
   },
 );

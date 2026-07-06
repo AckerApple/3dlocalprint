@@ -184,6 +184,7 @@ const publicSiteInputs = {
   adminCameraTest: resolve(__dirname, "src/admin/filament/camera-test.html"),
   adminLedger: resolve(__dirname, "src/admin/accounting/ledger.html"),
   adminMoneyAccounts: resolve(__dirname, "src/admin/accounting/money-accounts.html"),
+  adminAttention: resolve(__dirname, "src/admin/attention/index.html"),
   adminProducts: resolve(__dirname, "src/admin/products/index.html"),
   adminOrders: resolve(__dirname, "src/admin/orders/index.html"),
   adminAgreements: resolve(__dirname, "src/admin/agreements/index.html"),
@@ -260,6 +261,12 @@ export default defineConfig(({ mode }) => {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/updateWebsiteServicesAgreement",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/agreements/delete": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/deleteWebsiteServicesAgreement",
         configure: functionProxyErrorHandler,
       },
       "/api/admin/agreements/send-email": {

@@ -80,6 +80,13 @@
         }
       },
       {
+        "source": "/api/admin/agreements/delete",
+        "function": {
+          "functionId": "deleteWebsiteServicesAgreement",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/admin/agreements/send-email",
         "function": {
           "functionId": "sendAgreementEmail",

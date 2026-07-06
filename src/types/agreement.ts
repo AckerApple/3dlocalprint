@@ -9,6 +9,7 @@ export type AgreementStatus =
 
 export type AgreementServiceItem = {
   label: string;
+  description: string;
   included: boolean;
   monthlyValue: number;
   yearlyCost: number;
@@ -29,6 +30,7 @@ export type AgreementRecord = {
   serviceEndDate: string;
   yearlyAmount: number;
   currency: string;
+  termsMarkdown: string;
   services: AgreementServiceItem[];
   totalSelectedServices: number;
   totalMonthlyValue: number;

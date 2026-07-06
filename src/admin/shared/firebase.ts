@@ -669,6 +669,7 @@ const normalizeAgreementServices = (items: unknown): AgreementServiceItem[] =>
       if (!label) return null;
       return {
         label,
+        description: String(raw.description || "").trim(),
         included: Boolean(raw.included),
         monthlyValue: Math.max(0, Math.round(Number(raw.monthlyValue) || 0)),
         yearlyCost: Math.max(0, Math.round(Number(raw.yearlyCost) || 0)),
@@ -701,6 +702,7 @@ const normalizeAgreementRecord = (id: string, data: Record<string, unknown>): Ag
   serviceEndDate: String(data.serviceEndDate || "").trim(),
   yearlyAmount: Math.max(0, Math.round(Number(data.yearlyAmount) || 0)),
   currency: String(data.currency || "usd").trim().toLowerCase() || "usd",
+  termsMarkdown: String(data.termsMarkdown || "").trim(),
   services: normalizeAgreementServices(data.services),
   totalSelectedServices: Math.max(0, Math.round(Number(data.totalSelectedServices) || 0)),
   totalMonthlyValue: Math.max(0, Math.round(Number(data.totalMonthlyValue) || 0)),

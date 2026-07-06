@@ -13,6 +13,9 @@ import {
   tr,
   th,
   td,
+  ul,
+  ol,
+  li,
   label,
   input,
   button,
@@ -25,6 +28,7 @@ import {
 
 type AgreementServiceItem = {
   label: string;
+  description: string;
   included: boolean;
   monthlyValue: number;
   yearlyCost: number;
@@ -43,6 +47,7 @@ type PublicAgreement = {
   serviceEndDate: string;
   yearlyAmount: number;
   currency: string;
+  termsMarkdown: string;
   services: AgreementServiceItem[];
   totalSelectedServices: number;
   totalMonthlyValue: number;
@@ -117,6 +122,26 @@ const formatDate = (value = "") => {
   return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
 };
 
+const getDefaultServiceDescription = (label = "") => {
+  const normalizedLabel = label.toLowerCase();
+  if (normalizedLabel.includes("email")) {
+    return "Automated email notifications for website-submitted order requests, customer inquiries, and product requests. Delivery can be affected by third-party email systems, spam filtering, and customer mail settings.";
+  }
+  if (normalizedLabel.includes("order tracking")) {
+    return "Customer-facing order lookup or tracking features for checking order status online.";
+  }
+  if (normalizedLabel.includes("admin")) {
+    return "Protected admin access for approved business users to manage site information. This does not include customer accounts, customer dashboards, or public customer login access.";
+  }
+  if (normalizedLabel.includes("image")) {
+    return "Storage for product, catalog, and website images used by the client website. This is not intended for unrelated file storage, backups, video hosting, or excessive unrelated uploads.";
+  }
+  if (normalizedLabel.includes("catalog")) {
+    return "A live website product catalog that can be updated through the website system and shown to customers with current product information supplied by the client.";
+  }
+  return "";
+};
+
 const getAgreementBrowserMeta = () => ({
   userAgent: navigator.userAgent || "",
   language: navigator.language || "",
@@ -131,23 +156,131 @@ const getAgreementBrowserMeta = () => ({
 });
 
 const serviceRows = (agreement: PublicAgreement) =>
-  agreement.services.map((service) =>
+  agreement.services.filter((service) => service.included !== false).map((service) => {
+    const description = service.description || getDefaultServiceDescription(service.label);
+    return (
     tr(
-      td(service.label),
-      td(service.included ? "Yes" : "No"),
+      td(
+        div.class`agreement-service-name`(service.label),
+        description
+          ? p.class`agreement-service-description`(description)
+          : null
+      ),
       td(formatMoney(service.monthlyValue, agreement.currency)),
       td(formatMoney(service.yearlyCost, agreement.currency))
     )
-  );
+    );
+  });
+
+const stripMarkdownHeading = (line: string) => line.replace(/^#{1,6}\s+/, "").trim();
+
+const getSafeMarkdownHref = (href = "") => {
+  const value = href.trim();
+  if (/^(https?:|mailto:)/i.test(value) || /^(\.?\.\/|#)/.test(value)) {
+    return value;
+  }
+  return "";
+};
+
+const parseInlineMarkdown = (text = "") => {
+  const nodes: any[] = [];
+  const pattern = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = null;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[1] && match[2]) {
+      const href = getSafeMarkdownHref(match[2]);
+      nodes.push(href ? a.class`legal-inline-link`.href(href)(match[1]) : match[1]);
+    } else if (match[3]) {
+      nodes.push(strong(match[3]));
+    } else if (match[4]) {
+      nodes.push(span.class`agreement-markdown-emphasis`(match[4]));
+    }
+
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length ? nodes : [text];
+};
+
+const renderMarkdownList = (items: string[], ordered: boolean) =>
+  ordered
+    ? ol(...items.map((item) => li(...parseInlineMarkdown(item))))
+    : ul(...items.map((item) => li(...parseInlineMarkdown(item))));
+
+const renderMarkdownTerms = (markdown = "") => {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const blocks: any[] = [];
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let listOrdered = false;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(p(...parseInlineMarkdown(paragraph.join(" "))));
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    blocks.push(renderMarkdownList(listItems, listOrdered));
+    listItems = [];
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const unorderedMatch = line.match(/^[-*]\s+(.+)$/);
+    const orderedMatch = line.match(/^\d+\.\s+(.+)$/);
+    if (unorderedMatch || orderedMatch) {
+      flushParagraph();
+      const ordered = Boolean(orderedMatch);
+      if (listItems.length && listOrdered !== ordered) {
+        flushList();
+      }
+      listOrdered = ordered;
+      listItems.push((orderedMatch?.[1] || unorderedMatch?.[1] || "").trim());
+      return;
+    }
+
+    flushList();
+
+    if (/^#{1,6}\s+/.test(line)) {
+      flushParagraph();
+      const depth = line.match(/^#+/)?.[0].length || 1;
+      const headingText = stripMarkdownHeading(line);
+      blocks.push(depth <= 2 ? h2(...parseInlineMarkdown(headingText)) : h3(...parseInlineMarkdown(headingText)));
+      return;
+    }
+
+    paragraph.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+
+  return blocks.length ? div.class`agreement-markdown-terms`(...blocks) : null;
+};
 
 const ContractTerms = (agreement: PublicAgreement) =>
   div.class`agreement-terms`(
-    h3("Service Agreement"),
-    p(`This Service Agreement is between ${agreement.providerName || "the service provider"} and ${agreement.clientBusiness || "the client"} for selected yearly technical services for the ${agreement.clientBusiness || "client"} website.`),
-    p("The selected services support website features such as email notifications, admin access, image storage, and a live product catalog. Personal time, setup work, development work, and labor are donated as a family courtesy and are not included as a paid labor charge."),
     h3("Selected Website Services"),
     table.class`ledger-table agreement-services-table`(
-      thead(tr(th("Service"), th("Included"), th("Monthly value"), th("Yearly cost"))),
+      thead(tr(th("Service"), th("Monthly value"), th("Yearly cost"))),
       tbody(serviceRows(agreement))
     ),
     div.class`public-order-totals agreement-totals`(
@@ -155,29 +288,7 @@ const ContractTerms = (agreement: PublicAgreement) =>
       div(span("Total monthly value"), strong(formatMoney(agreement.totalMonthlyValue, agreement.currency))),
       div.class`public-order-total`(span("Yearly technical service cost"), strong(formatMoney(agreement.yearlyAmount, agreement.currency)))
     ),
-    h3("Payment Terms"),
-    p(`The selected technical services are billed yearly in advance. Amount due is ${formatMoney(agreement.yearlyAmount, agreement.currency)} for a 12-month service period.`),
-    p(`Service period: ${formatDate(agreement.serviceStartDate)} through ${formatDate(agreement.serviceEndDate)}. Payment is due before the yearly service period begins.`),
-    h3("No Automatic Renewal"),
-    p("This agreement does not automatically renew. To continue the selected services for another year, the client must confirm renewal and pay the next yearly technical service cost in advance."),
-    p("If the client does not renew and pay before the next service period begins, the selected paid services may be paused, disabled, removed, or left inactive."),
-    h3("Included Services"),
-    p("Email Order Notifications allows the website system to send automated email notifications related to website-submitted order requests, customer inquiries, or product requests. Email delivery is not guaranteed and can be affected by third-party conditions outside the service provider's control."),
-    p(`Admin Login System provides a protected admin area for ${agreement.clientBusiness || "the client"} for approved business users. This agreement does not include customer accounts, customer login access, customer dashboards, or customer order tracking.`),
-    p(`Image Storage provides image storage needed for product and catalog images used on the ${agreement.clientBusiness || "client"} website. It is not intended for unrelated file storage, personal backups, video hosting, or excessive unrelated uploads.`),
-    p("Live Product Catalog allows the website to display a live product catalog that can be updated through the website system."),
-    h3("Services Not Included"),
-    p(`Unless separately agreed in writing, this agreement does not include online order tracking, customer login accounts, payment processing for ${agreement.clientBusiness || "the client"} customers, online checkout, payment provider fees, domain registration, premium hosting, major redesigns, new unrelated pages, marketing, SEO, photography, copywriting, legal, tax, accounting, compliance advice, or emergency support outside reasonable availability.`),
-    h3("Support, Responsibilities, and Ownership"),
-    p("Reasonable support may include fixing issues related to the selected services, answering basic usage questions, and making small adjustments connected to included features. Large changes, new features, major redesigns, or work outside the selected services are not included."),
-    p(`${agreement.clientBusiness || "The client"} is responsible for accurate business information, product details, images, prices, descriptions, availability, content review, and keeping admin credentials secure.`),
-    p(`${agreement.clientBusiness || "The client"} owns its business name, product photos, descriptions, logos, branding, and business content. The service provider may own or reuse general website code, tools, templates, setup processes, and technical methods unless separately agreed in writing.`),
-    h3("Third-Party Services and Limitations"),
-    p("Some features may rely on third-party services such as email, hosting, database, image storage, authentication, or domain providers. The service provider is not responsible for outages, pricing changes, policy changes, restrictions, service limits, or technical issues caused by third-party services."),
-    p("The service provider will make reasonable efforts to keep the selected services working properly, but is not responsible for lost sales, missed orders, undelivered emails, customer mistakes, incorrect product information, third-party outages, business interruptions, spam filtering, account restrictions, or damages beyond the amount paid under this agreement for the current yearly service period."),
-    h3("Agreement Term and Acceptance"),
-    p("This agreement begins on the service start date and continues for 12 months. A new 12-month service period begins only if the client confirms renewal and pays the yearly technical service cost in advance."),
-    p("By typing a signer name, checking acceptance, and paying through secure checkout, the client agrees to the selected services, yearly cost, payment terms, and conditions listed in this agreement.")
+    renderMarkdownTerms(agreement.termsMarkdown)
   );
 
 const AgreementMessage = (title: string, message: string) =>
@@ -284,14 +395,14 @@ const AgreementContent = tag((state: AgreementState = getAgreementState()) => {
   });
 
   return [
-    _=> state.loading ? AgreementLoadingPanel() : null,
-    _=> !state.loading && state.error
+    (_: unknown) => state.loading ? AgreementLoadingPanel() : null,
+    (_: unknown) => !state.loading && state.error
       ? AgreementMessage("Agreement unavailable", state.error)
       : null,
-    _=> !state.loading && !state.error && !state.agreement
+    (_: unknown) => !state.loading && !state.error && !state.agreement
       ? AgreementMessage("Agreement unavailable", "We could not load this agreement.")
       : null,
-    _=> !state.loading && !state.error && state.agreement
+    (_: unknown) => !state.loading && !state.error && state.agreement
       ? AgreementDetails(state.agreement, state)
       : null,
   ];

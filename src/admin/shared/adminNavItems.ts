@@ -52,6 +52,12 @@ export const adminNavGroups = [
     title: "Products",
     items: [
       {
+        label: "Attention",
+        details: "Review open orders and agreements that need attention soon.",
+        href: "attention/index.html",
+        emoji: "📌",
+      },
+      {
         label: "Products catalog",
         details: "Manage product records used for cart and checkout.",
         href: "products/index.html",

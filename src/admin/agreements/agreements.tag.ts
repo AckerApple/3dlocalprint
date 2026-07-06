@@ -6,6 +6,7 @@ import {
   div,
   label,
   input,
+  textarea,
   table,
   thead,
   tbody,
@@ -39,9 +40,9 @@ let handleSignOut = () => Promise.resolve();
 
 type AgreementServiceDraft = {
   label: string;
+  description: string;
   included: boolean;
   monthlyValue: string;
-  yearlyCost: string;
 };
 
 type AgreementDraft = {
@@ -55,6 +56,7 @@ type AgreementDraft = {
   serviceEndDate: string;
   yearlyAmount: string;
   currency: string;
+  termsMarkdown: string;
   services: AgreementServiceDraft[];
 };
 
@@ -67,6 +69,8 @@ type AgreementsUiState = {
   validationErrors: AgreementValidationErrors;
   sendAgreementEmailLoading: boolean;
   sendAgreementEmailStatusText: string;
+  deleteAgreementLoading: boolean;
+  deleteAgreementStatusText: string;
   createModalOpen: boolean;
   modalMode: "create" | "edit";
   editingAgreementId: string;
@@ -96,11 +100,32 @@ const createAgreementDraft = (): AgreementDraft => {
     serviceEndDate: addYearMinusDay(today),
     yearlyAmount: "240.00",
     currency: "usd",
+    termsMarkdown: "",
     services: [
-      { label: "Email notifications", included: true, monthlyValue: "5.00", yearlyCost: "60.00" },
-      { label: "Admin login system", included: true, monthlyValue: "5.00", yearlyCost: "60.00" },
-      { label: "Image storage", included: true, monthlyValue: "5.00", yearlyCost: "60.00" },
-      { label: "Live product catalog", included: true, monthlyValue: "5.00", yearlyCost: "60.00" },
+      {
+        label: "Email notifications",
+        description: "Automated email notifications for website-submitted order requests, customer inquiries, and product requests. Delivery can be affected by third-party email systems, spam filtering, and customer mail settings.",
+        included: true,
+        monthlyValue: "5.00",
+      },
+      {
+        label: "Admin login system",
+        description: "Protected admin access for approved business users to manage site information. This does not include customer accounts, customer dashboards, or public customer login access.",
+        included: true,
+        monthlyValue: "5.00",
+      },
+      {
+        label: "Image storage",
+        description: "Storage for product, catalog, and website images used by the client website. This is not intended for unrelated file storage, backups, video hosting, or excessive unrelated uploads.",
+        included: true,
+        monthlyValue: "5.00",
+      },
+      {
+        label: "Live product catalog",
+        description: "A live website product catalog that can be updated through the website system and shown to customers with current product information supplied by the client.",
+        included: true,
+        monthlyValue: "5.00",
+      },
     ],
   };
 };
@@ -113,6 +138,8 @@ const agreementsUi$ = array<AgreementsUiState>([
     validationErrors: {},
     sendAgreementEmailLoading: false,
     sendAgreementEmailStatusText: "",
+    deleteAgreementLoading: false,
+    deleteAgreementStatusText: "",
     createModalOpen: false,
     modalMode: "create",
     editingAgreementId: "",
@@ -128,6 +155,8 @@ const getAgreementsUi = () =>
     validationErrors: {},
     sendAgreementEmailLoading: false,
     sendAgreementEmailStatusText: "",
+    deleteAgreementLoading: false,
+    deleteAgreementStatusText: "",
     createModalOpen: false,
     modalMode: "create" as const,
     editingAgreementId: "",
@@ -169,6 +198,25 @@ const getEditingAgreement = (ui: AgreementsUiState) =>
   ui.modalMode === "edit"
     ? agreements$.find((agreement) => agreement.id === ui.editingAgreementId) || null
     : null;
+
+const getAgreementIdFromUrl = () =>
+  new URLSearchParams(window.location.search).get("agreementId")?.trim()
+  || new URLSearchParams(window.location.search).get("agreement_id")?.trim()
+  || "";
+
+const syncAgreementUrl = (agreementId = "", replace = false) => {
+  const url = new URL(window.location.href);
+  if (agreementId) {
+    url.searchParams.set("agreementId", agreementId);
+  } else {
+    url.searchParams.delete("agreementId");
+  }
+
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextUrl === currentUrl) return;
+  window.history[replace ? "replaceState" : "pushState"]({}, "", nextUrl);
+};
 
 const formatMoney = (cents = 0, currency = "usd") =>
   new Intl.NumberFormat("en-US", {
@@ -217,6 +265,9 @@ const updateAgreementUrl = () =>
 const sendAgreementEmailUrl = () =>
   getAdminAgreementActionUrl("/api/admin/agreements/send-email", "sendAgreementEmail");
 
+const deleteAgreementUrl = () =>
+  getAdminAgreementActionUrl("/api/admin/agreements/delete", "deleteWebsiteServicesAgreement");
+
 const readErrorPayload = async (response: Response) => {
   const text = await response.text().catch(() => "");
   if (!text) return {};
@@ -234,9 +285,43 @@ const stopAgreementSubscription = () => {
   }
 };
 
+const applyAgreementUrlSelection = (replace = true) => {
+  const agreementId = getAgreementIdFromUrl();
+  if (!agreementId) return;
+  const ui = getAgreementsUi();
+  if (ui.createModalOpen && ui.modalMode === "edit" && ui.editingAgreementId === agreementId) return;
+  const agreement = agreements$.find((item) => item.id === agreementId);
+  if (!agreement) return;
+  openEditAgreementModal(agreement, false);
+  syncAgreementUrl(agreementId, replace);
+};
+
 const dollarsToCents = (value: string) => Math.max(0, Math.round(Number(String(value || "").replace(/[$,]/g, "")) * 100) || 0);
 
 const centsToDollars = (value = 0) => (Math.max(0, Math.round(Number(value) || 0)) / 100).toFixed(2);
+
+const getServiceYearlyCost = (service: AgreementServiceDraft) =>
+  dollarsToCents(service.monthlyValue) * 12;
+
+const getDefaultServiceDescription = (label = "") => {
+  const normalizedLabel = label.toLowerCase();
+  if (normalizedLabel.includes("email")) {
+    return "Automated email notifications for website-submitted order requests, customer inquiries, and product requests. Delivery can be affected by third-party email systems, spam filtering, and customer mail settings.";
+  }
+  if (normalizedLabel.includes("order tracking")) {
+    return "Customer-facing order lookup or tracking features for checking order status online.";
+  }
+  if (normalizedLabel.includes("admin")) {
+    return "Protected admin access for approved business users to manage site information. This does not include customer accounts, customer dashboards, or public customer login access.";
+  }
+  if (normalizedLabel.includes("image")) {
+    return "Storage for product, catalog, and website images used by the client website. This is not intended for unrelated file storage, backups, video hosting, or excessive unrelated uploads.";
+  }
+  if (normalizedLabel.includes("catalog")) {
+    return "A live website product catalog that can be updated through the website system and shown to customers with current product information supplied by the client.";
+  }
+  return "";
+};
 
 const agreementToDraft = (agreement: AgreementRecord): AgreementDraft => ({
   clientBusiness: agreement.clientBusiness || "",
@@ -249,15 +334,17 @@ const agreementToDraft = (agreement: AgreementRecord): AgreementDraft => ({
   serviceEndDate: agreement.serviceEndDate || addYearMinusDay(agreement.serviceStartDate || todayDate()),
   yearlyAmount: centsToDollars(agreement.yearlyAmount || agreement.amountTotal),
   currency: agreement.currency || "usd",
+  termsMarkdown: agreement.termsMarkdown || "",
   services: (agreement.services?.length ? agreement.services : createAgreementDraft().services).map((service) => ({
     label: service.label || "",
+    description: service.description || getDefaultServiceDescription(service.label),
     included: Boolean(service.included),
     monthlyValue: centsToDollars(Number(service.monthlyValue) || 0),
-    yearlyCost: centsToDollars(Number(service.yearlyCost) || 0),
   })),
 });
 
 const openCreateAgreementModal = () => {
+  syncAgreementUrl("");
   setAgreementsUi({
     agreementDraft: createAgreementDraft(),
     createModalOpen: true,
@@ -265,12 +352,17 @@ const openCreateAgreementModal = () => {
     validationSubmitted: false,
     validationErrors: {},
     sendAgreementEmailStatusText: "",
+    deleteAgreementStatusText: "",
+    deleteAgreementLoading: false,
     modalMode: "create",
     editingAgreementId: "",
   });
 };
 
-const openEditAgreementModal = (agreement: AgreementRecord) => {
+const openEditAgreementModal = (agreement: AgreementRecord, updateUrl = true) => {
+  if (updateUrl) {
+    syncAgreementUrl(agreement.id);
+  }
   setAgreementsUi({
     agreementDraft: agreementToDraft(agreement),
     createModalOpen: true,
@@ -278,6 +370,8 @@ const openEditAgreementModal = (agreement: AgreementRecord) => {
     validationSubmitted: false,
     validationErrors: {},
     sendAgreementEmailStatusText: "",
+    deleteAgreementStatusText: "",
+    deleteAgreementLoading: false,
     modalMode: "edit",
     editingAgreementId: agreement.id,
   });
@@ -285,7 +379,10 @@ const openEditAgreementModal = (agreement: AgreementRecord) => {
 
 const closeCreateAgreementModal = () => {
   const ui = getAgreementsUi();
-  if (ui.createLoading || ui.sendAgreementEmailLoading) return;
+  if (ui.createLoading || ui.sendAgreementEmailLoading || ui.deleteAgreementLoading) return;
+  if (ui.modalMode === "edit") {
+    syncAgreementUrl("");
+  }
   setAgreementsUi({ createModalOpen: false });
 };
 
@@ -309,13 +406,20 @@ const updateDraftAndRender = (patch: Partial<AgreementDraft>) => {
   });
 };
 
-const updateServiceDraft = (index: number, patch: Partial<AgreementServiceDraft>) => {
+const updateServiceDraft = (index: number, patch: Partial<AgreementServiceDraft>, render = false) => {
   const current = getAgreementsUi();
   const currentService = current.agreementDraft.services[index];
   if (!currentService) return;
   const services = [...current.agreementDraft.services];
   services[index] = { ...currentService, ...patch };
   const agreementDraft = { ...current.agreementDraft, services };
+  if (render) {
+    setAgreementsUi({
+      agreementDraft,
+      validationErrors: current.validationSubmitted ? validateAgreementDraft(agreementDraft) : current.validationErrors,
+    });
+    return;
+  }
   if (current.validationSubmitted) {
     setAgreementsUi({
       agreementDraft,
@@ -333,7 +437,7 @@ const addServiceDraft = () => {
       ...current.agreementDraft,
       services: [
         ...current.agreementDraft.services,
-        { label: "", included: true, monthlyValue: "0.00", yearlyCost: "0.00" },
+        { label: "", description: "", included: true, monthlyValue: "0.00" },
       ],
     },
   });
@@ -357,9 +461,10 @@ const saveAgreement = async () => {
   const services = agreementDraft.services
     .map((service) => ({
       label: service.label.trim(),
-      included: service.included,
+      description: service.description.trim(),
+      included: true,
       monthlyValue: dollarsToCents(service.monthlyValue),
-      yearlyCost: dollarsToCents(service.yearlyCost),
+      yearlyCost: getServiceYearlyCost(service),
     }))
     .filter((service) => service.label);
   if (Object.keys(validationErrors).length) {
@@ -496,6 +601,66 @@ const sendAgreementEmail = async () => {
   }
 };
 
+const deleteAgreement = async () => {
+  const currentUi = getAgreementsUi();
+  if (currentUi.deleteAgreementLoading) return;
+  if (currentUi.createLoading || currentUi.sendAgreementEmailLoading) {
+    toast.info("Wait for the current agreement action to finish before deleting.");
+    return;
+  }
+  if (currentUi.modalMode !== "edit" || !currentUi.editingAgreementId) {
+    toast.error("Open an existing agreement before deleting.");
+    return;
+  }
+
+  const agreementId = currentUi.editingAgreementId;
+  const clientBusiness = currentUi.agreementDraft.clientBusiness.trim() || "this agreement";
+  if (!window.confirm(`Delete agreement ${clientBusiness} (${agreementId})? This cannot be undone and the private agreement link will stop working.`)) {
+    return;
+  }
+
+  const user = currentAuthUser || firebaseAuth.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    toast.error("Sign in again to delete this agreement.");
+    return;
+  }
+
+  setAgreementsUi({
+    deleteAgreementLoading: true,
+    deleteAgreementStatusText: "Deleting agreement...",
+  });
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(deleteAgreementUrl(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ agreementId }),
+    });
+    const payload = await readErrorPayload(response);
+    if (!response.ok) {
+      throw new Error(String(payload?.error || "Failed to delete agreement."));
+    }
+
+    setAgreementsUi({
+      createModalOpen: false,
+      editingAgreementId: "",
+      deleteAgreementStatusText: "",
+      createStatusText: `🗑️ Deleted agreement for ${clientBusiness}.`,
+    });
+    syncAgreementUrl("");
+    toast.success(`🗑️ Deleted agreement for ${clientBusiness}.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete agreement.";
+    setAgreementsUi({ deleteAgreementStatusText: message });
+    toast.error(message, { duration: 10000 });
+  } finally {
+    setAgreementsUi({ deleteAgreementLoading: false });
+  }
+};
+
 const AcceptanceMetaItem = (labelText: string, value = "") =>
   div.class`agreement-acceptance-item`(
     span.class`orders-detail-label`(labelText),
@@ -560,6 +725,7 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
   let agreementDraft = ui.agreementDraft;
   let createLoading = ui.createLoading;
   let sendAgreementEmailLoading = ui.sendAgreementEmailLoading;
+  let deleteAgreementLoading = ui.deleteAgreementLoading;
   let editingAgreement = getEditingAgreement(ui);
   let hasClientBusinessError = Boolean(getAgreementFieldError(ui, "clientBusiness"));
   let hasCustomerEmailError = Boolean(getAgreementFieldError(ui, "customerEmail"));
@@ -571,6 +737,7 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
     agreementDraft = ui.agreementDraft;
     createLoading = ui.createLoading;
     sendAgreementEmailLoading = ui.sendAgreementEmailLoading;
+    deleteAgreementLoading = ui.deleteAgreementLoading;
     editingAgreement = getEditingAgreement(ui);
     hasClientBusinessError = Boolean(getAgreementFieldError(ui, "clientBusiness"));
     hasCustomerEmailError = Boolean(getAgreementFieldError(ui, "customerEmail"));
@@ -634,41 +801,6 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
           .onInput((event) => updateDraft({ currency: String(event.target.value || "") }))()
       ),
       label(
-        "Effective date",
-        input
-          .class`manufacturer-input`
-          .type`date`
-          .value(_=> agreementDraft.effectiveDate)
-          .onInput((event) => updateDraft({ effectiveDate: String(event.target.value || "") }))()
-      ),
-      label(
-        "Payment due",
-        input
-          .class`manufacturer-input`
-          .type`date`
-          .value(_=> agreementDraft.paymentDueDate)
-          .onInput((event) => updateDraft({ paymentDueDate: String(event.target.value || "") }))()
-      ),
-      label(
-        "Service start",
-        input
-          .class`manufacturer-input`
-          .type`date`
-          .value(_=> agreementDraft.serviceStartDate)
-          .onInput((event) => {
-            const serviceStartDate = String(event.target.value || "");
-            updateDraftAndRender({ serviceStartDate, serviceEndDate: addYearMinusDay(serviceStartDate) });
-          })()
-      ),
-      label(
-        "Service end",
-        input
-          .class`manufacturer-input`
-          .type`date`
-          .value(_=> agreementDraft.serviceEndDate)
-          .onInput((event) => updateDraft({ serviceEndDate: String(event.target.value || "") }))()
-      ),
-      label(
         "Yearly amount",
         input
           .class`manufacturer-input`
@@ -679,6 +811,48 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
           .onInput((event) => updateDraft({ yearlyAmount: String(event.target.value || "") }))()
       )
     ),
+    div.class`agreement-dates-section`(
+      div.class`agreement-services-editor-header`(
+        h2("🗓️ Dates")
+      ),
+      div.class`agreement-dates-grid`(
+        label(
+          "Effective date",
+          input
+            .class`manufacturer-input`
+            .type`date`
+            .value(_=> agreementDraft.effectiveDate)
+            .onInput((event) => updateDraft({ effectiveDate: String(event.target.value || "") }))()
+        ),
+        label(
+          "Payment due",
+          input
+            .class`manufacturer-input`
+            .type`date`
+            .value(_=> agreementDraft.paymentDueDate)
+            .onInput((event) => updateDraft({ paymentDueDate: String(event.target.value || "") }))()
+        ),
+        label(
+          "Service start",
+          input
+            .class`manufacturer-input`
+            .type`date`
+            .value(_=> agreementDraft.serviceStartDate)
+            .onInput((event) => {
+              const serviceStartDate = String(event.target.value || "");
+              updateDraftAndRender({ serviceStartDate, serviceEndDate: addYearMinusDay(serviceStartDate) });
+            })()
+        ),
+        label(
+          "Service end",
+          input
+            .class`manufacturer-input`
+            .type`date`
+            .value(_=> agreementDraft.serviceEndDate)
+            .onInput((event) => updateDraft({ serviceEndDate: String(event.target.value || "") }))()
+        )
+      )
+    ),
     div.class`agreement-services-editor`(
       div.class`agreement-services-editor-header`(
         h2("Services"),
@@ -687,13 +861,6 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
       _=> serviceError ? p.class`ledger-field-error`(serviceError) : null,
       _=> agreementDraft.services.map((service, index) =>
         div.class`agreement-service-row`(
-          label.class`agreement-service-check`(
-            input
-              .type`checkbox`
-              .checked(_=> service.included)
-              .onChange((event) => updateServiceDraft(index, { included: Boolean(event.target.checked) }))(),
-            span("Included")
-          ),
           label(
             "Service",
             input
@@ -710,24 +877,39 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
               .attr("min", "0")
               .attr("step", "0.01")
               .value(_=> service.monthlyValue)
-              .onInput((event) => updateServiceDraft(index, { monthlyValue: String(event.target.value || "") }))()
+              .onInput((event) => updateServiceDraft(index, { monthlyValue: String(event.target.value || "") }, true))()
           ),
           label(
             "Yearly cost",
-            input
-              .class`manufacturer-input`
-              .type`number`
-              .attr("min", "0")
-              .attr("step", "0.01")
-              .value(_=> service.yearlyCost)
-              .onInput((event) => updateServiceDraft(index, { yearlyCost: String(event.target.value || "") }))()
+            span.class`agreement-computed-cost`(_=> formatMoney(getServiceYearlyCost(service), agreementDraft.currency))
           ),
           button
             .type`button`
             .class`ghost-button`
             .disabled(_=> agreementDraft.services.length <= 1)
-            .onClick(() => removeServiceDraft(index))("Remove")
+            .onClick(() => removeServiceDraft(index))("Remove"),
+          label.class`agreement-service-description-field`(
+            "Description",
+            textarea
+              .class`manufacturer-input`
+              .value(_=> service.description)
+              .placeholder`Describe what this service includes.`
+              .onInput((event) => updateServiceDraft(index, { description: String(event.target.value || "") }))()
+          )
         ).key(`service-${index}`)
+      )
+    ),
+    div.class`agreement-terms-editor`(
+      div.class`agreement-services-editor-header`(
+        h2("Agreement terms")
+      ),
+      label(
+        "Markdown",
+        textarea
+          .class`manufacturer-input agreement-terms-markdown-input`
+          .value(_=> agreementDraft.termsMarkdown)
+          .placeholder`## Services Not Included`
+          .onInput((event) => updateDraft({ termsMarkdown: String(event.target.value || "") }))()
       )
     ),
     _=> ui.modalMode === "edit" ? AgreementOrderLink(editingAgreement) : null,
@@ -736,12 +918,12 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
       button
         .type`button`
         .class`ghost-button`
-        .disabled(_=> createLoading)
+        .disabled(_=> createLoading || deleteAgreementLoading)
         .onClick(closeCreateAgreementModal)("Cancel"),
       button
         .type`button`
         .class`add-button`
-        .disabled(_=> createLoading)
+        .disabled(_=> createLoading || deleteAgreementLoading)
         .onClick(saveAgreement)(
         _=> createLoading ? "Saving..." : ui.modalMode === "edit" ? "Save agreement" : "Create agreement"
       )
@@ -751,12 +933,30 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
           button
             .type`button`
             .class`ghost-button`
-            .disabled(_=> createLoading || sendAgreementEmailLoading)
+            .disabled(_=> createLoading || sendAgreementEmailLoading || deleteAgreementLoading)
             .onClick(sendAgreementEmail)(
               _=> sendAgreementEmailLoading ? "Sending agreement email..." : "Send agreement email"
             ),
           ui.sendAgreementEmailStatusText
             ? p.class`orders-email-status`(_=> ui.sendAgreementEmailStatusText)
+            : null
+        )
+      : null,
+    _=> ui.modalMode === "edit"
+      ? div.class`agreement-danger-section`(
+          div.class`agreement-services-editor-header`(
+            h2("Delete agreement")
+          ),
+          p.class`orders-meta`("Delete this agreement from admin and disable its private agreement link. This cannot be undone."),
+          button
+            .type`button`
+            .class`ghost-button delete-button`
+            .disabled(_=> createLoading || sendAgreementEmailLoading || deleteAgreementLoading)
+            .onClick(deleteAgreement)(
+              _=> deleteAgreementLoading ? "Deleting agreement..." : "Delete agreement"
+            ),
+          ui.deleteAgreementStatusText
+            ? p.class`orders-email-status`(_=> ui.deleteAgreementStatusText)
             : null
         )
       : null
@@ -784,6 +984,16 @@ const getOrderHref = (agreement: AgreementRecord) => {
   const url = new URL("/admin/orders/index.html", window.location.origin);
   url.searchParams.set("orderId", agreement.orderId);
   return url.toString();
+};
+
+const getAgreementHref = (agreement: AgreementRecord) => {
+  if (!agreement.publicAgreementUrl) return "";
+  try {
+    const url = new URL(agreement.publicAgreementUrl, window.location.origin);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return agreement.publicAgreementUrl;
+  }
 };
 
 const AgreementRows = (agreements: AgreementRecord[]) =>
@@ -842,7 +1052,7 @@ const AgreementRows = (agreements: AgreementRecord[]) =>
           agreement.publicAgreementUrl
             ? a
                 .class`ghost-button`
-                .href(agreement.publicAgreementUrl)
+                .href(getAgreementHref(agreement))
                 .target`_blank`
                 .rel`noreferrer`("Open")
             : null,
@@ -951,6 +1161,7 @@ const adminShell = startAdminAppShell({
     if (!stopAgreements) {
       stopAgreements = subscribeAgreements((items) => {
         agreements$.splice(0, agreements$.length, ...items);
+        applyAgreementUrlSelection(true);
         if (authState.isAuthorized) {
           mountApp();
         }
@@ -960,3 +1171,5 @@ const adminShell = startAdminAppShell({
   },
 });
 handleSignOut = adminShell.handleSignOut;
+
+window.addEventListener("popstate", () => applyAgreementUrlSelection(false));

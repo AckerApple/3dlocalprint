@@ -4397,6 +4397,88 @@ input:focus {
   font-weight: 700;
 }
 
+.attention-layout {
+  display: grid;
+  gap: 22px;
+}
+
+.attention-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.attention-metric {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fffaf6;
+}
+
+.attention-metric-value {
+  color: var(--ink);
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.attention-metric-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.attention-metric-urgent {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: #fff7f7;
+}
+
+.attention-metric-upcoming {
+  border-color: rgba(217, 119, 6, 0.35);
+  background: #fffbeb;
+}
+
+.attention-section {
+  display: grid;
+  gap: 12px;
+}
+
+.attention-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attention-section-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.attention-pill-overdue {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.attention-pill-urgent {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.attention-pill-upcoming {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.attention-pill-later,
+.attention-pill-missing {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
 .receipt-card {
   max-width: 720px;
   min-height: 0;
@@ -4527,13 +4609,61 @@ input:focus {
   font-size: 1.05rem;
 }
 
+.agreement-markdown-terms {
+  display: grid;
+  gap: 12px;
+}
+
+.agreement-markdown-terms h2,
+.agreement-markdown-terms h3 {
+  margin: 12px 0 0;
+  color: #2c211b;
+}
+
+.agreement-markdown-terms h2 {
+  font-size: 1.15rem;
+}
+
+.agreement-markdown-terms h3 {
+  font-size: 1.05rem;
+}
+
 .agreement-terms p {
   margin: 0;
+}
+
+.agreement-markdown-terms ul,
+.agreement-markdown-terms ol {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.agreement-markdown-terms li {
+  margin: 3px 0;
+  color: #4d3a31;
+  line-height: 1.5;
+}
+
+.agreement-markdown-emphasis {
+  font-style: italic;
 }
 
 .agreement-services-table th,
 .agreement-services-table td {
   white-space: normal;
+}
+
+.agreement-service-name {
+  font-weight: 800;
+}
+
+.agreement-service-description {
+  margin: 6px 0 0;
+  max-width: 52rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .agreement-totals {
@@ -4611,6 +4741,32 @@ input:focus {
   gap: 12px;
 }
 
+.agreement-terms-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.agreement-terms-markdown-input {
+  min-height: 240px;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.agreement-dates-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.agreement-dates-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
 .agreement-services-editor-header {
   display: flex;
   align-items: center;
@@ -4625,8 +4781,8 @@ input:focus {
 
 .agreement-service-row {
   display: grid;
-  grid-template-columns: 110px minmax(180px, 1fr) minmax(120px, 150px) minmax(120px, 150px) auto;
-  gap: 10px;
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, 180px) minmax(150px, 180px) minmax(104px, auto);
+  gap: 14px;
   align-items: end;
   padding: 12px;
   border: 1px solid var(--border);
@@ -4634,12 +4790,38 @@ input:focus {
   background: #fffaf6;
 }
 
-.agreement-service-check {
-  align-self: center;
+.agreement-service-description-field {
+  grid-column: 1 / 4;
 }
 
-.agreement-service-check input {
-  margin-right: 6px;
+.agreement-service-row label {
+  min-width: 0;
+}
+
+.agreement-service-row .manufacturer-input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.agreement-service-row textarea.manufacturer-input {
+  min-height: 96px;
+  color: var(--ink);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.agreement-service-row .ghost-button {
+  white-space: nowrap;
+}
+
+.agreement-computed-cost {
+  display: flex;
+  align-items: center;
+  min-height: 43px;
+  padding: 0 2px 1px;
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .agreement-email-actions {
@@ -4648,6 +4830,16 @@ input:focus {
   gap: 8px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+}
+
+.agreement-danger-section {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  border-radius: 8px;
+  background: #fff7f7;
 }
 
 .agreement-acceptance-section {
@@ -4811,9 +5003,23 @@ input:focus {
     grid-template-columns: 1fr;
   }
 
+  .attention-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attention-section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .agreement-create-grid,
+  .agreement-dates-grid,
   .agreement-service-row {
     grid-template-columns: 1fr;
+  }
+
+  .agreement-service-description-field {
+    grid-column: 1;
   }
 
   .agreement-services-editor-header {
