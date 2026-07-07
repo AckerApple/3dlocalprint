@@ -667,12 +667,13 @@ const normalizeAgreementServices = (items: unknown): AgreementServiceItem[] =>
       const raw = item as Record<string, unknown>;
       const label = String(raw.label || "").trim();
       if (!label) return null;
+      const monthlyValue = Math.max(0, Math.round(Number(raw.monthlyValue) || 0));
       return {
         label,
         description: String(raw.description || "").trim(),
         included: Boolean(raw.included),
-        monthlyValue: Math.max(0, Math.round(Number(raw.monthlyValue) || 0)),
-        yearlyCost: Math.max(0, Math.round(Number(raw.yearlyCost) || 0)),
+        monthlyValue,
+        yearlyCost: monthlyValue * 12,
       };
     })
     .filter((item): item is AgreementServiceItem => Boolean(item));

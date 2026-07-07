@@ -441,7 +441,7 @@ export const LedgerEntryModal = tag(({
         .class`add-button`
         .disabled(() => isSaving || isDeleting)
         .onClick(() => onSave())(
-          isSaving ? "Saving..." : "Save"
+          isSaving ? "⏳ Saving..." : "☁️ Save"
         )
       )
     ];

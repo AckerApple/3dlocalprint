@@ -1040,7 +1040,7 @@ export const ProductsApp = tag(() => [
                 .class`add-button`
                 .disabled(_=> ui?.isSaving ?? false)
                 .onClick(saveModalProduct)(
-                _=> (ui?.isSaving ? "Saving..." : "Save Product")
+                _=> (ui?.isSaving ? "⏳ Saving..." : "☁️ Save Product")
               )
             )
           );

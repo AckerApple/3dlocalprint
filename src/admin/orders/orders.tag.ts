@@ -251,12 +251,15 @@ const getCloseOrderUrl = () =>
 const getSelectedOrder = () =>
   orders$.find((order) => order.id === selectedOrderId) || null;
 
+const refreshOrderModal = () =>
+  orderModal$.next((Number(orderModal$.value) || 0) + 1);
+
 const openOrderModal = (orderId: string, updateUrl = true) => {
   selectedOrderId = orderId;
   if (updateUrl) {
     syncOrderUrl(orderId);
   }
-  orderModal$.next((Number(orderModal$.value) || 0) + 1);
+  refreshOrderModal();
 };
 
 const closeOrderModal = (updateUrl = true) => {
@@ -264,7 +267,7 @@ const closeOrderModal = (updateUrl = true) => {
   if (updateUrl) {
     syncOrderUrl("");
   }
-  orderModal$.next((Number(orderModal$.value) || 0) + 1);
+  refreshOrderModal();
 };
 
 const syncModalFromUrl = () => {
@@ -284,11 +287,17 @@ const onOrderRowKeyDown = (event: KeyboardEvent, orderId: string) => {
   openOrderModal(orderId);
 };
 
-const DetailItem = (label: string, value = "") =>
-  div.class`orders-detail-item`(
-    span.class`orders-detail-label`(label),
-    span.class`orders-detail-value`(value || "—")
-  );
+const DetailItem = tag((
+  label: string,
+  value = "",
+) => {
+  DetailItem.updates(x => [label, value] = x)
+
+  return div.class`orders-detail-item`(
+    span.class`orders-detail-label`(_=> label),
+    span.class`orders-detail-value`(_=> value || "—")
+  )
+});
 
 const DetailLink = (label: string, value = "", href = "") =>
   div.class`orders-detail-item`(
@@ -623,43 +632,44 @@ const OrderDetailModal = () =>
                   ? p.class`orders-email-status`(_=> resendEmailStatusText)
                   : null
               ),
-              div.class`orders-detail-section orders-detail-section-wide orders-info-section`(
-                h2.class`orders-detail-section-title`("Close Order"),
-                p.class`orders-meta`("Mark this order closed in admin. This does not refund, void, or cancel anything in Stripe."),
-                div.class`orders-detail-actions`(
-                  button
-                    .type`button`
-                    .class`ghost-button`
-                    .disabled(_=> order.status === "closed" || closeOrderLoadingId === order.id)
-                    .onClick(() => closeOrder(order))(
-                    _=> order.status === "closed"
-                      ? "Order closed"
-                      : closeOrderLoadingId === order.id
-                        ? "Closing..."
-                        : "Close order"
+              _=> !['canceled', 'closed'].includes(order.status) && 
+                div.class`orders-detail-section orders-detail-section-wide orders-info-section`(
+                  h2.class`orders-detail-section-title`("Close Order"),
+                  p.class`orders-meta`("Mark this order closed in admin. This does not refund, void, or cancel anything in Stripe."),
+                  div.class`orders-detail-actions`(
+                    button
+                      .type`button`
+                      .class`ghost-button`
+                      .disabled(_=> order.status === "closed" || closeOrderLoadingId === order.id)
+                      .onClick(() => closeOrder(order))(
+                      _=> order.status === "closed"
+                        ? "Order closed"
+                        : closeOrderLoadingId === order.id
+                          ? "Closing..."
+                          : "Close order"
+                    )
                   )
-                )
-              ),
-              div.class`orders-detail-section orders-detail-section-wide orders-danger-section`(
-                h2.class`orders-detail-section-title`("Cancel Order"),
-                p.class`orders-meta`("Mark this order canceled in admin. This does not refund, void, or cancel anything in Stripe."),
-                div.class`orders-detail-actions`(
-                  button
-                    .type`button`
-                    .class`ghost-button delete-button`
-                    .disabled(_=> order.status === "canceled" || cancelOrderLoadingId === order.id)
-                    .onClick(() => cancelOrder(order))(
-                    _=> order.status === "canceled"
-                      ? "Order canceled"
-                      : cancelOrderLoadingId === order.id
-                        ? "Canceling..."
-                        : "Cancel order"
+                ),
+              _=> !['canceled', 'closed'].includes(order.status) && 
+                div.class`orders-detail-section orders-detail-section-wide orders-danger-section`(
+                  h2.class`orders-detail-section-title`("Cancel Order"),
+                  p.class`orders-meta`("Mark this order canceled in admin. This does not refund, void, or cancel anything in Stripe."),
+                  div.class`orders-detail-actions`(
+                    button
+                      .type`button`
+                      .class`ghost-button delete-button`
+                      .disabled(_=> order.status === "canceled" || cancelOrderLoadingId === order.id)
+                      .onClick(() => cancelOrder(order))(
+                      _=> order.status === "canceled"
+                        ? "Order canceled"
+                        : cancelOrderLoadingId === order.id
+                          ? "Canceling..."
+                          : "Cancel order"
+                    )
                   )
-                )
-              ),
+                ),
               isTestOrder(order)
                 ? div.class`orders-detail-section orders-detail-section-wide orders-danger-section`(
-                    h2.class`orders-detail-section-title`("Test Order"),
                     p.class`orders-meta`("Delete this test order from the admin list. Live orders cannot be deleted here."),
                     div.class`orders-detail-actions`(
                       button
@@ -667,7 +677,7 @@ const OrderDetailModal = () =>
                         .class`ghost-button delete-button`
                         .disabled(_=> deleteOrderLoadingId === order.id)
                         .onClick(() => deleteTestOrder(order))(
-                        _=> deleteOrderLoadingId === order.id ? "Deleting..." : "Delete test order"
+                        _=> deleteOrderLoadingId === order.id ? "Deleting..." : "🗑️ Delete test order"
                       )
                     )
                   )
@@ -907,6 +917,8 @@ const adminShell = startAdminAppShell({
           syncModalFromUrl();
         } else if (!selectedOrderId && getOrderIdFromUrl()) {
           syncModalFromUrl();
+        } else if (selectedOrderId) {
+          refreshOrderModal();
         }
         if (authState.isAuthorized) {
           mountApp();

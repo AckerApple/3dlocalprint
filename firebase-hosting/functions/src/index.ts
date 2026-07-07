@@ -1501,12 +1501,13 @@ function normalizeAgreementServiceItems(value: unknown): AgreementServiceItem[] 
       const raw = item as Record<string, unknown>;
       const label = normalizeString(raw.label, 120);
       if (!label) return null;
+      const monthlyValue = Math.max(0, Math.round(Number(raw.monthlyValue) || 0));
       return {
         label,
         description: normalizeString(raw.description, 700) || getDefaultAgreementServiceDescription(label),
         included: Boolean(raw.included),
-        monthlyValue: Math.max(0, Math.round(Number(raw.monthlyValue) || 0)),
-        yearlyCost: Math.max(0, Math.round(Number(raw.yearlyCost) || 0)),
+        monthlyValue,
+        yearlyCost: monthlyValue * 12,
       };
     })
     .filter((item): item is AgreementServiceItem => Boolean(item));
@@ -1538,10 +1539,7 @@ function buildCustomWebsiteServicesAgreement(
   fallbackEnd.setDate(fallbackEnd.getDate() - 1);
   const services = normalizeAgreementServiceItems(input.services);
   const includedServices = services.filter((service) => service.included);
-  const yearlyAmount = Math.max(
-    1,
-    Math.round(Number(input.yearlyAmount) || includedServices.reduce((total, service) => total + service.yearlyCost, 0))
-  );
+  const yearlyAmount = includedServices.reduce((total, service) => total + service.yearlyCost, 0);
   const clientBusiness = normalizeString(input.clientBusiness, 160);
   if (!clientBusiness) {
     throw new Error("client_business_required");
@@ -1599,10 +1597,7 @@ function buildWebsiteServicesAgreementEditableFields(input: Record<string, unkno
   fallbackEnd.setDate(fallbackEnd.getDate() - 1);
   const services = normalizeAgreementServiceItems(input.services);
   const includedServices = services.filter((service) => service.included);
-  const yearlyAmount = Math.max(
-    1,
-    Math.round(Number(input.yearlyAmount) || includedServices.reduce((total, service) => total + service.yearlyCost, 0))
-  );
+  const yearlyAmount = includedServices.reduce((total, service) => total + service.yearlyCost, 0);
   const clientBusiness = normalizeString(input.clientBusiness, 160);
   if (!clientBusiness) {
     throw new Error("client_business_required");

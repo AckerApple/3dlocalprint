@@ -54,7 +54,6 @@ type AgreementDraft = {
   paymentDueDate: string;
   serviceStartDate: string;
   serviceEndDate: string;
-  yearlyAmount: string;
   currency: string;
   termsMarkdown: string;
   services: AgreementServiceDraft[];
@@ -98,7 +97,6 @@ const createAgreementDraft = (): AgreementDraft => {
     paymentDueDate: today,
     serviceStartDate: today,
     serviceEndDate: addYearMinusDay(today),
-    yearlyAmount: "240.00",
     currency: "usd",
     termsMarkdown: "",
     services: [
@@ -303,6 +301,9 @@ const centsToDollars = (value = 0) => (Math.max(0, Math.round(Number(value) || 0
 const getServiceYearlyCost = (service: AgreementServiceDraft) =>
   dollarsToCents(service.monthlyValue) * 12;
 
+const getAgreementYearlyAmount = (agreementDraft: AgreementDraft) =>
+  agreementDraft.services.reduce((total, service) => total + getServiceYearlyCost(service), 0);
+
 const getDefaultServiceDescription = (label = "") => {
   const normalizedLabel = label.toLowerCase();
   if (normalizedLabel.includes("email")) {
@@ -332,7 +333,6 @@ const agreementToDraft = (agreement: AgreementRecord): AgreementDraft => ({
   paymentDueDate: agreement.paymentDueDate || todayDate(),
   serviceStartDate: agreement.serviceStartDate || todayDate(),
   serviceEndDate: agreement.serviceEndDate || addYearMinusDay(agreement.serviceStartDate || todayDate()),
-  yearlyAmount: centsToDollars(agreement.yearlyAmount || agreement.amountTotal),
   currency: agreement.currency || "usd",
   termsMarkdown: agreement.termsMarkdown || "",
   services: (agreement.services?.length ? agreement.services : createAgreementDraft().services).map((service) => ({
@@ -505,7 +505,6 @@ const saveAgreement = async () => {
         ...agreementDraft,
         agreementId: currentUi.editingAgreementId,
         sourceUrl: window.location.origin,
-        yearlyAmount: dollarsToCents(agreementDraft.yearlyAmount),
         currency: agreementDraft.currency.trim().toLowerCase() || "usd",
         services,
       }),
@@ -802,13 +801,7 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
       ),
       label(
         "Yearly amount",
-        input
-          .class`manufacturer-input`
-          .type`number`
-          .attr("min", "0.01")
-          .attr("step", "0.01")
-          .value(_=> agreementDraft.yearlyAmount)
-          .onInput((event) => updateDraft({ yearlyAmount: String(event.target.value || "") }))()
+        span.class`agreement-computed-cost`(_=> formatMoney(getAgreementYearlyAmount(agreementDraft), agreementDraft.currency))
       )
     ),
     div.class`agreement-dates-section`(
@@ -862,7 +855,7 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
       _=> agreementDraft.services.map((service, index) =>
         div.class`agreement-service-row`(
           label(
-            "Service",
+            `Service ${index + 1}`,
             input
               .class`manufacturer-input`
               .type`text`
@@ -925,7 +918,7 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
         .class`add-button`
         .disabled(_=> createLoading || deleteAgreementLoading)
         .onClick(saveAgreement)(
-        _=> createLoading ? "Saving..." : ui.modalMode === "edit" ? "Save agreement" : "Create agreement"
+        _=> createLoading ? "⏳ Saving..." : ui.modalMode === "edit" ? "☁️ Save agreement" : "Create agreement"
       )
     ),
     _=> ui.modalMode === "edit"

@@ -456,7 +456,7 @@ export const FilamentTypesApp = tag(() => {
             item: addTypeDraft,
             isAddMode: true,
             onSave: saveAddTypeFromModal,
-            saveLabel: addTypeIsSaving ? "Saving..." : "💾 Save type",
+            saveLabel: addTypeIsSaving ? "⏳ Saving..." : "☁️ Save type",
             saveDisabled: addTypeIsSaving,
             onCancelAdd: cancelAddTypeModal,
             currentUser,

@@ -20,10 +20,13 @@ const ensureRoot = () => {
   if (root.parentElement !== document.body) {
     document.body.appendChild(root);
   }
-  const showPopover = (root as HTMLElement & { showPopover?: () => void }).showPopover;
-  if (showPopover && !root.matches(":popover-open")) {
+  const toastRoot = root as HTMLElement & { hidePopover?: () => void; showPopover?: () => void };
+  if (toastRoot.showPopover) {
     try {
-      showPopover.call(root);
+      if (root.matches(":popover-open") && toastRoot.hidePopover) {
+        toastRoot.hidePopover();
+      }
+      toastRoot.showPopover();
     } catch (error) {
       console.warn("Toast popover failed, falling back to fixed root", error);
     }

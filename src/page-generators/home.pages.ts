@@ -130,22 +130,22 @@ export const homeLandingPage = ({ assetPrefix = "./", siteKey = "local" as SiteK
       ),
       section.class`home-grid`(
         div.class`home-card`(
-          h2("Learn the craft"),
+          h2("🧠 Learn the craft"),
           p("See how ideas become models, how prints are tuned, and how finishes are made."),
           div.class`home-card-tag`("Workshops + demos")
         ),
         div.class`home-card`(
-          h2("Paint night today"),
+          h2("🎨 Paint night today"),
           p("Grab a printed piece, choose your colors, and make it yours with a guided paint setup."),
           div.class`home-card-tag`("Brushes + palettes")
         ),
         div.class`home-card`(
-          h2("Assemble together"),
+          h2("🧩 Assemble together"),
           p("Fit parts, snap joints, and finish builds with friendly help on site."),
           div.class`home-card-tag`("Hands-on assembly")
         ),
         div.class`home-card`(
-          h2("Shop the merch"),
+          h2("🛍️ Shop the merch"),
           p("Take home displays, gadgets, and custom pieces designed to show off local talent."),
           div.class`home-card-tag`("Local creators")
         )
