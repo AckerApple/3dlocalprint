@@ -42,6 +42,37 @@ if (orderId) {
   clearCart();
 }
 
+const refreshReceipt = () => {
+  receiptRender$[0] = { version: Number(receiptRender$[0]?.version || 0) + 1 };
+};
+
+const getEmailFromPublicOrderUrl = (publicOrderUrl = "") => {
+  try {
+    return String(new URL(publicOrderUrl).searchParams.get("email") || "").trim();
+  } catch {
+    return "";
+  }
+};
+
+const loadPublicOrder = async (email = "") => {
+  const lookupEmail = String(email || receiptEmail || "").trim();
+  if (!orderId || !lookupEmail || receiptOrder) return;
+
+  const requestParams = new URLSearchParams({ orderId, email: lookupEmail });
+  const response = await fetchApiWithFallback(
+    `/api/public/order?${requestParams.toString()}`,
+    "getPublicOrder"
+  );
+  if (!response.ok) {
+    console.warn("Failed to load receipt order details", { response });
+    return;
+  }
+
+  const payload = await response.json();
+  receiptOrder = payload?.order || null;
+  refreshReceipt();
+};
+
 const loadPublicOrderUrl = async (attempt = 1) => {
   if (!orderId || !sessionId) return;
   try {
@@ -58,8 +89,14 @@ const loadPublicOrderUrl = async (attempt = 1) => {
     }
     const payload = await response.json();
     receiptEmail = String(payload?.customerEmail || "").trim();
+    if (!receiptEmail) {
+      receiptEmail = getEmailFromPublicOrderUrl(String(payload?.publicOrderUrl || ""));
+    }
     receiptOrder = payload?.order || null;
-    receiptRender$[0] = { version: Number(receiptRender$[0]?.version || 0) + 1 };
+    refreshReceipt();
+    if (!receiptOrder) {
+      await loadPublicOrder(receiptEmail);
+    }
   } catch (error) {
     console.warn("Failed to load receipt order link", error);
   }

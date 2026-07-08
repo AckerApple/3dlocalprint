@@ -46,6 +46,40 @@ const functionProxyErrorHandler = (proxy, _options) => {
   });
 };
 
+const taggedJsSourceMapStripPlugin = {
+  name: "taggedjs-strip-broken-source-map-references",
+  enforce: "pre",
+  load(id) {
+    const normalizedId = id.split("?")[0].replaceAll("\\", "/");
+    if (!isTaggedJsDistFile(normalizedId)) {
+      return null;
+    }
+
+    return stripSourceMapReference(readFileSync(normalizedId, "utf-8"));
+  },
+  transform(code, id) {
+    const normalizedId = id.split("?")[0].replaceAll("\\", "/");
+    if (!isTaggedJsDistFile(normalizedId)) {
+      return null;
+    }
+
+    return {
+      code: stripSourceMapReference(code),
+      map: null,
+    };
+  },
+};
+
+const isTaggedJsDistFile = (id) =>
+  id.endsWith(".js") &&
+  (
+    id.includes("/node_modules/taggedjs/js/") ||
+    id.includes("/web/taggedjs/main/dist/js/")
+  );
+
+const stripSourceMapReference = (code) =>
+  code.replace(/\n?\/\/# sourceMappingURL=[^\n\r]+(?:\r?\n)?$/u, "\n");
+
 const productSlugRewritePlugin = {
   name: "product-slug-rewrite",
   configureServer(server) {
@@ -207,7 +241,7 @@ export default defineConfig(({ mode }) => {
   const activeSiteKey = mode === "pet" || siteKey === "pet" ? "pet" : "local";
 
   return {
-  plugins: [productSlugRewritePlugin, siteIndexPlugin(activeSiteKey)],
+  plugins: [taggedJsSourceMapStripPlugin, productSlugRewritePlugin, siteIndexPlugin(activeSiteKey)],
   base: "./",
   root: "src",
   envDir: "..",
