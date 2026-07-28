@@ -18,6 +18,44 @@ export type AlertTemplateCatalogItem = {
 export const alertTemplateCatalog: AlertTemplateCatalogItem[] = 
 [
   {
+    "id": "internal-organization-checkout-request",
+    "name": "Internal Organizational Checkout Request",
+    "audience": "internal",
+    "trigger": "Sent to service when an organization submits a tax-exempt checkout request.",
+    "sourceFunction": "buildOrganizationCheckoutRequestEmail",
+    "sampleInput": {
+      "requestId": "orgreq_sample_123",
+      "organizationName": "Sample Elementary PTA",
+      "organizationType": "PTA",
+      "contactName": "Sample Treasurer",
+      "contactEmail": "treasurer@example.org",
+      "phone": "555-0100",
+      "exemptionCertificateNumber": "85-8012345678C-0",
+      "certificateExpirationDate": "2027-06-30",
+      "intendedUse": "Purchase printed classroom organizers and event supplies using PTA funds.",
+      "adminReviewUrl": "https://3dlocalprint.com/admin/organization-checkout/index.html?requestId=orgreq_sample_123",
+      "createdAt": "2026-07-23T12:00:00.000Z"
+    },
+    "variables": [
+      "adminReviewUrl",
+      "certificateExpirationDate",
+      "contactEmail",
+      "contactName",
+      "createdAt",
+      "exemptionCertificateNumber",
+      "intendedUse",
+      "organizationName",
+      "organizationType",
+      "phone",
+      "requestId"
+    ],
+    "rendered": {
+      "subject": "Organizational checkout request orgreq_sample_123 - Sample Elementary PTA",
+      "text": "Request: orgreq_sample_123\nCreated: 2026-07-23T12:00:00.000Z\nOrganization: Sample Elementary PTA\nType: PTA\nContact: Sample Treasurer · treasurer@example.org · 555-0100\nCertificate: 85-8012345678C-0\nCertificate expiration: 2027-06-30\n\nIntended use:\nPurchase printed classroom organizers and event supplies using PTA funds.\n\nReview request: https://3dlocalprint.com/admin/organization-checkout/index.html?requestId=orgreq_sample_123",
+      "html": "\n    <div style=\"margin:0;background:#fff7f1;font-family:Arial,Helvetica,sans-serif;color:#2c211b;\">\n      <div style=\"max-width:680px;margin:0 auto;padding:28px 18px;\">\n        <div style=\"background:#ffffff;border:1px solid #f1d8c9;border-radius:14px;overflow:hidden;\">\n          <div style=\"background:#de6a2e;padding:24px 26px;color:#ffffff;\">\n            <div style=\"font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;\">3D Local Print</div>\n            <h1 style=\"margin:8px 0 0;font-size:28px;line-height:1.2;\">Organizational checkout request</h1>\n            <div style=\"margin-top:10px;font-size:16px;\">Sample Elementary PTA</div>\n          </div>\n          <div style=\"padding:24px 26px;\">\n            <h2 style=\"margin:0 0 8px;font-size:18px;\">Organization</h2>\n            <p style=\"margin:0 0 18px;line-height:1.55;\">Sample Elementary PTA · PTA</p>\n            <h2 style=\"margin:0 0 8px;font-size:18px;\">Contact</h2>\n            <p style=\"margin:0 0 18px;line-height:1.55;\">Sample Treasurer<br>treasurer@example.org<br>555-0100</p>\n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;background:#fffaf6;border:1px solid #f1e2d8;margin:0 0 20px;\">\n              <tr><td style=\"padding:12px 14px;color:#7b6255;\">Certificate</td><td style=\"padding:12px 14px;font-weight:700;\">85-8012345678C-0</td></tr>\n              <tr><td style=\"padding:12px 14px;color:#7b6255;\">Expires</td><td style=\"padding:12px 14px;\">2027-06-30</td></tr>\n            </table>\n            <h2 style=\"margin:0 0 8px;font-size:18px;\">Intended use</h2>\n            <p style=\"white-space:pre-wrap;margin:0 0 22px;line-height:1.55;\">Purchase printed classroom organizers and event supplies using PTA funds.</p>\n            <a href=\"https://3dlocalprint.com/admin/organization-checkout/index.html?requestId=orgreq_sample_123\" style=\"display:inline-block;background:#de6a2e;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 16px;font-weight:700;\">Review organizational request</a>\n          </div>\n        </div>\n      </div>\n    </div>\n  "
+    }
+  },
+  {
     "id": "internal-order-notification",
     "name": "Internal Order Notification",
     "audience": "internal",

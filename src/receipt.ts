@@ -1,5 +1,6 @@
 import { clearCart } from "./cart-store.js";
 import { fetchApiWithFallback } from "./api-url.js";
+import { loadProducts } from "./admin/shared/firebase.js";
 import {
   tag,
   tagElement,
@@ -21,6 +22,7 @@ const orderId = String(params.get("order_id") || "").trim();
 const sessionId = String(params.get("session_id") || "").trim();
 let receiptEmail = "";
 type ReceiptLineItem = {
+  productId?: string;
   title?: string;
   quantity?: number;
   unitAmount?: number;
@@ -36,6 +38,8 @@ type ReceiptOrderSummary = {
   currency?: string;
 };
 let receiptOrder: ReceiptOrderSummary | null = null;
+const receiptProductSlugs = new Map<string, string>();
+const receiptProductTitleSlugs = new Map<string, string | null>();
 const receiptRender$ = array([{ version: 0 }]);
 
 if (orderId) {
@@ -44,6 +48,34 @@ if (orderId) {
 
 const refreshReceipt = () => {
   receiptRender$[0] = { version: Number(receiptRender$[0]?.version || 0) + 1 };
+};
+
+const normalizeProductTitle = (value = "") =>
+  String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+
+const loadReceiptProductLinks = async () => {
+  try {
+    const products = await loadProducts();
+    (Array.isArray(products) ? products : [])
+      .filter((product) => Boolean(product?.active))
+      .forEach((product) => {
+        const productId = String(product?.id || "").trim();
+        const slug = String(product?.slug || productId).trim();
+        const normalizedTitle = normalizeProductTitle(product?.title);
+        if (productId && slug) {
+          receiptProductSlugs.set(productId, slug);
+        }
+        if (normalizedTitle && slug) {
+          receiptProductTitleSlugs.set(
+            normalizedTitle,
+            receiptProductTitleSlugs.has(normalizedTitle) ? null : slug
+          );
+        }
+      });
+    refreshReceipt();
+  } catch (error) {
+    console.warn("Failed to load receipt product links", error);
+  }
 };
 
 const getEmailFromPublicOrderUrl = (publicOrderUrl = "") => {
@@ -129,7 +161,7 @@ const ReceiptContent = () =>
       h3("Be sure to try these services"),
       div.class`receipt-actions receipt-page-actions`(
         a.class`ghost-button`.href("./products.html")("Products"),
-        a.class`add-button`.href("./print-model-link.html")("Print By Link")
+        a.class`add-button`.href("./print-model-link.html")("🔗 Print By Link")
       )
     ),
   ];
@@ -146,12 +178,22 @@ const ReceiptItems = (order: ReceiptOrderSummary | null) => {
   const currency = String(order?.currency || items[0]?.currency || "usd");
   const lineTotal = (item: ReceiptLineItem) =>
     Number(item.amountTotal) || ((Number(item.unitAmount) || 0) * (Number(item.quantity) || 0));
+  const lineLabel = (item: ReceiptLineItem) => {
+    const label = `${item.title || "Item"} x ${Number(item.quantity) || 0}`;
+    const slug =
+      receiptProductSlugs.get(String(item.productId || "").trim()) ||
+      receiptProductTitleSlugs.get(normalizeProductTitle(item.title)) ||
+      "";
+    return slug
+      ? a.class`receipt-product-link`.href(`./product/${encodeURIComponent(slug)}`)(label)
+      : span(label);
+  };
   return div.class`public-order-section receipt-items-section`(
     h3("Items"),
     div.class`public-order-lines`(
       items.map((item, index) =>
         div.class`public-order-line`(
-          span(`${item.title || "Item"} x ${Number(item.quantity) || 0}`),
+          lineLabel(item),
           strong(formatMoney(lineTotal(item), String(item.currency || currency)))
         ).key(`${item.title || "item"}-${index}`)
       )
@@ -176,5 +218,10 @@ const mountReceipt = () => {
   tagElement(ReceiptApp, root);
 };
 
-mountReceipt();
-loadPublicOrderUrl();
+const initializeReceipt = async () => {
+  await loadReceiptProductLinks();
+  mountReceipt();
+  loadPublicOrderUrl();
+};
+
+initializeReceipt();

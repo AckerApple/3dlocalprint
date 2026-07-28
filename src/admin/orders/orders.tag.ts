@@ -1,4 +1,4 @@
-import { auth as firebaseAuth, subscribeOrders } from "../shared/firebase.js";
+import { auth as firebaseAuth, loadProducts, subscribeOrders } from "../shared/firebase.js";
 import {
   tag,
   label,
@@ -54,6 +54,7 @@ let resendEmailStatusText = "";
 let deleteOrderLoadingId = "";
 let cancelOrderLoadingId = "";
 let closeOrderLoadingId = "";
+let orderProductLinksLoaded = false;
 let orderIdFilter = "";
 let orderEmailFilter = "";
 let orderTestFilter: "all" | "test" | "live" = "all";
@@ -175,6 +176,69 @@ const getPublicOrderHref = (order: OrderRecord) => {
 };
 
 const getAgreementHref = (order: OrderRecord) => order.agreementPublicUrl || "";
+
+const orderProductSlugs = new Map<string, string>();
+const orderProductTitleSlugs = new Map<string, string | null>();
+const orderProductTitleIds = new Map<string, string | null>();
+const orderProductIds = new Set<string>();
+
+const normalizeProductTitle = (value = "") =>
+  String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+
+const loadOrderProductLinks = async () => {
+  if (orderProductLinksLoaded) return;
+  orderProductLinksLoaded = true;
+  try {
+    const products = await loadProducts();
+    (Array.isArray(products) ? products : [])
+      .forEach((product) => {
+        const productId = String(product?.id || "").trim();
+        const slug = String(product?.slug || productId).trim();
+        const normalizedTitle = normalizeProductTitle(product?.title);
+        if (productId) {
+          orderProductIds.add(productId);
+        }
+        if (productId && slug && product?.active) {
+          orderProductSlugs.set(productId, slug);
+        }
+        if (normalizedTitle && slug && product?.active) {
+          orderProductTitleSlugs.set(
+            normalizedTitle,
+            orderProductTitleSlugs.has(normalizedTitle) ? null : slug
+          );
+        }
+        if (normalizedTitle && productId) {
+          orderProductTitleIds.set(
+            normalizedTitle,
+            orderProductTitleIds.has(normalizedTitle) ? null : productId
+          );
+        }
+      });
+    refreshOrderModal();
+  } catch (error) {
+    orderProductLinksLoaded = false;
+    console.warn("Failed to load order product links", error);
+  }
+};
+
+const getProductHref = (productId = "", title = "") => {
+  const slug =
+    orderProductSlugs.get(String(productId || "").trim())
+    || orderProductTitleSlugs.get(normalizeProductTitle(title))
+    || "";
+  return slug ? `../../product/${encodeURIComponent(slug)}` : "";
+};
+
+const getProductAdminHref = (productId = "", title = "") => {
+  const normalizedProductId = String(productId || "").trim();
+  const resolvedProductId =
+    (normalizedProductId && orderProductIds.has(normalizedProductId) ? normalizedProductId : "")
+    || orderProductTitleIds.get(normalizeProductTitle(title))
+    || "";
+  return resolvedProductId
+    ? `../products/index.html?productId=${encodeURIComponent(resolvedProductId)}`
+    : "";
+};
 
 const getFilteredOrders = (orders: OrderRecord[]) => {
   const idNeedle = orderIdFilter.trim().toLowerCase();
@@ -547,16 +611,27 @@ const OrderDetailModal = () =>
                 h2.class`orders-detail-section-title`("Items"),
                 order.lineItems.length
                   ? div.class`orders-detail-lines`(
-                      order.lineItems.map((item) =>
-                        div.class`orders-detail-line`(
-                          span.class`orders-detail-line-title`(item.title),
+                      order.lineItems.map((item) => {
+                        const productHref = getProductHref(item.productId, item.title);
+                        const productAdminHref = getProductAdminHref(item.productId, item.title);
+                        return div.class`orders-detail-line`(
+                          productHref
+                            ? a
+                                .class`orders-detail-line-title orders-detail-line-link`
+                                .href(productHref)(item.title)
+                            : span.class`orders-detail-line-title`(item.title),
                           span.class`orders-detail-line-meta`(
                             `qty ${item.quantity}`,
                             item.productId ? ` · product ${item.productId}` : "",
                             item.variationId ? ` · option ${item.variationId}` : ""
-                          )
-                        )
-                      )
+                          ),
+                          productAdminHref
+                            ? a
+                                .class`orders-detail-line-admin-link`
+                                .href(productAdminHref)("Edit product")
+                            : null
+                        );
+                      })
                     )
                   : p.class`orders-meta`("No line items recorded.")
               ),
@@ -610,6 +685,15 @@ const OrderDetailModal = () =>
                     : null*/
                 )
               ),
+              order.taxExemptCustomer
+                ? div.class`orders-detail-section orders-detail-section-wide organization-order-detail`(
+                    h2.class`orders-detail-section-title`("🏫 Tax-exempt organization order"),
+                    DetailItem("Organization", order.organizationName),
+                    DetailItem("Organization request", order.organizationCheckoutRequestId),
+                    DetailItem("Certificate number", order.exemptionCertificateNumber),
+                    DetailItem("Stripe customer", order.stripeCustomerId)
+                  )
+                : null,
               div.class`orders-detail-section orders-detail-section-wide`(
                 h2.class`orders-detail-section-title`("Resend Emails"),
                 div.class`orders-detail-actions`(
@@ -829,6 +913,9 @@ export const OrdersApp = tag(() => [
                             ),
                             isTestOrder(order)
                               ? span.class`pill orders-test-pill`("test")
+                              : null,
+                            order.taxExemptCustomer
+                              ? span.class`pill organization-tax-exempt-pill`("tax exempt")
                               : null
                           )
                         ),
@@ -910,6 +997,7 @@ const adminShell = startAdminAppShell({
   },
   onAuthorized: ({ user, authState }) => {
     currentAuthUser = user || firebaseAuth.currentUser;
+    void loadOrderProductLinks();
     if (!stopOrders) {
       stopOrders = subscribeOrders((items) => {
         orders$.splice(0, orders$.length, ...items);

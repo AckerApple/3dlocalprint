@@ -105,49 +105,107 @@ export const homeLandingPage = ({ assetPrefix = "./", siteKey = "local" as SiteK
           span.class`add-button home-print-link-cta`("Start a PRINT by LINK request")
         )
       ),
-      section.class`home-gallery`(
-        figure.class`home-figure`(
-          img
-            .src(withPrefix(assetPrefix, "assets/printer bench.png"))
-            .alt("Close-up of a 3D printer in motion")
-            .loading("lazy"),
-          figcaption("Learn, paint, assemble, and celebrate local makers together.")
+      section.class`home-about-intro panel`(
+        div.class`home-about-copy`(
+          h2.class`output-title`("Local 3D printing in Coconut Creek"),
+          p(
+            "3D Local Print is a family-run business making practical, creative, and personalized 3D printed products in Coconut Creek, Florida."
+          ),
+          p(
+            "Shop ready-made products or send us a model link for a custom print quote."
+          ),
+          a.class`ghost-button`.href(withPrefix(assetPrefix, "products.html"))("Browse products")
         ),
+        img
+          .class("home-about-image")
+          .src(withPrefix(assetPrefix, "assets/about-workshop.jpg"))
+          .alt("A bright family-run 3D printing workshop in Coconut Creek")
+          .loading("lazy")
+      ),
+      section.class`home-about-split`(
         figure.class`home-figure`(
           img
-            .src(withPrefix(assetPrefix, "assets/painting cat.png"))
-            .alt("A 3D printed cat being painted")
+            .src(withPrefix(assetPrefix, "assets/about-orders.jpg"))
+            .alt("Finished 3D printed products being prepared for customer orders")
             .loading("lazy"),
-          figcaption("Paint table favorites, ready for your colors.")
+          figcaption("Printed, checked, and prepared for customer orders.")
         ),
-        figure.class`home-figure`(
-          img
-            .src(withPrefix(assetPrefix, "assets/handshake print.png"))
-            .alt("A handshake 3D print ready for finishing")
-            .loading("lazy"),
-          figcaption("Community-made pieces, finished by hand.")
+        div.class`home-about-family home-card`(
+          h2("Made locally, handled personally"),
+          p(
+            "We print, finish, pack, and support each order as a local family business. Questions and custom requests go directly to the people making your items."
+          ),
+          a.class`ghost-button`.href("mailto:service@3dlocalprint.com")("Contact us")
         )
       ),
-      section.class`home-grid`(
-        div.class`home-card`(
-          h2("🧠 Learn the craft"),
-          p("See how ideas become models, how prints are tuned, and how finishes are made."),
-          div.class`home-card-tag`("Workshops + demos")
+    ],
+  });
+
+export const homeOrganizationCheckoutPage = ({ assetPrefix = "./" } = {}) =>
+  homeShell({
+    pageTitle: "Request Organizational Checkout - 3D Local Print",
+    description: "Apply for verified tax-exempt organizational checkout.",
+    heroLede: "Checkout for PTAs, PTOs, schools, and nonprofit organizations.",
+    assetPrefix,
+    mainClass: "home-main home-main-cart organization-request-main",
+    bodyScripts: ["organization-checkout-request.ts"],
+    mainSections: [
+      section.class`cart-page-title`(
+        h1("Request organizational checkout"),
+        p("Submit your organization and exemption certificate for review. Approval is required before tax-exempt checkout can be used."),
+        button
+          .id`organizationProcessToggle`
+          .type`button`
+          .class`ghost-button organization-process-toggle`
+          .attr("aria-expanded", "false")
+          .attr("aria-controls", "organizationProcessDetails")(
+          "How organizational checkout works"
         ),
-        div.class`home-card`(
-          h2("🎨 Paint night today"),
-          p("Grab a printed piece, choose your colors, and make it yours with a guided paint setup."),
-          div.class`home-card-tag`("Brushes + palettes")
-        ),
-        div.class`home-card`(
-          h2("🧩 Assemble together"),
-          p("Fit parts, snap joints, and finish builds with friendly help on site."),
-          div.class`home-card-tag`("Hands-on assembly")
-        ),
-        div.class`home-card`(
-          h2("🛍️ Shop the merch"),
-          p("Take home displays, gadgets, and custom pieces designed to show off local talent."),
-          div.class`home-card-tag`("Local creators")
+        div
+          .id`organizationProcessDetails`
+          .class`home-card organization-process-details`
+          .attr("hidden", "")(
+          h2("How the process works"),
+          p(strong("1. Submit the request. "), "Provide your organization, contact, billing, exemption certificate, and intended-purchase information."),
+          p(strong("2. We review it. "), "3D Local Print verifies the submitted certificate and may contact you if updated information is needed."),
+          p(strong("3. Approval is connected to Stripe. "), "Once approved, your organization receives a Stripe Customer record marked as tax exempt."),
+          p(strong("4. Identify the organization at checkout. "), "Select tax-exempt organizational checkout in the cart and enter the approved contact email and exemption certificate number."),
+          p(strong("5. Complete payment using organization funds. "), "The order is recorded as a tax-exempt organization order and linked to the organization’s Stripe Customer."),
+          p.class`legal-notice`("Approval only applies while the exemption documentation remains current. Purchases must be paid directly with organization funds and used for the organization’s exempt purpose.")
+        )
+      ),
+      section.class`home-card organization-request-card`(
+        form.id`organizationCheckoutRequestForm`.class`organization-request-form`(
+          h2("Organization"),
+          div.class`organization-form-grid`(
+            Field("Organization name", input.name`organizationName`.required(true).maxLength(180)),
+            Field("Organization type", input.name`organizationType`.required(true).placeholder`PTA, PTO, school, nonprofit…`),
+            Field("Contact name", input.name`contactName`.required(true)),
+            Field("Contact email", input.name`contactEmail`.type`email`.required(true)),
+            Field("Phone", input.name`phone`.type`tel`.required(true)),
+            Field("Exemption certificate number", input.name`exemptionCertificateNumber`.required(true)),
+            Field("Certificate expiration date", input.name`certificateExpirationDate`.type`date`.required(true)),
+            Field("Street address", input.name`addressLine1`.required(true)),
+            Field("Address line 2 (optional)", input.name`addressLine2`),
+            Field("City", input.name`city`.required(true)),
+            Field("State", input.name`state`.required(true).maxLength(2).value`FL`),
+            Field("ZIP code", input.name`postalCode`.required(true)),
+            Field(
+              "Exemption certificate (PDF or image, 5 MB maximum)",
+              input.name`certificate`.type`file`.required(true).attr("accept", "application/pdf,image/jpeg,image/png,image/webp")
+            )
+          ),
+          Field(
+            "What will the organization purchase?",
+            textarea.name`intendedUse`.required(true).rows(4).placeholder`Briefly describe the products or projects.`
+          ),
+          label.class`legal-checkbox-row organization-certification`(
+            input.name`certificationAccepted`.type`checkbox`.required(true),
+            span("I certify that purchases using this approval will be paid directly with organization funds and used for the organization’s exempt purpose.")
+          ),
+          p.class`legal-notice`("Submitting a certificate does not guarantee approval. We may request updated documentation. Stripe processes approved checkout payments."),
+          button.type`submit`.class`add-button organization-submit-button`("Submit request"),
+          p.id`organizationRequestStatus`.class`home-cart-note`.attr("aria-live", "polite")()
         )
       ),
     ],
@@ -572,71 +630,6 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
     ],
   });
 };
-
-export const homeAboutPage = ({ assetPrefix = "./" } = {}) =>
-  homeShell({
-    pageTitle: "About Us - 3D Local Print",
-    heroLede:
-      "A high-tech family business in Coconut Creek, Florida, building a local 3D printing shop one order, print, and customer conversation at a time.",
-    assetPrefix,
-    mainSections: [
-      section.class`cart-page-title`(
-        h1("About Us")
-      ),
-      section.class`home-about-intro panel`(
-        div.class`home-about-copy`(
-          h2.class`output-title`("Built in Coconut Creek"),
-          p(
-            "3D Local Print is a family-run business in Coconut Creek, Florida, started on January 1, 2026, and focused on practical, creative, and personalized 3D printed products."
-          ),
-          p(
-            "We are actively building the business while planning the shop, executing the setup, selling products, and taking customer orders now."
-          ),
-          a.class`ghost-button`.href(withPrefix(assetPrefix, "products.html"))("Browse products")
-        ),
-        img
-          .class("home-about-image")
-          .src(withPrefix(assetPrefix, "assets/about-workshop.jpg"))
-          .alt("A bright family-run 3D printing workshop in Coconut Creek")
-          .loading("lazy")
-      ),
-      section.class`home-about-status`(
-        div.class`home-card home-about-status-card`(
-          h3("Planning"),
-          p("We are shaping the storefront, workflows, product catalog, and customer experience around real local demand."),
-          div.class`home-card-tag`("Building up")
-        ),
-        div.class`home-card home-about-status-card`(
-          h3("Executing"),
-          p("Printers, materials, designs, finishing, and order handling are already moving from setup into daily operations."),
-          div.class`home-card-tag`("In motion")
-        ),
-        div.class`home-card home-about-status-card`(
-          h3("Selling"),
-          p("Customers can already buy from available products and place orders while the larger business rollout continues."),
-          div.class`home-card-tag`("Taking orders")
-        )
-      ),
-      section.class`home-about-split`(
-        figure.class`home-figure`(
-          img
-            .src(withPrefix(assetPrefix, "assets/about-orders.jpg"))
-            .alt("Finished 3D printed products being prepared for customer orders")
-            .loading("lazy"),
-          figcaption("Planning, making, packing, and taking real customer orders.")
-        ),
-        div.class`home-about-family home-card`(
-          h2("High-tech, family-run"),
-          p(
-            "Our work combines modern 3D printing tools with the care of a local family business. We are learning from every print, every pickup, and every custom request."
-          ),
-          p(
-            "The goal is simple: make useful, fun, and memorable 3D printed products accessible to neighbors, makers, collectors, and families nearby."
-          )
-        )
-      ),
-    ],
-  });
 
 export const homeProductsPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({

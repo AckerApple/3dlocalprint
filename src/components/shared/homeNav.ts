@@ -14,6 +14,11 @@ export const homeNav = tag(function homeNavFn(
 
       if (item.href === "cart.html") {
         link.attr("data-cart-link", "true");
+        return link(`🛒 ${item.label}`);
+      }
+
+      if (item.href === "print-model-link.html") {
+        return link(`🔗 ${item.label}`);
       }
 
       return link(item.label);

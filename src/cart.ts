@@ -33,6 +33,26 @@ const cartRender$ = new Subject<number>(0, (subscription) => {
 let cartMounted = false;
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const localStripeSandboxEngaged = LOCAL_HOSTNAMES.has(window.location.hostname);
+const stripePublishableKey = String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "").trim();
+const STRIPE_JS_URL = "https://js.stripe.com/clover/stripe.js";
+
+type EmbeddedCheckout = {
+  mount: (selector: string | HTMLElement) => void;
+  destroy: () => void;
+};
+
+type StripeClient = {
+  initEmbeddedCheckout: (options: { clientSecret: string }) => Promise<EmbeddedCheckout>;
+};
+
+declare global {
+  interface Window {
+    Stripe?: (publishableKey: string) => StripeClient;
+  }
+}
+
+let embeddedCheckout: EmbeddedCheckout | null = null;
+let stripeScriptPromise: Promise<void> | null = null;
 
 type ProductVariationView = {
   id: string;
@@ -47,16 +67,71 @@ type CartViewState = {
   statusText: string;
   checkoutLoading: boolean;
   termsAccepted: boolean;
+  organizationCheckout: boolean;
+  organizationEmail: string;
+  exemptionCertificateNumber: string;
+  verifiedOrganizationName: string;
+  organizationVerifyLoading: boolean;
+  embeddedCheckoutOpen: boolean;
 };
+
+const savedOrganizationIdentity = (() => {
+  try {
+    return JSON.parse(localStorage.getItem("organizationCheckoutIdentity") || "{}");
+  } catch {
+    return {};
+  }
+})();
 
 const cartState: CartViewState = {
   loading: true,
   products: [],
   statusText: localStripeSandboxEngaged
     ? "Local checkout will use Stripe sandbox."
-    : "Checkout is not possible while the website is under construction.",
+    : "",
   checkoutLoading: false,
   termsAccepted: false,
+  organizationCheckout: Boolean(savedOrganizationIdentity.email),
+  organizationEmail: String(savedOrganizationIdentity.email || ""),
+  exemptionCertificateNumber: String(savedOrganizationIdentity.certificateNumber || ""),
+  verifiedOrganizationName: "",
+  organizationVerifyLoading: false,
+  embeddedCheckoutOpen: false,
+};
+
+const loadStripeJs = () => {
+  if (window.Stripe) return Promise.resolve();
+  if (stripeScriptPromise) return stripeScriptPromise;
+  stripeScriptPromise = new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>(`script[src="${STRIPE_JS_URL}"]`);
+    const script = existingScript || document.createElement("script");
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener("error", () => reject(new Error("Stripe checkout could not be loaded.")), { once: true });
+    if (!existingScript) {
+      script.src = STRIPE_JS_URL;
+      script.async = true;
+      document.head.append(script);
+    }
+  });
+  return stripeScriptPromise;
+};
+
+const mountEmbeddedCheckout = async (clientSecret: string) => {
+  if (!stripePublishableKey) {
+    throw new Error("Stripe publishable key is not configured.");
+  }
+  
+  await loadStripeJs();
+  
+  if (!window.Stripe) {
+    throw new Error("Stripe checkout is unavailable.");
+  }
+  embeddedCheckout?.destroy();
+  embeddedCheckout = await window.Stripe(stripePublishableKey).initEmbeddedCheckout({ clientSecret });
+  embeddedCheckout.mount("#stripeEmbeddedCheckout");
+  console.log('Stripe attached', {
+    elm: document.getElementById('stripeEmbeddedCheckout')
+  })
 };
 
 const formatPrice = (unitAmount = 0, currency = "usd") =>
@@ -136,6 +211,8 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
       })),
       successUrl: `${window.location.origin}/receipt.html`,
       cancelUrl: `${window.location.origin}/cart.html`,
+      organizationEmail: cartState.organizationCheckout ? cartState.organizationEmail : "",
+      exemptionCertificateNumber: cartState.organizationCheckout ? cartState.exemptionCertificateNumber : "",
     }),
   });
 
@@ -145,12 +222,50 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
   }
 
   const payload = await response.json();
-  if (payload?.url) {
-    window.location.href = payload.url;
+  const clientSecret = String(payload?.clientSecret || "").trim();
+  if (clientSecret) {
+    cartState.embeddedCheckoutOpen = true;
+    setCheckoutStatus("", false);
+    renderCartView();
+    await mountEmbeddedCheckout(clientSecret);
     return;
   }
 
-  throw new Error("Checkout URL missing in response");
+  throw new Error("Embedded Checkout session missing in response");
+};
+
+const verifyOrganization = async () => {
+  cartState.organizationVerifyLoading = true;
+  cartState.verifiedOrganizationName = "";
+  setCheckoutStatus("Verifying organization…");
+  renderCartView();
+  try {
+    const response = await fetchApiWithFallback(
+      "/api/organization-checkout/verify",
+      "verifyOrganizationCheckout",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: cartState.organizationEmail,
+          certificateNumber: cartState.exemptionCertificateNumber,
+        }),
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Organization could not be verified.");
+    cartState.verifiedOrganizationName = String(payload.organizationName || "");
+    localStorage.setItem("organizationCheckoutIdentity", JSON.stringify({
+      email: cartState.organizationEmail,
+      certificateNumber: cartState.exemptionCertificateNumber,
+    }));
+    setCheckoutStatus(`Tax-exempt checkout verified for ${cartState.verifiedOrganizationName}.`);
+  } catch (error) {
+    setCheckoutStatus(error instanceof Error ? error.message : "Organization could not be verified.");
+  } finally {
+    cartState.organizationVerifyLoading = false;
+    renderCartView();
+  }
 };
 
 const renderCartView = () => {
@@ -181,7 +296,11 @@ const handleCheckout = async () => {
     await startCheckout(cart, productsById);
   } catch (error) {
     console.error(error);
+    embeddedCheckout?.destroy();
+    embeddedCheckout = null;
+    cartState.embeddedCheckoutOpen = false;
     setCheckoutStatus(error instanceof Error ? error.message : "Checkout failed", false);
+    renderCartView();
   }
 };
 
@@ -195,13 +314,6 @@ const StripeSandboxBadge = () =>
   localStripeSandboxEngaged
     ? div.class`stripe-sandbox-badge`("stripe sandbox")
     : null;
-
-const CartConstructionBanner = () =>
-  localStripeSandboxEngaged
-    ? null
-    : section.class`cart-construction-banner`(
-        p("This website is under construction. Checkout is not possible at this time.")
-      );
 
 const CartLineRow = (item: CartItem, product: ProductItem) => {
   const variation = getVariationForCart(product, item.variationId);
@@ -260,7 +372,6 @@ const CartLineRow = (item: CartItem, product: ProductItem) => {
 const CartContent = () => {
   const shellItems = [
     StripeSandboxBadge(),
-    CartConstructionBanner(),
   ];
 
   if (cartState.loading) {
@@ -331,12 +442,68 @@ const CartContent = () => {
           button
             .type`button`
             .class`add-button`
-            .disabled(_=> !localStripeSandboxEngaged || cartState.checkoutLoading || !cartState.termsAccepted)
+            .disabled(_=> !localStripeSandboxEngaged || cartState.checkoutLoading || cartState.embeddedCheckoutOpen || !cartState.termsAccepted
+              || (cartState.organizationCheckout && !cartState.verifiedOrganizationName))
             .onClick(handleCheckout)(
-            _=> cartState.checkoutLoading ? "Opening..." : "Checkout"
+            _=> cartState.checkoutLoading
+              ? "💳 Opening..."
+              : cartState.embeddedCheckoutOpen
+                ? "💳 Checkout opened below"
+                : "💳 Checkout"
           )
         ),
-        span.class`home-cart-note`(_=> cartState.statusText)
+        span.class`home-cart-note`(_=> cartState.statusText),
+        _=> {
+          return cartState.embeddedCheckoutOpen
+          ? stripePayArea()
+          : null
+        },
+        div.class`organization-checkout-box`(
+          label.class`legal-checkbox-row`(
+            input
+              .type`checkbox`
+              .checked(_=> cartState.organizationCheckout)
+              .onChange((event) => {
+                cartState.organizationCheckout = Boolean(event.target.checked);
+                cartState.verifiedOrganizationName = "";
+                renderCartView();
+              })(),
+            span("Purchasing for an approved tax-exempt organization")
+          ),
+          _=> cartState.organizationCheckout
+            ? div.class`organization-checkout-fields`(
+                label(
+                  span("Organization contact email"),
+                  input
+                    .type`email`
+                    .value(_=> cartState.organizationEmail)
+                    .onInput((event) => {
+                      cartState.organizationEmail = event.target.value;
+                      cartState.verifiedOrganizationName = "";
+                    })()
+                ),
+                label(
+                  span("Exemption certificate number"),
+                  input
+                    .value(_=> cartState.exemptionCertificateNumber)
+                    .onInput((event) => {
+                      cartState.exemptionCertificateNumber = event.target.value;
+                      cartState.verifiedOrganizationName = "";
+                    })()
+                ),
+                button
+                  .type`button`
+                  .class`ghost-button`
+                  .disabled(_=> cartState.organizationVerifyLoading || !cartState.organizationEmail || !cartState.exemptionCertificateNumber)
+                  .onClick(verifyOrganization)(
+                    _=> cartState.organizationVerifyLoading ? "Verifying…" : "Verify organization"
+                  ),
+                cartState.verifiedOrganizationName
+                  ? strong.class`organization-verified`(_=> `✓ ${cartState.verifiedOrganizationName}`)
+                  : a.class`legal-inline-link`.href("./organization-checkout.html")("Not approved yet? Request organizational checkout")
+              )
+            : null
+        )
       )
     ),
   ];
@@ -361,3 +528,19 @@ const loadCartView = async () => {
 
 window.addEventListener("cart:updated", renderCartView);
 loadCartView();
+
+const stripePayArea = tag(() => {
+  console.log('stripePayArea run')
+  
+  tag.onDestroy(() => {
+    console.log('destroy?')
+  })
+  
+  return div.class`embedded-checkout-shell`(
+    h2("Secure checkout"),
+    p.class`home-cart-note`("Payment is securely processed by Stripe without leaving this website."),
+    div
+      .id`stripeEmbeddedCheckout`
+      .class`embedded-checkout-container`
+  )
+})

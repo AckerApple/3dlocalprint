@@ -34,6 +34,10 @@ export type OrderRecord = {
   checkoutUrl: string;
   paymentIntentId: string;
   stripeCustomerId: string;
+  organizationCheckoutRequestId: string;
+  organizationName: string;
+  exemptionCertificateNumber: string;
+  taxExemptCustomer: boolean;
   latestStripeEventId: string;
   stripeMode: "sandbox" | "live" | "";
   notificationEmail: string;

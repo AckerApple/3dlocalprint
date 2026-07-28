@@ -6,7 +6,7 @@ import { filamentStandalonePage } from "../.build-html/src/page-generators/filam
 import { filamentFastEditPage } from "../.build-html/src/page-generators/filament.fast-edit.html.js";
 import {
   homeLandingPage,
-  homeAboutPage,
+  homeOrganizationCheckoutPage,
   homeProductsPage,
   homeProductDetailPage,
   homePrintModelLinkPage,
@@ -43,12 +43,17 @@ const adminOrdersDir = resolve(adminDir, "orders");
 const adminAgreementsDir = resolve(adminDir, "agreements");
 const adminLinkOrdersDir = resolve(adminDir, "link-orders");
 const adminAlertTemplatesDir = resolve(adminDir, "alert-templates");
+const adminOrganizationCheckoutDir = resolve(adminDir, "organization-checkout");
 const adminSecurityDir = resolve(adminDir, "security");
 
 const homePages = [
   {
     path: resolve(homeDir, "index.html"),
     render: () => homeLandingPage(),
+  },
+  {
+    path: resolve(homeDir, "organization-checkout.html"),
+    render: () => homeOrganizationCheckoutPage(),
   },
   {
     path: resolve(homeDir, "pet.html"),
@@ -61,10 +66,6 @@ const homePages = [
   {
     path: resolve(homeDir, "get-started.html"),
     render: () => petGetStartedPage(),
-  },
-  {
-    path: resolve(homeDir, "about.html"),
-    render: () => homeAboutPage(),
   },
   {
     path: resolve(homeDir, "products.html"),
@@ -243,6 +244,17 @@ const pages = [
         pageTitle: "Alert Templates",
         appId: "alertTemplatesApp",
         appScript: "./alert-templates.tag.ts",
+        stylePath: "../shared/styles.css",
+        versionScriptPath: "../shared/version.ts",
+      }),
+  },
+  {
+    path: resolve(adminOrganizationCheckoutDir, "index.html"),
+    render: () =>
+      filamentStandalonePage({
+        pageTitle: "Organizational Checkout",
+        appId: "organizationCheckoutAdminApp",
+        appScript: "./organization-checkout.tag.ts",
         stylePath: "../shared/styles.css",
         versionScriptPath: "../shared/version.ts",
       }),

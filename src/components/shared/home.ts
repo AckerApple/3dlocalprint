@@ -62,6 +62,9 @@ export function homeFooter(site: SiteConfig, assetPrefix = "./") {
       div.class`home-footer-tagline`(site.footerNote),
       a.class`home-footer-email`.href(`mailto:${site.contactEmail}`)(site.contactEmail),
       div.class`home-footer-policy-links`(
+        site.key === "local"
+          ? a.href(withPrefix(assetPrefix, "organization-checkout.html"))("Request organizational checkout")
+          : null,
         a.href(withPrefix(assetPrefix, "privacy.html"))("Privacy Policy"),
         a.href(withPrefix(assetPrefix, "terms.html"))("Terms of Service"),
         a.href(withPrefix(assetPrefix, "sales-policy.html"))("Sales Policy"),

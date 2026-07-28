@@ -7,6 +7,8 @@ import {
   tagElement,
   div,
   p,
+  img,
+  h1,
   h2,
   span,
   label,
@@ -130,53 +132,58 @@ const ProductDetailContent = () => {
   return [
     div.class`home-card home-product-detail-card`(
       primaryImageUrl
-        ? div
+        ? img
             .class`home-product-detail-media`
-            .style(`background-image: url("${primaryImageUrl.replace(/"/g, "%22")}")`)()
+            .src(primaryImageUrl)
+            .alt(String(product.title || "Product image"))
+            .loading("eager")
         : null,
-      descriptionText
-        ? p.class`home-product-description`(descriptionText)
-        : null,
-      categories.length
-        ? div.class`home-product-categories`(
-            categories.map((category) =>
-              span.class`home-product-category-chip`(category)
-            )
-          )
-        : null,
-      div.class`home-card-tag`(
-        _=> formatPrice(selectedVariation?.unitAmount ?? product.unitAmount, product.currency)
-      ),
-      div.class`home-product-detail-actions`(
-        variations.length
-          ? label.class`home-products-filter-label`(
-              "OPTIONS",
-              select
-                .class`manufacturer-input home-products-filter-select`
-                .value(_=> selectedVariation?.id || "")
-                .onChange((event) => {
-                  selectedVariationId = String(event.target.value || "").trim();
-                })(
-                variations.map((variation) =>
-                  option.value(variation.id)(
-                    _=> `${variation.label} - ${formatPrice(variation.unitAmount, product.currency)}`
-                  )
-                )
+      div.class`home-product-detail-info`(
+        h1.class`home-product-detail-title`(product.title),
+        descriptionText
+          ? p.class`home-product-description`(descriptionText)
+          : null,
+        categories.length
+          ? div.class`home-product-categories`(
+              categories.map((category) =>
+                span.class`home-product-category-chip`(category)
               )
             )
           : null,
-        div.class`home-product-detail-cart-actions`(
-          _=> HomeCartActions({
-            productId: product.id,
-            getVariationId: () => selectedVariationId,
-            initialQuantity: 1,
-            getQuantityState: () => selectedQuantity,
-            setQuantityState: (quantity) => {
-              selectedQuantity = quantity;
-            },
-          })
+        div.class`home-card-tag`(
+          _=> formatPrice(selectedVariation?.unitAmount ?? product.unitAmount, product.currency)
         ),
-        a.class`ghost-button`.href("../products.html")("Back to Products")
+        div.class`home-product-detail-actions`(
+          variations.length
+            ? label.class`home-products-filter-label`(
+                "OPTIONS",
+                select
+                  .class`manufacturer-input home-products-filter-select`
+                  .value(_=> selectedVariation?.id || "")
+                  .onChange((event) => {
+                    selectedVariationId = String(event.target.value || "").trim();
+                  })(
+                  variations.map((variation) =>
+                    option.value(variation.id)(
+                      _=> `${variation.label} - ${formatPrice(variation.unitAmount, product.currency)}`
+                    )
+                  )
+                )
+              )
+            : null,
+          div.class`home-product-detail-cart-actions`(
+            _=> HomeCartActions({
+              productId: product.id,
+              getVariationId: () => selectedVariationId,
+              initialQuantity: 1,
+              getQuantityState: () => selectedQuantity,
+              setQuantityState: (quantity) => {
+                selectedQuantity = quantity;
+              },
+            })
+          ),
+          a.class`ghost-button`.href("../products.html")("Back to Products")
+        )
       )
     ),
   ];
@@ -205,7 +212,7 @@ const load = async () => {
     messageState = null;
     selectedVariationId = normalizeVariations(match)[0]?.id || "";
     if (pageTitleRoot) {
-      pageTitleRoot.textContent = String(match.title || "Products").trim() || "Products";
+      pageTitleRoot.closest(".cart-page-title")?.setAttribute("hidden", "");
     }
     notifyProductDetail();
   } catch (error) {

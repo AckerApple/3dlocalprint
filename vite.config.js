@@ -196,8 +196,8 @@ const siteIndexPlugin = (mode) => ({
 
 const publicSiteInputs = {
   main: resolve(__dirname, "src/index.html"),
+  organizationCheckout: resolve(__dirname, "src/organization-checkout.html"),
   apiDocs: resolve(__dirname, "src/api-docs.html"),
-  aboutHome: resolve(__dirname, "src/about.html"),
   productsHome: resolve(__dirname, "src/products.html"),
   productDetail: resolve(__dirname, "src/product.html"),
   printModelLink: resolve(__dirname, "src/print-model-link.html"),
@@ -224,6 +224,7 @@ const publicSiteInputs = {
   adminAgreements: resolve(__dirname, "src/admin/agreements/index.html"),
   adminLinkOrders: resolve(__dirname, "src/admin/link-orders/index.html"),
   adminAlertTemplates: resolve(__dirname, "src/admin/alert-templates/index.html"),
+  adminOrganizationCheckout: resolve(__dirname, "src/admin/organization-checkout/index.html"),
   adminAdmins: resolve(__dirname, "src/admin/security/admins.html"),
   ...Object.fromEntries(
     locations.map((location) => {
@@ -253,6 +254,30 @@ export default defineConfig(({ mode }) => {
         target: localFunctionsOrigin,
         changeOrigin: true,
         rewrite: () => "/threedlocalprint/us-central1/createCheckoutSession",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/organization-checkout/request": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/submitOrganizationCheckoutRequest",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/organization-checkout/verify": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/verifyOrganizationCheckout",
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/organization-checkout/requests": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: (path) => rewriteFunctionPath("manageOrganizationCheckoutRequests", path),
+        configure: functionProxyErrorHandler,
+      },
+      "/api/admin/organization-checkout/certificate": {
+        target: localFunctionsOrigin,
+        changeOrigin: true,
+        rewrite: (path) => rewriteFunctionPath("downloadOrganizationCertificate", path),
         configure: functionProxyErrorHandler,
       },
       "/api/public/order-receipt-link": {

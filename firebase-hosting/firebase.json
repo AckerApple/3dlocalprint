@@ -24,6 +24,34 @@
         }
       },
       {
+        "source": "/api/organization-checkout/request",
+        "function": {
+          "functionId": "submitOrganizationCheckoutRequest",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/organization-checkout/verify",
+        "function": {
+          "functionId": "verifyOrganizationCheckout",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/organization-checkout/requests",
+        "function": {
+          "functionId": "manageOrganizationCheckoutRequests",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/organization-checkout/certificate",
+        "function": {
+          "functionId": "downloadOrganizationCertificate",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/stripe/webhook",
         "function": {
           "functionId": "stripeWebhook",

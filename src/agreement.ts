@@ -356,7 +356,9 @@ const AcceptancePanel = (agreement: PublicAgreement, state: AgreementState) => {
             .class`add-button`
             .disabled(_=> !canPay)
             .onClick(startAgreementCheckout)(
-            _=> state.checkoutLoading ? "Opening checkout..." : `Pay ${formatMoney(agreement.yearlyAmount, agreement.currency)}`
+            _=> state.checkoutLoading
+              ? "💳 Opening checkout..."
+              : `💳 Pay ${formatMoney(agreement.yearlyAmount, agreement.currency)}`
           )
     )
   );

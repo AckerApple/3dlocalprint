@@ -40,6 +40,20 @@ let stopProducts = null;
 let appMounted = false;
 let currentUser = null;
 let handleSignOut = () => Promise.resolve();
+let requestedProductHandled = false;
+
+const getRequestedProductId = () =>
+  String(new URLSearchParams(window.location.search).get("productId") || "").trim();
+
+const syncProductUrl = (productId = "") => {
+  const url = new URL(window.location.href);
+  if (productId) {
+    url.searchParams.set("productId", productId);
+  } else {
+    url.searchParams.delete("productId");
+  }
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+};
 
 type ProductsUiState = {
   modalOpen: boolean;
@@ -380,6 +394,7 @@ const removeImageFromDraft = (imageIndex: number) => {
 };
 
 const openCreateModal = () => {
+  syncProductUrl();
   setProductsUi({
     modalMode: "create",
     modalIndex: -1,
@@ -394,6 +409,7 @@ const openCreateModal = () => {
 const openEditModal = (index: number) => {
   const source = products$[index];
   if (!source) return;
+  syncProductUrl(source.id);
   setProductsUi({
     modalMode: "edit",
     modalIndex: index,
@@ -411,6 +427,7 @@ const openEditModal = (index: number) => {
 };
 
 const closeModal = () => {
+  syncProductUrl();
   setProductsUi({
     modalOpen: false,
     modalIndex: -1,
@@ -829,10 +846,16 @@ export const ProductsApp = tag(() => [
                   return images.map((image, imageIndex) =>
                     div.class`product-image-row`(
                       a
+                        .class`product-image-modal-preview-link`
                         .href(image.imageUrl)
                         .target`_blank`
                         .rel`noopener noreferrer`(
-                        `Image ${imageIndex + 1}`
+                        div
+                          .class`product-image-modal-preview`
+                          .style(() => `background-image: url('${String(image.imageUrl || "").replace(/'/g, "%27")}')`)
+                          .attr("role", "img")
+                          .attr("aria-label", `Preview of product image ${imageIndex + 1}`)(),
+                        span(`Image ${imageIndex + 1}`)
                       ),
                       span.class`field-help product-image-meta`(_=> `${image.uploadedDate} • ${image.location}`),
                       button
@@ -1112,6 +1135,16 @@ const auth = startAdminAppShell({
             .filter((item) => item.id && item.title)
         );
         products$.splice(0, products$.length, ...normalized);
+        if (!requestedProductHandled) {
+          requestedProductHandled = true;
+          const requestedProductId = getRequestedProductId();
+          const requestedProductIndex = normalized.findIndex(
+            (product) => product.id === requestedProductId
+          );
+          if (requestedProductIndex >= 0) {
+            openEditModal(requestedProductIndex);
+          }
+        }
         if (authState.isAuthorized) {
           mountApp();
         }

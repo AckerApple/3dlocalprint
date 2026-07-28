@@ -74,6 +74,20 @@ export type AgreementPaymentNotificationInput = {
   stripeDashboardUrl: string;
 };
 
+export type OrganizationCheckoutRequestInput = {
+  requestId: string;
+  organizationName: string;
+  organizationType: string;
+  contactName: string;
+  contactEmail: string;
+  phone: string;
+  exemptionCertificateNumber: string;
+  certificateExpirationDate: string;
+  intendedUse: string;
+  adminReviewUrl: string;
+  createdAt: string;
+};
+
 export type AlertTemplateOutput = {
   subject: string;
   text: string;
@@ -90,6 +104,51 @@ export type AlertTemplateCatalogItem = {
   variables: string[];
   rendered: AlertTemplateOutput;
 };
+
+export function buildOrganizationCheckoutRequestEmail(request: OrganizationCheckoutRequestInput): AlertTemplateOutput {
+  const subject = sanitizeEmailHeader(`Organizational checkout request ${request.requestId} - ${request.organizationName}`);
+  const text = [
+    `Request: ${request.requestId}`,
+    `Created: ${request.createdAt}`,
+    `Organization: ${request.organizationName}`,
+    `Type: ${request.organizationType}`,
+    `Contact: ${request.contactName} · ${request.contactEmail} · ${request.phone}`,
+    `Certificate: ${request.exemptionCertificateNumber}`,
+    `Certificate expiration: ${request.certificateExpirationDate}`,
+    "",
+    "Intended use:",
+    request.intendedUse,
+    "",
+    `Review request: ${request.adminReviewUrl}`,
+  ].join("\n");
+  const html = `
+    <div style="margin:0;background:#fff7f1;font-family:Arial,Helvetica,sans-serif;color:#2c211b;">
+      <div style="max-width:680px;margin:0 auto;padding:28px 18px;">
+        <div style="background:#ffffff;border:1px solid #f1d8c9;border-radius:14px;overflow:hidden;">
+          <div style="background:#de6a2e;padding:24px 26px;color:#ffffff;">
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">3D Local Print</div>
+            <h1 style="margin:8px 0 0;font-size:28px;line-height:1.2;">Organizational checkout request</h1>
+            <div style="margin-top:10px;font-size:16px;">${escapeHtml(request.organizationName)}</div>
+          </div>
+          <div style="padding:24px 26px;">
+            <h2 style="margin:0 0 8px;font-size:18px;">Organization</h2>
+            <p style="margin:0 0 18px;line-height:1.55;">${escapeHtml(request.organizationName)} · ${escapeHtml(request.organizationType)}</p>
+            <h2 style="margin:0 0 8px;font-size:18px;">Contact</h2>
+            <p style="margin:0 0 18px;line-height:1.55;">${escapeHtml(request.contactName)}<br>${escapeHtml(request.contactEmail)}<br>${escapeHtml(request.phone)}</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#fffaf6;border:1px solid #f1e2d8;margin:0 0 20px;">
+              <tr><td style="padding:12px 14px;color:#7b6255;">Certificate</td><td style="padding:12px 14px;font-weight:700;">${escapeHtml(request.exemptionCertificateNumber)}</td></tr>
+              <tr><td style="padding:12px 14px;color:#7b6255;">Expires</td><td style="padding:12px 14px;">${escapeHtml(request.certificateExpirationDate)}</td></tr>
+            </table>
+            <h2 style="margin:0 0 8px;font-size:18px;">Intended use</h2>
+            <p style="white-space:pre-wrap;margin:0 0 22px;line-height:1.55;">${escapeHtml(request.intendedUse)}</p>
+            <a href="${escapeHtml(request.adminReviewUrl)}" style="display:inline-block;background:#de6a2e;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 16px;font-weight:700;">Review organizational request</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  return { subject, text, html };
+}
 
 const ORDER_NOTIFICATION_EMAIL = "service@3dlocalprint.com";
 
@@ -585,6 +644,20 @@ export const sampleAgreementPaymentNotificationInput: AgreementPaymentNotificati
   stripeDashboardUrl: "https://dashboard.stripe.com/test/payments/pi_sample",
 };
 
+export const sampleOrganizationCheckoutRequestInput: OrganizationCheckoutRequestInput = {
+  requestId: "orgreq_sample_123",
+  organizationName: "Sample Elementary PTA",
+  organizationType: "PTA",
+  contactName: "Sample Treasurer",
+  contactEmail: "treasurer@example.org",
+  phone: "555-0100",
+  exemptionCertificateNumber: "85-8012345678C-0",
+  certificateExpirationDate: "2027-06-30",
+  intendedUse: "Purchase printed classroom organizers and event supplies using PTA funds.",
+  adminReviewUrl: "https://3dlocalprint.com/admin/organization-checkout/index.html?requestId=orgreq_sample_123",
+  createdAt: "2026-07-23T12:00:00.000Z",
+};
+
 const sampleVariables = (sampleInput: Record<string, unknown>) => Object.keys(sampleInput).sort();
 
 export function getAlertTemplateCatalog(): AlertTemplateCatalogItem[] {
@@ -592,7 +665,18 @@ export function getAlertTemplateCatalog(): AlertTemplateCatalogItem[] {
   const quoteInput = sampleModelLinkQuoteRequestInput as unknown as Record<string, unknown>;
   const agreementInput = sampleAgreementSignRequestInput as unknown as Record<string, unknown>;
   const agreementPaymentInput = sampleAgreementPaymentNotificationInput as unknown as Record<string, unknown>;
+  const organizationInput = sampleOrganizationCheckoutRequestInput as unknown as Record<string, unknown>;
   return [
+    {
+      id: "internal-organization-checkout-request",
+      name: "Internal Organizational Checkout Request",
+      audience: "internal",
+      trigger: "Sent to service when an organization submits a tax-exempt checkout request.",
+      sourceFunction: "buildOrganizationCheckoutRequestEmail",
+      sampleInput: organizationInput,
+      variables: sampleVariables(organizationInput),
+      rendered: buildOrganizationCheckoutRequestEmail(sampleOrganizationCheckoutRequestInput),
+    },
     {
       id: "internal-order-notification",
       name: "Internal Order Notification",

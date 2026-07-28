@@ -70,6 +70,12 @@ export const adminNavGroups = [
         emoji: "🧾",
       },
       {
+        label: "Organizational Checkout",
+        details: "Review and approve tax-exempt organization requests.",
+        href: "organization-checkout/index.html",
+        emoji: "🏫",
+      },
+      {
         label: "Agreements",
         details: "Create private agreements and track acceptance, service period, and payment.",
         href: "agreements/index.html",

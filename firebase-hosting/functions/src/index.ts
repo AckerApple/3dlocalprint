@@ -4,7 +4,8 @@ import { logger } from "firebase-functions";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
-import { randomBytes } from "node:crypto";
+import { getStorage } from "firebase-admin/storage";
+import { createHash, randomBytes } from "node:crypto";
 import tls from "node:tls";
 import Stripe from "stripe";
 import {
@@ -13,6 +14,7 @@ import {
   buildCustomerModelLinkQuoteEmail as renderCustomerModelLinkQuoteEmail,
   buildCustomerOrderEmail as renderCustomerOrderEmail,
   buildModelLinkQuoteRequestEmail as renderModelLinkQuoteRequestEmail,
+  buildOrganizationCheckoutRequestEmail as renderOrganizationCheckoutRequestEmail,
   buildOrderNotificationEmail as renderOrderNotificationEmail,
 } from "./notificationTemplates";
 
@@ -40,6 +42,42 @@ type CreateCheckoutSessionBody = {
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;
+  organizationEmail?: string;
+  exemptionCertificateNumber?: string;
+};
+
+type OrganizationCheckoutRequestBody = {
+  organizationName: string;
+  organizationType: string;
+  contactName: string;
+  contactEmail: string;
+  phone: string;
+  exemptionCertificateNumber: string;
+  certificateExpirationDate: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  intendedUse: string;
+  certificationAccepted: boolean;
+  certificateFileName: string;
+  certificateMimeType: string;
+  certificateBase64: string;
+};
+
+type OrganizationCheckoutRequestEmailInput = {
+  requestId: string;
+  organizationName: string;
+  organizationType: string;
+  contactName: string;
+  contactEmail: string;
+  phone: string;
+  exemptionCertificateNumber: string;
+  certificateExpirationDate: string;
+  intendedUse: string;
+  adminReviewUrl: string;
+  createdAt: string;
 };
 
 type ProductVariation = {
@@ -272,6 +310,13 @@ function getAdminAuth() {
   return getAuth();
 }
 
+function getAdminBucket() {
+  if (!getApps().length) {
+    initializeApp();
+  }
+  return getStorage().bucket();
+}
+
 function createOrderId(stripeMode: "sandbox" | "live"): string {
   const modeLabel = stripeMode === "sandbox" ? "test_" : "";
   return `order_${modeLabel}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
@@ -405,6 +450,33 @@ function formatMoney(cents = 0, currency = "usd"): string {
 
 function normalizeEmail(email = ""): string {
   return String(email || "").trim().toLowerCase();
+}
+
+function normalizeCertificateNumber(value = ""): string {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 80);
+}
+
+function organizationLookupId(email = "", certificateNumber = ""): string {
+  return createHash("sha256")
+    .update(`${normalizeEmail(email)}|${normalizeCertificateNumber(certificateNumber)}`)
+    .digest("hex");
+}
+
+async function getApprovedOrganization(email = "", certificateNumber = "") {
+  const lookupId = organizationLookupId(email, certificateNumber);
+  if (!normalizeEmail(email) || !normalizeCertificateNumber(certificateNumber)) return null;
+  const lookup = await getAdminDb().collection("organization_checkout_lookups").doc(lookupId).get();
+  if (!lookup.exists) return null;
+  const requestId = String(lookup.data()?.requestId || "").trim();
+  const request = requestId
+    ? await getAdminDb().collection("organization_checkout_requests").doc(requestId).get()
+    : null;
+  if (!request?.exists) return null;
+  const data = request.data() || {};
+  if (String(data.status || "") !== "approved" || !String(data.stripeCustomerId || "").trim()) return null;
+  const expiration = String(data.certificateExpirationDate || "").trim();
+  if (expiration && new Date(`${expiration}T23:59:59`).getTime() < Date.now()) return null;
+  return { id: request.id, data };
 }
 
 async function isAdminEmail(email = ""): Promise<boolean> {
@@ -846,6 +918,49 @@ async function sendModelLinkQuoteRequestEmail(request: ModelLinkQuoteRequestInpu
     message,
   });
 
+  return "sent";
+}
+
+async function sendOrganizationCheckoutRequestEmail(request: OrganizationCheckoutRequestEmailInput): Promise<string> {
+  const smtpUser = getSmtpSecret(SMTP_USER, "SMTP_USER");
+  const smtpPass = getSmtpSecret(SMTP_PASS, "SMTP_PASS");
+  if (!smtpUser || !smtpPass) return "not_configured";
+
+  const email = renderOrganizationCheckoutRequestEmail(request);
+  const boundary = `organization-${request.requestId}-${Date.now().toString(36)}`;
+  const message = [
+    `From: 3D Local Print <${ORDER_NOTIFICATION_EMAIL}>`,
+    `To: ${ORDER_NOTIFICATION_EMAIL}`,
+    `Reply-To: ${sanitizeEmailHeader(request.contactEmail) || ORDER_NOTIFICATION_EMAIL}`,
+    `Subject: ${email.subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.text,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    email.html,
+    "",
+    `--${boundary}--`,
+    "",
+  ].join("\r\n").replace(/\r?\n\./g, "\r\n..");
+
+  await sendSmtpMail({
+    host: "smtp.gmail.com",
+    port: 465,
+    user: smtpUser,
+    pass: smtpPass,
+    from: ORDER_NOTIFICATION_EMAIL,
+    to: ORDER_NOTIFICATION_EMAIL,
+    message,
+  });
   return "sent";
 }
 
@@ -2473,6 +2588,261 @@ export const getPublicModelLinkQuoteRequest = onRequest(
   },
 );
 
+export const submitOrganizationCheckoutRequest = onRequest(
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public", secrets: [SMTP_USER, SMTP_PASS] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") return void response.status(204).send("");
+    if (request.method !== "POST") return void response.status(405).json({ error: "Method not allowed" });
+
+    try {
+      const body = (request.body || {}) as Partial<OrganizationCheckoutRequestBody>;
+      const organizationName = normalizeString(body.organizationName, 180);
+      const organizationType = normalizeString(body.organizationType, 80);
+      const contactName = normalizeString(body.contactName, 140);
+      const contactEmail = normalizeEmail(String(body.contactEmail || ""));
+      const exemptionCertificateNumber = normalizeCertificateNumber(String(body.exemptionCertificateNumber || ""));
+      const certificateMimeType = normalizeString(body.certificateMimeType, 100);
+      const allowedMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+      if (
+        !organizationName || !organizationType || !contactName || !contactEmail.includes("@")
+        || !exemptionCertificateNumber || !body.certificationAccepted
+        || !allowedMimeTypes.has(certificateMimeType)
+      ) {
+        return void response.status(400).json({ error: "Complete all required fields and attach a PDF or image certificate." });
+      }
+      const certificateBytes = Buffer.from(String(body.certificateBase64 || ""), "base64");
+      if (!certificateBytes.length || certificateBytes.length > 5 * 1024 * 1024) {
+        return void response.status(400).json({ error: "The exemption certificate must be no larger than 5 MB." });
+      }
+
+      const requestId = `orgreq_${Date.now().toString(36)}_${randomBytes(5).toString("hex")}`;
+      const extension = certificateMimeType === "application/pdf"
+        ? "pdf"
+        : certificateMimeType === "image/png" ? "png" : certificateMimeType === "image/webp" ? "webp" : "jpg";
+      const storagePath = `organization-checkout-requests/${requestId}/certificate.${extension}`;
+      await getAdminBucket().file(storagePath).save(certificateBytes, {
+        contentType: certificateMimeType,
+        resumable: false,
+        metadata: { cacheControl: "private, max-age=0, no-store" },
+      });
+      const createdAt = nowIso();
+      const phone = normalizeString(body.phone, 40);
+      const certificateExpirationDate = normalizeString(body.certificateExpirationDate, 20);
+      const intendedUse = normalizeString(body.intendedUse, 1500);
+      const requestRef = getAdminDb().collection("organization_checkout_requests").doc(requestId);
+      await requestRef.set({
+        id: requestId,
+        status: "pending",
+        organizationName,
+        organizationType,
+        contactName,
+        contactEmail,
+        normalizedContactEmail: contactEmail,
+        phone,
+        exemptionCertificateNumber,
+        certificateExpirationDate,
+        addressLine1: normalizeString(body.addressLine1, 180),
+        addressLine2: normalizeString(body.addressLine2, 180),
+        city: normalizeString(body.city, 100),
+        state: normalizeString(body.state, 30).toUpperCase(),
+        postalCode: normalizeString(body.postalCode, 20),
+        intendedUse,
+        certificateFileName: normalizeString(body.certificateFileName, 180),
+        certificateMimeType,
+        certificateStoragePath: storagePath,
+        certificationAccepted: true,
+        createdAt,
+        updatedAt: createdAt,
+        reviewedAt: "",
+        reviewedBy: "",
+        reviewNotes: "",
+        stripeCustomerId: "",
+        notificationEmailStatus: "pending",
+      });
+      let notificationEmailStatus = "not_sent";
+      try {
+        notificationEmailStatus = await sendOrganizationCheckoutRequestEmail({
+          requestId,
+          organizationName,
+          organizationType,
+          contactName,
+          contactEmail,
+          phone,
+          exemptionCertificateNumber,
+          certificateExpirationDate,
+          intendedUse,
+          adminReviewUrl: `${PUBLIC_SITE_ORIGIN}/admin/organization-checkout/index.html?requestId=${encodeURIComponent(requestId)}`,
+          createdAt,
+        });
+      } catch (error) {
+        notificationEmailStatus = isSmtpAuthError(error instanceof Error ? error.message : "")
+          ? "auth_error"
+          : "error";
+        logger.error("organization checkout request email failed", { requestId, error });
+      }
+      await requestRef.set({
+        notificationEmailStatus,
+        notificationEmailUpdatedAt: nowIso(),
+        updatedAt: nowIso(),
+      }, { merge: true });
+      response.status(200).json({ ok: true, requestId, notificationEmailStatus });
+    } catch (error) {
+      logger.error("submitOrganizationCheckoutRequest failed", error);
+      response.status(500).json({ error: "Unable to submit the organization request." });
+    }
+  },
+);
+
+export const verifyOrganizationCheckout = onRequest(
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") return void response.status(204).send("");
+    if (request.method !== "POST") return void response.status(405).json({ error: "Method not allowed" });
+    const body = (request.body || {}) as Record<string, unknown>;
+    const organization = await getApprovedOrganization(String(body.email || ""), String(body.certificateNumber || ""));
+    if (!organization) {
+      return void response.status(404).json({ error: "No active approved organization matches that email and certificate number." });
+    }
+    response.status(200).json({
+      ok: true,
+      organizationId: organization.id,
+      organizationName: String(organization.data.organizationName || ""),
+    });
+  },
+);
+
+export const manageOrganizationCheckoutRequests = onRequest(
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public", secrets: [STRIPE_SECRET_KEY, SMTP_USER, SMTP_PASS] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") return void response.status(204).send("");
+    try {
+      const reviewedBy = await requireAdmin(request);
+      if (request.method === "GET") {
+        const snapshot = await getAdminDb().collection("organization_checkout_requests").orderBy("createdAt", "desc").limit(200).get();
+        return void response.status(200).json({
+          requests: snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data(), certificateStoragePath: undefined })),
+        });
+      }
+      if (request.method !== "POST") return void response.status(405).json({ error: "Method not allowed" });
+      const body = (request.body || {}) as Record<string, unknown>;
+      const requestId = normalizeString(body.requestId, 120);
+      const action = normalizeString(body.action, 30);
+      const requestRef = getAdminDb().collection("organization_checkout_requests").doc(requestId);
+      const snapshot = await requestRef.get();
+      if (!snapshot.exists) return void response.status(404).json({ error: "Request not found." });
+      const data = snapshot.data() || {};
+      if (action === "resend_notification") {
+        const notificationEmailStatus = await sendOrganizationCheckoutRequestEmail({
+          requestId,
+          organizationName: String(data.organizationName || ""),
+          organizationType: String(data.organizationType || ""),
+          contactName: String(data.contactName || ""),
+          contactEmail: String(data.contactEmail || ""),
+          phone: String(data.phone || ""),
+          exemptionCertificateNumber: String(data.exemptionCertificateNumber || ""),
+          certificateExpirationDate: String(data.certificateExpirationDate || ""),
+          intendedUse: String(data.intendedUse || ""),
+          adminReviewUrl: `${PUBLIC_SITE_ORIGIN}/admin/organization-checkout/index.html?requestId=${encodeURIComponent(requestId)}`,
+          createdAt: String(data.createdAt || ""),
+        });
+        await requestRef.set({
+          notificationEmailStatus,
+          notificationEmailUpdatedAt: nowIso(),
+          updatedAt: nowIso(),
+        }, { merge: true });
+        return void response.status(200).json({ ok: true, notificationEmailStatus });
+      }
+      if (action === "reject") {
+        await requestRef.set({
+          status: "rejected",
+          reviewNotes: normalizeString(body.reviewNotes, 1000),
+          reviewedAt: nowIso(),
+          reviewedBy,
+          updatedAt: nowIso(),
+        }, { merge: true });
+        return void response.status(200).json({ ok: true });
+      }
+      if (action !== "approve") return void response.status(400).json({ error: "Unknown action." });
+
+      const stripe = getStripeClient();
+      let stripeCustomerId = String(data.stripeCustomerId || "").trim();
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          name: String(data.organizationName || ""),
+          email: String(data.contactEmail || ""),
+          phone: String(data.phone || "") || undefined,
+          tax_exempt: "exempt",
+          address: {
+            line1: String(data.addressLine1 || ""),
+            line2: String(data.addressLine2 || "") || undefined,
+            city: String(data.city || ""),
+            state: String(data.state || ""),
+            postal_code: String(data.postalCode || ""),
+            country: "US",
+          },
+          metadata: {
+            organizationCheckoutRequestId: requestId,
+            exemptionCertificateNumber: String(data.exemptionCertificateNumber || ""),
+          },
+        });
+        stripeCustomerId = customer.id;
+      } else {
+        await stripe.customers.update(stripeCustomerId, { tax_exempt: "exempt" });
+      }
+      const lookupId = organizationLookupId(
+        String(data.contactEmail || ""),
+        String(data.exemptionCertificateNumber || ""),
+      );
+      await getAdminDb().collection("organization_checkout_lookups").doc(lookupId).set({
+        requestId,
+        stripeCustomerId,
+        updatedAt: nowIso(),
+      });
+      await requestRef.set({
+        status: "approved",
+        stripeCustomerId,
+        stripeMode: getStripeMode(),
+        reviewNotes: normalizeString(body.reviewNotes, 1000),
+        reviewedAt: nowIso(),
+        reviewedBy,
+        updatedAt: nowIso(),
+      }, { merge: true });
+      response.status(200).json({ ok: true, stripeCustomerId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const status = ["missing_auth_token", "admin_denied"].includes(message) ? 403 : 500;
+      logger.error("manageOrganizationCheckoutRequests failed", error);
+      response.status(status).json({ error: status === 403 ? "Admin access required." : "Unable to manage organization requests." });
+    }
+  },
+);
+
+export const downloadOrganizationCertificate = onRequest(
+  { region: "us-central1", cors: ALLOWED_CORS_ORIGINS, invoker: "public" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") return void response.status(204).send("");
+    if (request.method !== "GET") return void response.status(405).json({ error: "Method not allowed" });
+    try {
+      await requireAdmin(request);
+      const requestId = normalizeString(request.query.requestId, 120);
+      const snapshot = await getAdminDb().collection("organization_checkout_requests").doc(requestId).get();
+      if (!snapshot.exists) return void response.status(404).json({ error: "Request not found." });
+      const data = snapshot.data() || {};
+      const [contents] = await getAdminBucket().file(String(data.certificateStoragePath || "")).download();
+      response.set("Content-Type", String(data.certificateMimeType || "application/octet-stream"));
+      response.set("Content-Disposition", `attachment; filename="${normalizeString(data.certificateFileName, 120).replace(/"/g, "") || "certificate"}"`);
+      response.status(200).send(contents);
+    } catch (error) {
+      logger.error("downloadOrganizationCertificate failed", error);
+      response.status(403).json({ error: "Admin access required." });
+    }
+  },
+);
+
 export const createCheckoutSession = onRequest(
   { region: "us-central1", secrets: [STRIPE_SECRET_KEY] },
   async (request, response) => {
@@ -2508,19 +2878,38 @@ export const createCheckoutSession = onRequest(
       const orderId = createOrderId(stripeMode);
       const cartItems = normalizeCheckoutCartItems(request.body.cartItems);
       const lineItems = resolveCheckoutLineItems(cartItems, await loadProductCatalog());
+      const organizationEmail = normalizeEmail(String(request.body.organizationEmail || ""));
+      const exemptionCertificateNumber = normalizeCertificateNumber(String(request.body.exemptionCertificateNumber || ""));
+      const organization = organizationEmail || exemptionCertificateNumber
+        ? await getApprovedOrganization(organizationEmail, exemptionCertificateNumber)
+        : null;
+      if ((organizationEmail || exemptionCertificateNumber) && !organization) {
+        response.status(400).json({ error: "The tax-exempt organization could not be verified or its certificate has expired." });
+        return;
+      }
+      const organizationName = organization ? String(organization.data.organizationName || "") : "";
+      const stripeCustomerId = organization ? String(organization.data.stripeCustomerId || "") : "";
+      const checkoutEmail = organization
+        ? String(organization.data.contactEmail || "")
+        : String(request.body.customerEmail || "").trim();
       const createdAt = nowIso();
       const adminOrderUrl = getAdminOrderUrl(request.body.successUrl, orderId);
-      const publicOrderUrl = getPublicOrderUrl(request.body.successUrl, orderId, String(request.body.customerEmail || "").trim());
+      const publicOrderUrl = getPublicOrderUrl(request.body.successUrl, orderId, checkoutEmail);
       const session = await stripe.checkout.sessions.create(
         {
           mode: "payment",
-          success_url: appendUrlParams(request.body.successUrl, {
+          ui_mode: "embedded",
+          return_url: appendUrlParams(request.body.successUrl, {
             order_id: orderId,
             session_id: "{CHECKOUT_SESSION_ID}",
           }),
-          cancel_url: appendUrlParams(request.body.cancelUrl, { order_id: orderId }),
           client_reference_id: orderId,
-          customer_email: request.body.customerEmail,
+          ...(stripeCustomerId
+            ? { customer: stripeCustomerId }
+            : { customer_email: request.body.customerEmail }),
+          ...(stripeCustomerId
+            ? { customer_update: { address: "auto" as const, name: "auto" as const, shipping: "auto" as const } }
+            : {}),
           line_items: lineItems.map((item) => ({
             price_data: {
               currency: item.currency,
@@ -2543,10 +2932,15 @@ export const createCheckoutSession = onRequest(
           },
           metadata: {
             orderId,
+            organizationCheckoutRequestId: organization?.id || "",
+            organizationName,
+            taxExemptCustomer: organization ? "true" : "false",
           },
           payment_intent_data: {
             metadata: {
               orderId,
+              organizationCheckoutRequestId: organization?.id || "",
+              taxExemptCustomer: organization ? "true" : "false",
             },
           },
         },
@@ -2562,10 +2956,15 @@ export const createCheckoutSession = onRequest(
         amountTax: 0,
         amountShipping: 0,
         amountTotal: 0,
-        customerEmail: String(request.body.customerEmail || "").trim(),
+        customerEmail: checkoutEmail,
         customerName: "",
+        stripeCustomerId,
+        organizationCheckoutRequestId: organization?.id || "",
+        organizationName,
+        exemptionCertificateNumber: organization ? String(organization.data.exemptionCertificateNumber || "") : "",
+        taxExemptCustomer: Boolean(organization),
         checkoutSessionId: session.id,
-        checkoutUrl: session.url || "",
+        checkoutUrl: "",
         paymentIntentId: "",
         latestStripeEventId: "",
         stripeMode,
@@ -2583,7 +2982,9 @@ export const createCheckoutSession = onRequest(
         orderId,
         sessionId: session.id,
         stripeMode,
-        url: session.url,
+        taxExemptCustomer: Boolean(organization),
+        organizationName,
+        clientSecret: session.client_secret,
       });
     } catch (error) {
       logger.error("createCheckoutSession failed", error);
