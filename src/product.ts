@@ -60,6 +60,23 @@ const getSlug = () => {
   }
 };
 
+const canonicalizeProductUrl = () => {
+  const url = new URL(window.location.href);
+  const slug = String(url.searchParams.get("slug") || "").trim();
+  if (!slug || !/\/product\.html$/i.test(url.pathname)) {
+    return;
+  }
+
+  url.pathname = url.pathname.replace(
+    /\/product\.html$/i,
+    `/product/${encodeURIComponent(slug)}`
+  );
+  url.searchParams.delete("slug");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+};
+
+canonicalizeProductUrl();
+
 const normalizeVariations = (product: ProductItem): ProductVariationView[] =>
   (Array.isArray(product?.variations) ? product.variations : [])
     .map((variation) => ({
@@ -85,6 +102,16 @@ const getSelectedVariation = (product: ProductItem) => {
 
 const notifyProductDetail = () => {
   productDetailRender$[0] = { version: Number(productDetailRender$[0]?.version || 0) + 1 };
+};
+
+const setProductIndexing = (catalogVisible: boolean) => {
+  let robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+  if (!robots) {
+    robots = document.createElement("meta");
+    robots.name = "robots";
+    document.head.append(robots);
+  }
+  robots.content = catalogVisible ? "index, follow" : "noindex, nofollow";
 };
 
 const mountProductDetail = () => {
@@ -209,6 +236,7 @@ const load = async () => {
       return;
     }
     loadedProduct = match;
+    setProductIndexing(match.catalogVisible !== false);
     messageState = null;
     selectedVariationId = normalizeVariations(match)[0]?.id || "";
     if (pageTitleRoot) {

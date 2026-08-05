@@ -12,7 +12,7 @@ import {
   span,
 } from "taggedjs";
 import { replaceMountRoot } from "../shared/ssoMount.js";
-import { adminNavGroups, withManufacturerEmoji } from "../shared/adminNavItems.js";
+import { adminNavGroups } from "../shared/adminNavItems.js";
 import { toast } from "../shared/toast.js";
 import { startAdminAppShell } from "../shared/adminAppShell.js";
 
@@ -63,8 +63,8 @@ export const AdminHomeApp = tag(() => [
               .class`panel admin-home-card`
               .href(item.href)(
               div.class`admin-home-emoji`(item.emoji),
-              h2(withManufacturerEmoji(item.label)),
-              p(withManufacturerEmoji(item.details))
+              h2(item.label),
+              p(item.details)
             )
           )
         )

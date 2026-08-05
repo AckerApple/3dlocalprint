@@ -234,6 +234,7 @@ const normalizeProductsForSave = (items: ProductItem[]) => {
           currency: String(item?.currency || "usd").trim().toLowerCase() || "usd",
           categories: normalizeProductCategories(item?.categories),
           active: Boolean(item?.active),
+          catalogVisible: item?.catalogVisible !== false,
           stripePriceId: String(item?.stripePriceId || "").trim(),
           variations: normalizeVariations(item?.variations),
           taxCode: String(item?.taxCode || "").trim(),
@@ -284,6 +285,7 @@ const createDraftProduct = (): ProductItem => {
     currency: "usd",
     categories: [],
     active: true,
+    catalogVisible: true,
     stripePriceId: "",
     variations: [],
     taxCode: "",
@@ -515,6 +517,7 @@ const saveModalProduct = async () => {
       currency: String(draftProduct.currency || "usd").trim().toLowerCase() || "usd",
       categories: normalizeProductCategories(draftProduct.categories),
       active: Boolean(draftProduct.active),
+      catalogVisible: draftProduct.catalogVisible !== false,
       stripePriceId: String(draftProduct.stripePriceId || "").trim(),
       variations: normalizeVariations(draftProduct.variations),
       taxCode: String(draftProduct.taxCode || "").trim(),
@@ -601,6 +604,7 @@ const normalizedProductFallback = (product: ProductItem): ProductItem => ({
   currency: String(product?.currency || "usd").trim().toLowerCase() || "usd",
   categories: normalizeProductCategories(product?.categories),
   active: Boolean(product?.active),
+  catalogVisible: product?.catalogVisible !== false,
   stripePriceId: String(product?.stripePriceId || "").trim(),
   variations: normalizeVariations(product?.variations),
   taxCode: String(product?.taxCode || "").trim(),
@@ -655,6 +659,9 @@ export const ProductsApp = tag(() => [
                 ),
                 div.class`product-list-meta`(
                   span(_=> item?.active ? "🟢 Active" : "⚪ Inactive"),
+                  item?.catalogVisible === false
+                    ? span.class`product-link-only-status`("🔗 Link only")
+                    : null,
                   span(_=> {
                     const count = normalizeVariations(item?.variations).length;
                     return count > 1 ? `${count} options` : "1 option";
@@ -1008,6 +1015,22 @@ export const ProductsApp = tag(() => [
               )
             ),
             div.class`product-row-actions`(
+              label.class`product-catalog-visibility`(
+                input
+                  .type`checkbox`
+                  .checked(_=> draftProduct?.catalogVisible !== false)
+                  .onChange((event) => {
+                    const current = getProductsUi().draftProduct;
+                    if (!current) return;
+                    setProductsUi({
+                      draftProduct: {
+                        ...current,
+                        catalogVisible: Boolean(event.target.checked),
+                      },
+                    });
+                  })(),
+                "Show in public catalog"
+              ),
               button
                 .type`button`
                 .class`ghost-button`
@@ -1126,6 +1149,7 @@ const auth = startAdminAppShell({
               currency: String(item?.currency || "usd").trim().toLowerCase() || "usd",
               categories: normalizeProductCategories(item?.categories),
               active: Boolean(item?.active),
+              catalogVisible: item?.catalogVisible !== false,
               stripePriceId: String(item?.stripePriceId || "").trim(),
               variations: normalizeVariations(item?.variations),
               taxCode: String(item?.taxCode || "").trim(),

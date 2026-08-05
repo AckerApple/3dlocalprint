@@ -981,6 +981,27 @@ button[disabled],
   font-size: 0.78rem;
 }
 
+.product-link-only-status {
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #664d03;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+}
+
+.product-catalog-visibility {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.45rem;
+  font-weight: 700;
+  margin-right: auto;
+}
+
+.product-catalog-visibility input {
+  height: 1.1rem;
+  width: 1.1rem;
+}
+
 .field-help {
   color: var(--muted);
   font-size: 0.72rem;
@@ -1172,9 +1193,10 @@ label.inventory-scan-keep-open {
 }
 
 .toast {
+  position: relative;
   min-width: 220px;
   max-width: 320px;
-  padding: 12px 14px;
+  padding: 12px 42px 12px 14px;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: #fffdf9;
@@ -1183,6 +1205,35 @@ label.inventory-scan-keep-open {
   font-size: 0.9rem;
   line-height: 1.35;
   pointer-events: auto;
+}
+
+.toast-close {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: currentColor;
+  font: inherit;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.toast-close:hover,
+.toast-close:focus-visible {
+  background: rgba(15, 17, 20, 0.08);
+  opacity: 1;
+}
+
+.toast-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
 }
 
 .toast-info {

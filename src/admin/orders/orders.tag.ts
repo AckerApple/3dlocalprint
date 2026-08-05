@@ -539,13 +539,13 @@ const closeOrder = async (order: OrderRecord) => {
   }
 
   const confirmed = window.confirm(
-    `Close order ${order.id}? This marks the order closed in admin. It does not refund, void, or cancel anything in Stripe.`
+    `Complete order ${order.id}? Completing the order marks it closed in admin. It does not refund, void, or cancel anything in Stripe.`
   );
   if (!confirmed) return;
 
   const user = currentAuthUser || firebaseAuth.currentUser;
   if (!user || typeof user.getIdToken !== "function") {
-    toast.error("Sign in again to close this order.");
+    toast.error("Sign in again to complete this order.");
     return;
   }
 
@@ -564,12 +564,12 @@ const closeOrder = async (order: OrderRecord) => {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(String(payload?.error || "Failed to close order."));
+      throw new Error(String(payload?.error || "Failed to complete order."));
     }
 
-    toast.success(`Closed order ${order.id}.`);
+    toast.success(`Completed order ${order.id}. The order is now closed.`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to close order.";
+    const message = error instanceof Error ? error.message : "Failed to complete order.";
     toast.error(message, { duration: 10000 });
   } finally {
     closeOrderLoadingId = "";
@@ -637,7 +637,7 @@ const OrderDetailModal = () =>
               ),
               order.orderType || order.agreementId
                 ? div.class`orders-detail-section orders-detail-section-wide`(
-                    h2.class`orders-detail-section-title`("Agreement"),
+                    h2.class`orders-detail-section-title`("📄 Agreement"),
                     DetailItem("Order type", order.orderType || ""),
                     DetailItem("Agreement", order.agreementId || ""),
                     div.class`orders-detail-actions`(
@@ -695,7 +695,7 @@ const OrderDetailModal = () =>
                   )
                 : null,
               div.class`orders-detail-section orders-detail-section-wide`(
-                h2.class`orders-detail-section-title`("Resend Emails"),
+                h2.class`orders-detail-section-title`("📧 Resend Emails"),
                 div.class`orders-detail-actions`(
                   button
                     .type`button`
@@ -718,19 +718,19 @@ const OrderDetailModal = () =>
               ),
               _=> !['canceled', 'closed'].includes(order.status) && 
                 div.class`orders-detail-section orders-detail-section-wide orders-info-section`(
-                  h2.class`orders-detail-section-title`("Close Order"),
-                  p.class`orders-meta`("Mark this order closed in admin. This does not refund, void, or cancel anything in Stripe."),
+                  h2.class`orders-detail-section-title`("Complete Order"),
+                  p.class`orders-meta`("Completing this order marks it closed in admin. It does not refund, void, or cancel anything in Stripe."),
                   div.class`orders-detail-actions`(
                     button
                       .type`button`
-                      .class`ghost-button`
+                      .class`add-button`
                       .disabled(_=> order.status === "closed" || closeOrderLoadingId === order.id)
                       .onClick(() => closeOrder(order))(
                       _=> order.status === "closed"
-                        ? "Order closed"
+                        ? "Order completed"
                         : closeOrderLoadingId === order.id
-                          ? "Closing..."
-                          : "Close order"
+                          ? "Completing..."
+                          : "Complete order"
                     )
                   )
                 ),

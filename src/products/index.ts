@@ -19,7 +19,7 @@ const load = async () => {
     const items = await loadProducts();
     setProductsUi({ loadError: "" });
     const normalized = (Array.isArray(items) ? items : [])
-      .filter((item) => Boolean(item?.active))
+      .filter((item) => Boolean(item?.active) && item?.catalogVisible !== false)
       .map((item) => ({
         ...item,
         categories: normalizeProductCategories(item?.categories),

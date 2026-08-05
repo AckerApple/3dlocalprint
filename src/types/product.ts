@@ -26,6 +26,7 @@ export type ProductItem = {
   currency: string;
   categories: string[];
   active: boolean;
+  catalogVisible: boolean;
   stripePriceId: string;
   variations?: ProductVariation[];
   taxCode: string;

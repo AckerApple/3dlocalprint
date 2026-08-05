@@ -91,6 +91,7 @@ type ProductItem = {
   id: string;
   title: string;
   active: boolean;
+  catalogVisible: boolean;
   unitAmount: number;
   currency: string;
   variations?: ProductVariation[];
@@ -1392,6 +1393,7 @@ function normalizeProductItems(items: unknown): ProductItem[] {
         id,
         title,
         active: Boolean(raw.active),
+        catalogVisible: raw.catalogVisible !== false,
         unitAmount: Math.max(0, Math.round(Number(raw.unitAmount) || 0)),
         currency: String(raw.currency || "usd").trim().toLowerCase() || "usd",
         variations,

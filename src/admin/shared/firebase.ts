@@ -221,6 +221,7 @@ const normalizeProductItems = (items: unknown): ProductItem[] =>
         currency: String((item as { currency?: unknown }).currency || "usd").trim().toLowerCase() || "usd",
         categories: normalizeProductCategories((item as { categories?: unknown }).categories),
         active: Boolean((item as { active?: unknown }).active),
+        catalogVisible: (item as { catalogVisible?: unknown }).catalogVisible !== false,
         stripePriceId: String((item as { stripePriceId?: unknown }).stripePriceId || "").trim(),
         variations,
         taxCode: String((item as { taxCode?: unknown }).taxCode || "").trim(),

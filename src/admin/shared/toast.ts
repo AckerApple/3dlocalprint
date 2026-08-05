@@ -38,7 +38,18 @@ const buildToast = (message: string, tone: ToastTone) => {
   const toast = document.createElement("div");
   toast.className = `toast toast-${tone}`;
   toast.setAttribute("role", "status");
-  toast.textContent = message;
+
+  const messageElement = document.createElement("span");
+  messageElement.className = "toast-message";
+  messageElement.textContent = message;
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "toast-close";
+  closeButton.setAttribute("aria-label", "Dismiss notification");
+  closeButton.textContent = "×";
+
+  toast.append(messageElement, closeButton);
   return toast;
 };
 
