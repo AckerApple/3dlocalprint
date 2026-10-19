@@ -1,3 +1,4 @@
+import { customOrderRequestId, customerCollection, verifiedCustomerName, assertCurrentPaidSession, decodeOrderImage } from "./customOrderSupport";
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { logger } from "firebase-functions";
@@ -19,10 +20,12 @@ import {
 } from "./notificationTemplates";
 
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+const STRIPE_TEST_SECRET_KEY = defineSecret("STRIPE_TEST_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 const SMTP_USER = defineSecret("SMTP_USER");
 const SMTP_PASS = defineSecret("SMTP_PASS");
 const ORDER_NOTIFICATION_EMAIL = "service@3dlocalprint.com";
+const CUSTOM_ORDER_TYPE = "custom_order";
 const PUBLIC_SITE_ORIGIN = "https://3dlocalprint.com";
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const ALLOWED_CORS_ORIGINS = [
@@ -32,6 +35,7 @@ const ALLOWED_CORS_ORIGINS = [
 ];
 
 type CheckoutCartItem = {
+  badgeName?: string;
   quantity: number;
   productId: string;
   variationId?: string;
@@ -88,6 +92,7 @@ type ProductVariation = {
 };
 
 type ProductItem = {
+  slug?: string;
   id: string;
   title: string;
   active: boolean;
@@ -98,6 +103,7 @@ type ProductItem = {
 };
 
 type CheckoutLineItem = {
+  badgeName?: string;
   productId: string;
   variationId: string;
   quantity: number;
@@ -283,6 +289,17 @@ function getStripeClient(): Stripe {
   });
 }
 
+function getStripeClientForMode(mode: "sandbox" | "live"): Stripe {
+  const secretKey = mode === "sandbox" ? STRIPE_TEST_SECRET_KEY.value() : STRIPE_SECRET_KEY.value();
+  const expectedPrefix = mode === "sandbox" ? "sk_test_" : "sk_live_";
+  if (!secretKey.startsWith(expectedPrefix)) {
+    throw new Error(mode === "sandbox" ? "stripe_test_mode_unavailable" : "stripe_live_mode_unavailable");
+  }
+  return new Stripe(secretKey, {
+    apiVersion: "2026-02-25.clover" as Stripe.LatestApiVersion,
+  });
+}
+
 function getStripeMode(): "sandbox" | "live" {
   return STRIPE_SECRET_KEY.value().startsWith("sk_test_") ? "sandbox" : "live";
 }
@@ -318,9 +335,8 @@ function getAdminBucket() {
   return getStorage().bucket();
 }
 
-function createOrderId(stripeMode: "sandbox" | "live"): string {
-  const modeLabel = stripeMode === "sandbox" ? "test_" : "";
-  return `order_${modeLabel}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+function createOrderId(): string {
+  return `order_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 function createQuoteRequestId(): string {
@@ -553,8 +569,8 @@ function getStripePaymentSearchUrl(queryValue = "", stripeMode: "sandbox" | "liv
   return `${getStripeDashboardBase(stripeMode)}/payments?query=${encodeURIComponent(normalizedQuery)}`;
 }
 
-function isTestOrderRecord(orderId = "", data: Record<string, unknown> = {}): boolean {
-  return String(data.stripeMode || "") === "sandbox" || /\btest\b|_test_/i.test(orderId);
+function isTestOrderRecord(data: Record<string, unknown> = {}): boolean {
+  return String(data.stripeMode || "") === "sandbox";
 }
 
 function buildOrderNotificationEmail(order: OrderNotificationInput): { subject: string; text: string; html: string } {
@@ -1358,11 +1374,12 @@ function sendSmtpMail({
   });
 }
 
-function normalizeCheckoutCartItems(items: CheckoutCartItem[]): CheckoutCartItem[] {
+function normalizeCheckoutCartItems(items: CheckoutCartItem[], maxQuantity = 99): CheckoutCartItem[] {
   return items.map((item) => ({
     productId: String(item.productId || "").trim(),
     variationId: String(item.variationId || "").trim(),
-    quantity: Math.max(1, Math.min(99, Math.round(Number(item.quantity) || 1))),
+    badgeName: String(item.badgeName || "").trim(),
+    quantity: Math.max(1, Math.min(maxQuantity, Math.round(Number(item.quantity) || 1))),
   }));
 }
 
@@ -1392,6 +1409,7 @@ function normalizeProductItems(items: unknown): ProductItem[] {
       acc.push({
         id,
         title,
+        slug: String(raw.slug || "").trim(),
         active: Boolean(raw.active),
         catalogVisible: raw.catalogVisible !== false,
         unitAmount: Math.max(0, Math.round(Number(raw.unitAmount) || 0)),
@@ -1428,6 +1446,10 @@ function resolveCheckoutLineItems(
       throw new Error(`Product option is unavailable: ${product.title}`);
     }
 
+    const badgeName = product.slug === "custom-name-badges" ? String(cartItem.badgeName || "").trim() : "";
+    if (product.slug === "custom-name-badges" && (!badgeName || badgeName.length > 15 || /[\r\n\x00-\x1f\x7f]/.test(badgeName))) {
+      throw new Error("Enter a badge name of 1–15 characters on one line.");
+    }
     const unitAmount = variation?.unitAmount ?? product.unitAmount;
     if (!Number.isInteger(unitAmount) || unitAmount <= 0) {
       throw new Error(`Product price is unavailable: ${product.title}`);
@@ -1437,10 +1459,46 @@ function resolveCheckoutLineItems(
       productId: product.id,
       variationId: variation?.id || "",
       quantity: cartItem.quantity,
-      title: variation ? `${product.title} (${variation.label})` : product.title,
+      badgeName,
+      title: (variation ? `${product.title} (${variation.label})` : product.title) + (badgeName ? ` — Name: ${badgeName}` : ""),
       unitAmount,
       currency: product.currency,
     };
+  });
+}
+
+function resolveEditableCheckoutLineItems(
+  cartItems: CheckoutCartItem[],
+  productsById: Map<string, ProductItem>,
+  existingItems: unknown,
+  existingCurrency = "usd",
+): CheckoutLineItem[] {
+  const storedItems = Array.isArray(existingItems) ? existingItems : [];
+  return cartItems.map((cartItem) => {
+    try {
+      return resolveCheckoutLineItems([cartItem], productsById)[0];
+    } catch (catalogError) {
+      // An existing order must never bypass current badge validation.
+      if (productsById.get(cartItem.productId)?.slug === "custom-name-badges") throw catalogError;
+      const storedItem = storedItems.find((item) => {
+        if (!item || typeof item !== "object") return false;
+        const raw = item as Record<string, unknown>;
+        return String(raw.productId || "").trim() === cartItem.productId
+          && String(raw.variationId || "").trim() === String(cartItem.variationId || "").trim()
+          && String(raw.badgeName || String(raw.title || "").split(" — Name: ")[1] || "").trim() === String(cartItem.badgeName || "").trim();
+      }) as Record<string, unknown> | undefined;
+      const title = String(storedItem?.title || "").trim();
+      const unitAmount = Math.max(0, Math.round(Number(storedItem?.unitAmount) || 0));
+      if (!storedItem || !title || unitAmount <= 0) throw catalogError;
+      return {
+        productId: cartItem.productId,
+        variationId: String(cartItem.variationId || "").trim(),
+        quantity: cartItem.quantity,
+        title,
+        unitAmount,
+        currency: String(storedItem.currency || existingCurrency || "usd").trim().toLowerCase() || "usd",
+      };
+    }
   });
 }
 
@@ -2313,7 +2371,7 @@ export const acceptAgreementAndCreateCheckoutSession = onRequest(
       }
 
       const now = nowIso();
-      const orderId = createOrderId(stripeMode);
+      const orderId = createOrderId();
       const agreement = getPublicAgreementPayload(found.id, found.data);
       const unitAmount = Math.max(1, Math.round(Number(agreement.yearlyAmount) || 24000));
       const currency = String(agreement.currency || "usd").trim().toLowerCase() || "usd";
@@ -2877,7 +2935,7 @@ export const createCheckoutSession = onRequest(
       }
 
       const stripe = getStripeClient();
-      const orderId = createOrderId(stripeMode);
+      const orderId = createOrderId();
       const cartItems = normalizeCheckoutCartItems(request.body.cartItems);
       const lineItems = resolveCheckoutLineItems(cartItems, await loadProductCatalog());
       const organizationEmail = normalizeEmail(String(request.body.organizationEmail || ""));
@@ -2921,6 +2979,7 @@ export const createCheckoutSession = onRequest(
                 metadata: {
                   productId: item.productId,
                   variationId: item.variationId,
+                  badgeName: item.badgeName || "",
                 },
               },
             },
@@ -2996,6 +3055,375 @@ export const createCheckoutSession = onRequest(
   },
 );
 
+export const createCustomOrder = onRequest(
+  { region: "us-central1", secrets: [STRIPE_SECRET_KEY, STRIPE_TEST_SECRET_KEY] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const customerName = normalizeString(request.body?.customerName, 160);
+      const customerEmail = normalizeEmail(normalizeString(request.body?.customerEmail, 254));
+      const amountShipping = Math.max(0, Math.round(Number(request.body?.amountShipping) || 0));
+      const sourceUrl = normalizeString(request.body?.sourceUrl, 2000) || PUBLIC_SITE_ORIGIN;
+
+      if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) throw new Error("invalid_customer_email");
+      const cartItems = normalizeCheckoutCartItems(
+        Array.isArray(request.body?.cartItems) ? request.body.cartItems : [],
+        99999,
+      );
+      if (!cartItems.length) throw new Error("custom_order_items_required");
+      const lineItems = resolveCheckoutLineItems(cartItems, await loadProductCatalog());
+      const currencies = new Set(lineItems.map((item) => item.currency));
+      if (currencies.size !== 1) throw new Error("custom_order_currency_mismatch");
+      const currency = lineItems[0].currency;
+
+      const requestedStripeMode = String(request.body?.stripeMode || "live");
+      const stripeMode: "sandbox" | "live" = requestedStripeMode === "sandbox" ? "sandbox" : "live";
+
+      const orderId = customOrderRequestId(requestedByAdminEmail, request.header("x-idempotency-key"));
+      const creationHash = createHash("sha256").update(JSON.stringify({customerName, customerEmail, amountShipping, lineItems, stripeMode})).digest("hex");
+      const orderRef = getAdminDb().collection("orders").doc(orderId);
+      const saved: Record<string, any> = await getAdminDb().runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(orderRef);
+        if (snapshot.exists) {
+          const data = snapshot.data() || {};
+          if (data.creationHash !== creationHash) throw new Error("order_request_conflict");
+          return data;
+        }
+        const draft = { id: orderId, orderType: CUSTOM_ORDER_TYPE, status: "checkout_created", lineItems, currency,
+          amountSubtotal: lineItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0), amountShipping,
+          amountTotal: lineItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0) + amountShipping, amountTax: 0,
+          customerName, customerEmail, customerDetailsPending: !customerEmail || !customerName,
+          createdAt: nowIso(), updatedAt: nowIso(), stripeMode, creationHash, createdByAdminEmail: requestedByAdminEmail,
+          adminOrderUrl: getAdminOrderUrl(PUBLIC_SITE_ORIGIN, orderId), notificationEmailStatus: "pending_payment" };
+        transaction.create(orderRef, draft);
+        return draft;
+      });
+      if (saved.checkoutSessionId) {
+        response.status(200).json({ok:true, orderId, adminOrderUrl: saved.adminOrderUrl, publicOrderUrl: saved.publicOrderUrl || "", checkoutUrl: saved.checkoutUrl || "", reused:true});
+        return;
+      }
+      const createdAt = String(saved.createdAt);
+      const amountSubtotal = lineItems.reduce((total, item) => total + (item.unitAmount * item.quantity), 0);
+      const amountTotal = amountSubtotal + amountShipping;
+      const publicOrderUrl = customerEmail ? getPublicOrderUrl(PUBLIC_SITE_ORIGIN, orderId, customerEmail) : "";
+      const adminOrderUrl = getAdminOrderUrl(PUBLIC_SITE_ORIGIN, orderId);
+      const successUrl = appendUrlParams(getPublicOrderUrl(PUBLIC_SITE_ORIGIN, orderId, customerEmail).replace("/order.html", "/receipt.html"), {
+        session_id: "{CHECKOUT_SESSION_ID}",
+      });
+      const stripe = getStripeClientForMode(stripeMode);
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        success_url: successUrl,
+        cancel_url: `${PUBLIC_SITE_ORIGIN}/products.html`,
+        client_reference_id: orderId,
+        ...customerCollection(customerEmail),
+        line_items: lineItems.map((item) => ({
+          price_data: {
+            currency,
+            unit_amount: item.unitAmount,
+            product_data: {
+              name: item.title,
+              metadata: { productId: item.productId, badgeName: item.badgeName || "", variationId: item.variationId, orderId },
+            },
+          },
+          quantity: item.quantity,
+        })),
+        ...(amountShipping ? {
+          shipping_options: [{
+            shipping_rate_data: {
+              type: "fixed_amount" as const,
+              fixed_amount: { amount: amountShipping, currency },
+              display_name: "Shipping",
+            },
+          }],
+        } : {}),
+        automatic_tax: { enabled: true },
+        allow_promotion_codes: false,
+        billing_address_collection: "required",
+        metadata: { orderId, orderType: CUSTOM_ORDER_TYPE },
+        payment_intent_data: { metadata: { orderId, orderType: CUSTOM_ORDER_TYPE } },
+      }, {idempotencyKey: orderId});
+
+      await getAdminDb().runTransaction(async (transaction) => {
+        const current = (await transaction.get(orderRef)).data() || {};
+        transaction.set(orderRef, {
+        id: orderId,
+        orderType: CUSTOM_ORDER_TYPE,
+        status: "checkout_created",
+        lineItems,
+        currency,
+        amountSubtotal,
+        amountTax: 0,
+        amountShipping,
+        amountTotal,
+        customerEmail,
+        customerName,
+        checkoutSessionId: session.id,
+        checkoutUrl: session.url || "",
+        paymentIntentId: "",
+        latestStripeEventId: "",
+        stripeMode,
+        notificationEmail: ORDER_NOTIFICATION_EMAIL,
+        notificationEmailStatus: "pending_payment",
+        publicOrderUrl,
+        createdAt,
+        updatedAt: createdAt,
+        paidAt: "",
+        stripeDashboardUrl: getStripePaymentSearchUrl(session.id, stripeMode),
+        adminOrderUrl,
+        createdByAdminEmail: requestedByAdminEmail,
+        ...(current.status === "paid" ? current : {}),
+      }, {merge:true});
+      });
+
+      response.status(200).json({ ok: true, orderId, adminOrderUrl, publicOrderUrl, checkoutUrl: session.url || "" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      logger.error("createCustomOrder failed", error);
+      if (["order_request_key_required", "order_request_conflict", "invalid_customer_email"].includes(message)) {
+        response.status(message === "order_request_conflict" ? 409 : 400).json({error: message});
+      } else if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+      } else if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+      } else if (message === "customer_email_required") {
+        response.status(400).json({ error: "Customer email is required." });
+      } else if (message === "custom_order_items_required") {
+        response.status(400).json({ error: "Add at least one catalog product." });
+      } else if (message === "custom_order_currency_mismatch") {
+        response.status(400).json({ error: "All order products must use the same currency." });
+      } else if (message === "stripe_test_mode_unavailable") {
+        response.status(409).json({ error: "Test order creation requires STRIPE_TEST_SECRET_KEY to contain a Stripe test key." });
+      } else if (message === "stripe_live_mode_unavailable") {
+        response.status(409).json({ error: "Live order creation requires STRIPE_SECRET_KEY to contain a Stripe live key." });
+      } else {
+        response.status(500).json({ error: "Failed to create custom order." });
+      }
+    }
+  },
+);
+
+export const updateCustomOrder = onRequest(
+  { region: "us-central1", secrets: [STRIPE_SECRET_KEY, STRIPE_TEST_SECRET_KEY] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const updateRequestId = customOrderRequestId(requestedByAdminEmail, request.header("x-idempotency-key"));
+      const orderId = normalizeString(request.body?.orderId, 200);
+      const customerName = normalizeString(request.body?.customerName, 160);
+      const customerEmail = normalizeEmail(normalizeString(request.body?.customerEmail, 254));
+      const amountShipping = Math.max(0, Math.round(Number(request.body?.amountShipping) || 0));
+      const sourceUrl = normalizeString(request.body?.sourceUrl, 2000) || PUBLIC_SITE_ORIGIN;
+      if (!orderId) throw new Error("custom_order_id_required");
+      if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) throw new Error("invalid_customer_email");
+
+      const orderRef = getAdminDb().collection("orders").doc(orderId);
+      const snapshot = await orderRef.get();
+      if (!snapshot.exists) throw new Error("custom_order_not_found");
+      const existing = snapshot.data() || {};
+      if (String(existing.orderType || "") !== CUSTOM_ORDER_TYPE) throw new Error("custom_order_not_editable");
+      const existingStatus = String(existing.status || "");
+      if (!["checkout_created", "closed"].includes(existingStatus)) throw new Error("custom_order_not_editable");
+
+      const cartItems = normalizeCheckoutCartItems(
+        Array.isArray(request.body?.cartItems) ? request.body.cartItems : [],
+        99999,
+      );
+      if (!cartItems.length) throw new Error("custom_order_items_required");
+      const lineItems = resolveEditableCheckoutLineItems(
+        cartItems,
+        await loadProductCatalog(),
+        existing.lineItems,
+        String(existing.currency || "usd"),
+      );
+      const currencies = new Set(lineItems.map((item) => item.currency));
+      if (currencies.size !== 1) throw new Error("custom_order_currency_mismatch");
+      const currency = lineItems[0].currency;
+      const requestedStripeMode = String(request.body?.stripeMode || existing.stripeMode || "live");
+      const stripeMode: "sandbox" | "live" = requestedStripeMode === "sandbox" ? "sandbox" : "live";
+      const existingStripeMode: "sandbox" | "live" = String(existing.stripeMode || "") === "sandbox"
+        ? "sandbox"
+        : "live";
+      const modeChanged = existingStripeMode !== stripeMode;
+      if (existingStatus === "closed") {
+        const amountSubtotal = lineItems.reduce((total, item) => total + (item.unitAmount * item.quantity), 0);
+        const amountTotal = amountSubtotal + amountShipping;
+        const updatedAt = nowIso();
+        const targetOrderId = modeChanged ? updateRequestId : orderId;
+        const targetOrderRef = getAdminDb().collection("orders").doc(targetOrderId);
+        const closedOrderUpdate = {
+          ...(modeChanged ? existing : {}),
+          id: targetOrderId,
+          lineItems,
+          currency,
+          amountSubtotal,
+          amountShipping,
+          amountTotal,
+          customerEmail,
+          customerName,
+        customerDetailsPending: !customerName || !customerEmail,
+          stripeMode,
+          adminOrderUrl: getAdminOrderUrl(PUBLIC_SITE_ORIGIN, targetOrderId),
+          publicOrderUrl: getPublicOrderUrl(sourceUrl, targetOrderId, customerEmail),
+          updatedAt,
+          updatedByAdminEmail: requestedByAdminEmail,
+          ...(modeChanged ? { convertedFromOrderId: orderId } : {}),
+        };
+        await targetOrderRef.set(closedOrderUpdate, { merge: !modeChanged });
+        if (modeChanged) {
+          await orderRef.set({
+            status: "canceled",
+            replacedByOrderId: targetOrderId,
+            updatedAt,
+            updatedByAdminEmail: requestedByAdminEmail,
+          }, { merge: true });
+        }
+        response.status(200).json({ ok: true, orderId: targetOrderId, closedOrderUpdated: true, modeChanged, stripeMode });
+        return;
+      }
+
+      const amountSubtotal = lineItems.reduce((total, item) => total + (item.unitAmount * item.quantity), 0);
+      const amountTotal = amountSubtotal + amountShipping;
+      const targetOrderId = modeChanged ? updateRequestId : orderId;
+      const targetOrderRef = getAdminDb().collection("orders").doc(targetOrderId);
+      const publicOrderUrl = customerEmail ? getPublicOrderUrl(PUBLIC_SITE_ORIGIN, targetOrderId, customerEmail) : "";
+      const successUrl = appendUrlParams(getPublicOrderUrl(PUBLIC_SITE_ORIGIN, targetOrderId, customerEmail).replace("/order.html", "/receipt.html"), { session_id: "{CHECKOUT_SESSION_ID}" });
+      const stripe = getStripeClientForMode(stripeMode);
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        success_url: successUrl,
+        cancel_url: `${PUBLIC_SITE_ORIGIN}/products.html`,
+        client_reference_id: targetOrderId,
+        ...customerCollection(customerEmail),
+        line_items: lineItems.map((item) => ({
+          price_data: {
+            currency,
+            unit_amount: item.unitAmount,
+            product_data: {
+              name: item.title,
+              metadata: { productId: item.productId, badgeName: item.badgeName || "", variationId: item.variationId, orderId: targetOrderId },
+            },
+          },
+          quantity: item.quantity,
+        })),
+        ...(amountShipping ? {
+          shipping_options: [{
+            shipping_rate_data: {
+              type: "fixed_amount" as const,
+              fixed_amount: { amount: amountShipping, currency },
+              display_name: "Shipping",
+            },
+          }],
+        } : {}),
+        automatic_tax: { enabled: true },
+        allow_promotion_codes: false,
+        billing_address_collection: "required",
+        metadata: { orderId: targetOrderId, orderType: CUSTOM_ORDER_TYPE },
+        payment_intent_data: { metadata: { orderId: targetOrderId, orderType: CUSTOM_ORDER_TYPE } },
+      }, { idempotencyKey: `${orderId}_${updateRequestId}` });
+
+      const previousSessionId = String(existing.checkoutSessionId || "").trim();
+      if (previousSessionId && previousSessionId !== session.id) {
+        try {
+          await getStripeClientForMode(existingStripeMode).checkout.sessions.expire(previousSessionId);
+        } catch (error) {
+          logger.warn("Previous custom order checkout could not be expired", { orderId, previousSessionId, error });
+        }
+      }
+
+      const updatedAt = nowIso();
+      const updatedOrder = {
+        ...(modeChanged ? existing : {}),
+        id: targetOrderId,
+        orderType: CUSTOM_ORDER_TYPE,
+        status: "checkout_created",
+        lineItems,
+        currency,
+        amountSubtotal,
+        amountTax: 0,
+        amountShipping,
+        amountTotal,
+        customerEmail,
+        customerName,
+        customerDetailsPending: !customerName || !customerEmail,
+        stripeMode,
+        checkoutSessionId: session.id,
+        checkoutUrl: session.url || "",
+        paymentIntentId: "",
+        latestStripeEventId: "",
+        stripeDashboardUrl: getStripePaymentSearchUrl(session.id, stripeMode),
+        adminOrderUrl: getAdminOrderUrl(PUBLIC_SITE_ORIGIN, targetOrderId),
+        publicOrderUrl,
+        notificationEmailStatus: "pending_payment",
+        paidAt: "",
+        createdAt: modeChanged ? updatedAt : String(existing.createdAt || updatedAt),
+        updatedAt,
+        updatedByAdminEmail: requestedByAdminEmail,
+        ...(modeChanged ? { convertedFromOrderId: orderId } : {}),
+      };
+      await targetOrderRef.set(updatedOrder, { merge: !modeChanged });
+      if (modeChanged) {
+        await orderRef.set({
+          status: "canceled",
+          replacedByOrderId: targetOrderId,
+          updatedAt,
+          updatedByAdminEmail: requestedByAdminEmail,
+        }, { merge: true });
+      }
+
+      response.status(200).json({ ok: true, orderId: targetOrderId, publicOrderUrl, checkoutUrl: session.url || "", modeChanged, stripeMode });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      logger.error("updateCustomOrder failed", error);
+      if (["order_request_key_required", "order_request_conflict", "invalid_customer_email"].includes(message)) {
+        response.status(message === "order_request_conflict" ? 409 : 400).json({error: message});
+      } else if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+      } else if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+      } else if (message === "customer_email_required") {
+        response.status(400).json({ error: "Customer email is required." });
+      } else if (message === "custom_order_not_found") {
+        response.status(404).json({ error: "Order not found." });
+      } else if (message === "custom_order_not_editable") {
+        response.status(409).json({ error: "Only unpaid or closed custom orders can be edited." });
+      } else if (message === "custom_order_items_required") {
+        response.status(400).json({ error: "Add at least one catalog product." });
+      } else if (message === "custom_order_currency_mismatch") {
+        response.status(400).json({ error: "The order products do not use the same currency." });
+      } else if (/^(Product|Product option|Product price) is unavailable:/.test(message)) {
+        response.status(400).json({ error: message });
+      } else if (message === "stripe_test_mode_unavailable") {
+        response.status(409).json({ error: "Test order editing requires STRIPE_TEST_SECRET_KEY to contain a Stripe test key." });
+      } else if (message === "stripe_live_mode_unavailable") {
+        response.status(409).json({ error: "Live order editing requires STRIPE_SECRET_KEY to contain a Stripe live key." });
+      } else {
+        response.status(500).json({ error: "Failed to update custom order." });
+      }
+    }
+  },
+);
+
 export const getPublicOrder = onRequest(
   { region: "us-central1" },
   async (request, response) => {
@@ -3048,6 +3476,7 @@ export const getPublicOrder = onRequest(
           createdAt: String(data.createdAt || ""),
           updatedAt: String(data.updatedAt || ""),
           paidAt: String(data.paidAt || ""),
+          checkoutUrl: order.status === "checkout_created" ? String(data.checkoutUrl || "") : "",
         },
       });
     } catch (error) {
@@ -3098,7 +3527,7 @@ export const getPublicOrderReceiptLink = onRequest(
         hasPaymentIntentId: Boolean(String(data.paymentIntentId || "").trim()),
         paidAt: String(data.paidAt || ""),
       });
-      if (storedSessionId && storedSessionId !== sessionId) {
+      if (!storedSessionId || storedSessionId !== sessionId) {
         response.status(404).json({ error: "Order not found." });
         return;
       }
@@ -3123,12 +3552,12 @@ export const getPublicOrderReceiptLink = onRequest(
             missingPaymentDetails: !hasStoredPaymentDetails,
           },
         });
-        const stripe = getStripeClient();
+        const stripe = getStripeClientForMode(data.stripeMode === "sandbox" ? "sandbox" : "live");
         const session = await stripe.checkout.sessions.retrieve(sessionId, {
           expand: ["line_items", "payment_intent"],
         });
         const sessionOrderId = String(session.metadata?.orderId || session.client_reference_id || "").trim();
-        if (sessionOrderId && sessionOrderId !== orderId) {
+        if (!sessionOrderId || sessionOrderId !== orderId) {
           response.status(404).json({ error: "Order not found." });
           return;
         }
@@ -3144,13 +3573,15 @@ export const getPublicOrderReceiptLink = onRequest(
         const totalDetails = session.total_details;
         const stripeMode = session.livemode ? "live" : "sandbox";
         const isPaid = session.payment_status === "paid";
+        if (!isPaid) { response.status(409).json({error:"Payment has not completed."}); return; }
+        assertCurrentPaidSession(data, session);
         customerEmail = String(customerDetails?.email || session.customer_email || "").trim();
         logger.info("public order receipt link Stripe session retrieved", {
           orderId,
           sessionId,
           paymentStatus: session.payment_status,
           customerEmail,
-          customerName: String(customerDetails?.name || ""),
+          customerName: verifiedCustomerName(session),
           paymentIntentId,
           stripeCustomerId,
           stripeMode,
@@ -3188,7 +3619,8 @@ export const getPublicOrderReceiptLink = onRequest(
           amountShipping: Number(totalDetails?.amount_shipping) || Number(data.amountShipping) || 0,
           amountTotal: Number(session.amount_total) || Number(data.amountTotal) || 0,
           customerEmail,
-          customerName: String(customerDetails?.name || data.customerName || ""),
+          customerName: verifiedCustomerName(session) || String(data.customerName || ""),
+          customerDetailsPending: !verifiedCustomerName(session) || !customerEmail,
           checkoutSessionId: session.id,
           paymentIntentId,
           stripeCustomerId,
@@ -3304,6 +3736,7 @@ export const stripeWebhook = onRequest(
       );
 
       switch (event.type) {
+        case "checkout.session.async_payment_succeeded":
         case "checkout.session.completed":
           await handleCheckoutSessionCompleted(stripe, event);
           logger.info("checkout.session.completed", {
@@ -3532,7 +3965,7 @@ export const deleteTestOrder = onRequest(
       }
 
       const data = orderSnapshot.data() || {};
-      if (!isTestOrderRecord(orderId, data)) {
+      if (!isTestOrderRecord(data)) {
         logger.warn("delete test order denied for live order", {
           orderId,
           requestedByAdminEmail,
@@ -3695,6 +4128,271 @@ export const closeOrder = onRequest(
   },
 );
 
+export const markOrderPaidByCash = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const orderId = String(request.body?.orderId || "").trim();
+      const requestedByAdminEmail = await requireAdmin(request);
+      if (!orderId) {
+        response.status(400).json({ error: "Missing orderId" });
+        return;
+      }
+
+      const db = getAdminDb();
+      const orderRef = db.collection("orders").doc(orderId);
+      const moneyAccountsRef = db.collection("ledger").doc("moneyAccounts");
+      const ledgerRef = db.collection("ledger").doc("entries");
+      const result = await db.runTransaction(async (transaction) => {
+        const [orderSnapshot, accountsSnapshot, ledgerSnapshot] = await Promise.all([
+          transaction.get(orderRef),
+          transaction.get(moneyAccountsRef),
+          transaction.get(ledgerRef),
+        ]);
+        if (!orderSnapshot.exists) throw new Error("order_not_found");
+
+        const order = orderSnapshot.data() || {};
+        const status = String(order.status || "");
+        const existingPaymentMethod = String(order.paymentMethod || "");
+        if (status === "paid" && existingPaymentMethod !== "cash") {
+          throw new Error("order_already_paid");
+        }
+        if (["closed", "canceled"].includes(status)) {
+          throw new Error("order_not_payable");
+        }
+
+        const amountTotalCents = Math.max(0, Math.round(Number(order.amountTotal) || 0));
+        if (!amountTotalCents) throw new Error("invalid_order_amount");
+        const now = new Date();
+        const nowMillis = now.getTime();
+        const paidAt = String(order.paidAt || now.toISOString());
+        const ledgerEntryId = `cash_order_${orderId}`;
+
+        const accounts = Array.isArray(accountsSnapshot.data()?.items)
+          ? [...accountsSnapshot.data()!.items]
+          : [];
+        let cashAccount = accounts.find(
+          (item: Record<string, unknown>) => String(item?.title || "").trim().toLowerCase() === "cash",
+        );
+        if (!cashAccount) {
+          cashAccount = {
+            id: "cash",
+            title: "Cash",
+            notes: "Cash payments received for orders.",
+            rewardsBillingCategory: "",
+            createdAt: nowMillis,
+            updatedAt: nowMillis,
+          };
+          accounts.push(cashAccount);
+        }
+
+        const entries = Array.isArray(ledgerSnapshot.data()?.items)
+          ? [...ledgerSnapshot.data()!.items]
+          : [];
+        const existingEntryIndex = entries.findIndex(
+          (item: Record<string, unknown>) => String(item?.id || "") === ledgerEntryId,
+        );
+        const entry = {
+          id: ledgerEntryId,
+          orderId,
+          amount: amountTotalCents / 100,
+          salesTaxLiability: 0,
+          processingFees: 0,
+          title: `Cash payment for order ${orderId}`,
+          moneyAccountTitle: String(cashAccount.title || "Cash").trim() || "Cash",
+          billingCategory: "Sales Revenue",
+          applicableDate: paidAt.slice(0, 10),
+          notes: `Automatically created when order ${orderId} was marked paid by cash.`,
+          status: "posted",
+          createdAt: existingEntryIndex >= 0
+            ? Number(entries[existingEntryIndex]?.createdAt) || nowMillis
+            : nowMillis,
+          updatedAt: nowMillis,
+        };
+        if (existingEntryIndex >= 0) entries[existingEntryIndex] = entry;
+        else entries.push(entry);
+
+        transaction.set(moneyAccountsRef, { items: accounts, updatedAt: now }, { merge: true });
+        transaction.set(ledgerRef, { items: entries, updatedAt: now }, { merge: true });
+        transaction.set(orderRef, {
+          status: "paid",
+          paidAt,
+          paymentMethod: "cash",
+          cashLedgerEntryId: ledgerEntryId,
+          ledgerEntryId,
+          paidByAdminEmail: requestedByAdminEmail,
+          updatedAt: now.toISOString(),
+        }, { merge: true });
+
+        return { paidAt, ledgerEntryId, amount: amountTotalCents / 100 };
+      });
+
+      logger.info("order marked paid by cash", { orderId, requestedByAdminEmail, ...result });
+      response.status(200).json({ ok: true, status: "paid", paymentMethod: "cash", ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      logger.error("mark order paid by cash failed", { error, message });
+      if (message === "missing_auth_token") {
+        response.status(401).json({ error: "Sign in required." });
+      } else if (message === "admin_denied") {
+        response.status(403).json({ error: "Admin access required." });
+      } else if (message === "order_not_found") {
+        response.status(404).json({ error: "Order not found." });
+      } else if (message === "order_already_paid") {
+        response.status(409).json({ error: "This order is already paid by another payment method." });
+      } else if (message === "order_not_payable") {
+        response.status(400).json({ error: "Canceled or completed orders cannot be marked paid by cash." });
+      } else if (message === "invalid_order_amount") {
+        response.status(400).json({ error: "The order must have a total greater than zero." });
+      } else {
+        response.status(500).json({ error: "Failed to mark order paid by cash." });
+      }
+    }
+  },
+);
+
+export const linkOrderLedgerPayment = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const orderId = normalizeString(request.body?.orderId, 200);
+      const ledgerEntryId = normalizeString(request.body?.ledgerEntryId, 200);
+      if (!orderId || !ledgerEntryId) throw new Error("link_ids_required");
+      const db = getAdminDb();
+      const orderRef = db.collection("orders").doc(orderId);
+      const ledgerRef = db.collection("ledger").doc("entries");
+      await db.runTransaction(async (transaction) => {
+        const [orderSnapshot, ledgerSnapshot] = await Promise.all([
+          transaction.get(orderRef),
+          transaction.get(ledgerRef),
+        ]);
+        if (!orderSnapshot.exists) throw new Error("order_not_found");
+        const order = orderSnapshot.data() || {};
+        if (String(order.status || "") === "canceled") throw new Error("order_not_linkable");
+        const currentLedgerEntryId = String(order.ledgerEntryId || order.cashLedgerEntryId || "").trim();
+        if (currentLedgerEntryId && currentLedgerEntryId !== ledgerEntryId) throw new Error("order_already_linked");
+        const entries = Array.isArray(ledgerSnapshot.data()?.items) ? [...ledgerSnapshot.data()!.items] : [];
+        const entryIndex = entries.findIndex((item: Record<string, unknown>) => String(item?.id || "") === ledgerEntryId);
+        if (entryIndex < 0) throw new Error("ledger_entry_not_found");
+        const entry = { ...(entries[entryIndex] as Record<string, unknown>) };
+        const linkedOrderId = String(entry.orderId || "").trim();
+        if (linkedOrderId && linkedOrderId !== orderId) throw new Error("ledger_entry_already_linked");
+        const amount = Number(entry.amount) || 0;
+        const orderAmount = (Math.max(0, Math.round(Number(order.amountTotal) || 0))) / 100;
+        if (amount <= 0 || Math.abs(amount - orderAmount) >= 0.005) throw new Error("payment_amount_mismatch");
+        const now = nowIso();
+        entry.orderId = orderId;
+        entry.updatedAt = Date.now();
+        entries[entryIndex] = entry;
+        const paidAt = String(order.paidAt || (entry.applicableDate ? `${entry.applicableDate}T12:00:00.000Z` : now));
+        transaction.set(ledgerRef, { items: entries, updatedAt: new Date() }, { merge: true });
+        transaction.set(orderRef, {
+          ledgerEntryId,
+          status: String(order.status || "") === "closed" ? "closed" : "paid",
+          paidAt,
+          paymentMethod: String(order.paymentMethod || "ledger"),
+          updatedAt: now,
+          paymentLinkedByAdminEmail: requestedByAdminEmail,
+        }, { merge: true });
+      });
+      response.status(200).json({ ok: true, orderId, ledgerEntryId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const errors: Record<string, [number, string]> = {
+        missing_auth_token: [401, "Sign in required."],
+        admin_denied: [403, "Admin access required."],
+        link_ids_required: [400, "Order ID and ledger entry ID are required."],
+        order_not_found: [404, "Order not found."],
+        ledger_entry_not_found: [404, "Ledger payment not found."],
+        order_not_linkable: [409, "Canceled orders cannot be linked to payments."],
+        order_already_linked: [409, "This order is already linked to another ledger payment."],
+        ledger_entry_already_linked: [409, "This ledger payment is already linked to another order."],
+        payment_amount_mismatch: [409, "The ledger payment must be a positive credit matching the order total."],
+      };
+      const [status, errorMessage] = errors[message] || [500, "Failed to link order and ledger payment."];
+      response.status(status).json({ error: errorMessage });
+    }
+  },
+);
+
+export const importOrderCustomer = onRequest(
+  { region: "us-central1" },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const orderId = normalizeString(request.body?.orderId, 200);
+      if (!orderId) throw new Error("order_id_required");
+      const db = getAdminDb();
+      const orderSnapshot = await db.collection("orders").doc(orderId).get();
+      if (!orderSnapshot.exists) throw new Error("order_not_found");
+      const order = orderSnapshot.data() || {};
+      const email = normalizeEmail(normalizeString(order.customerEmail, 254));
+      if (!email) throw new Error("customer_email_required");
+
+      const existing = await db.collection("customers")
+        .where("emailNormalized", "==", email)
+        .limit(1)
+        .get();
+      const customerRef = existing.empty
+        ? db.collection("customers").doc(`customer_${createHash("sha256").update(email).digest("hex").slice(0, 24)}`)
+        : existing.docs[0].ref;
+      const current = existing.empty ? {} : existing.docs[0].data();
+      const now = nowIso();
+      await customerRef.set({
+        id: customerRef.id,
+        name: String(current.name || order.customerName || "").trim(),
+        email: String(current.email || order.customerEmail || email).trim(),
+        emailNormalized: email,
+        phone: String(current.phone || order.customerPhone || "").trim(),
+        notes: String(current.notes || "").trim(),
+        sourceOrderId: String(current.sourceOrderId || orderId).trim(),
+        createdAt: String(current.createdAt || now),
+        updatedAt: now,
+        updatedByAdminEmail: requestedByAdminEmail,
+      }, { merge: true });
+      response.status(200).json({ ok: true, customerId: customerRef.id, created: existing.empty, email });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      logger.error("import order customer failed", error);
+      if (message === "missing_auth_token") response.status(401).json({ error: "Sign in required." });
+      else if (message === "admin_denied") response.status(403).json({ error: "Admin access required." });
+      else if (message === "order_not_found") response.status(404).json({ error: "Order not found." });
+      else if (message === "customer_email_required") response.status(400).json({ error: "The order has no customer email to import." });
+      else response.status(500).json({ error: "Failed to import the order customer." });
+    }
+  },
+);
+
 async function handleCheckoutSessionCompleted(
   stripe: Stripe,
   event: Stripe.Event,
@@ -3711,6 +4409,7 @@ async function savePaidCheckoutSession(
   const session = await stripe.checkout.sessions.retrieve(checkoutSessionId, {
     expand: ["line_items", "payment_intent"],
   });
+  if (session.payment_status !== "paid") return;
   const orderId = String(session.metadata?.orderId || session.client_reference_id || session.id);
   const paymentIntent = session.payment_intent;
   const paymentIntentId = typeof paymentIntent === "string"
@@ -3735,6 +4434,8 @@ async function savePaidCheckoutSession(
   const orderRef = getAdminDb().collection("orders").doc(orderId);
   const existingOrder = await orderRef.get();
   const existingOrderData = existingOrder.data() || {};
+  assertCurrentPaidSession(existingOrderData, session);
+  if (existingOrderData.customerDetailsPending && (!verifiedCustomerName(session) || !String(session.customer_details?.email || session.customer_email || "").trim())) throw new Error("checkout_customer_details_required");
   const previousNotificationStatus = String(existingOrderData.notificationEmailStatus || "");
   const previousCustomerEmailStatus = String(existingOrderData.customerOrderEmailStatus || "");
   const paidOrder: OrderNotificationInput = {
@@ -3757,7 +4458,7 @@ async function savePaidCheckoutSession(
     amountShipping: Number(totalDetails?.amount_shipping) || 0,
     amountTotal: Number(session.amount_total) || 0,
     customerEmail: String(customerDetails?.email || session.customer_email || ""),
-    customerName: String(customerDetails?.name || ""),
+    customerName: verifiedCustomerName(session),
     stripeMode,
     adminOrderUrl,
     publicOrderUrl,
@@ -3774,6 +4475,7 @@ async function savePaidCheckoutSession(
     amountTotal: paidOrder.amountTotal,
     customerEmail: paidOrder.customerEmail,
     customerName: paidOrder.customerName,
+    customerDetailsPending: !paidOrder.customerName || !paidOrder.customerEmail,
     checkoutSessionId: session.id,
     paymentIntentId,
     stripeCustomerId,
@@ -3877,6 +4579,8 @@ async function handlePaymentIntentSucceeded(
   }
 
   if (!orderId) return;
+  const pending = await getAdminDb().collection("orders").doc(orderId).get();
+  if (pending.data()?.customerDetailsPending) throw new Error("checkout_customer_details_required");
   await getAdminDb().collection("orders").doc(orderId).set({
     id: orderId,
     status: "paid",
@@ -3912,3 +4616,38 @@ async function handlePaymentIntentFailed(event: Stripe.Event): Promise<void> {
     stripeDashboardUrl: getStripePaymentIntentUrl(paymentIntent.id, stripeMode),
   }, { merge: true });
 }
+
+// Order images are admin-only: no download tokens, public URLs, or Stripe product images.
+export const manageOrderImage = onRequest({region:"us-central1"}, async (request, response) => {
+  setCorsHeaders(response, request.header("origin") || "");
+  response.set("Cache-Control", "private, no-store");
+  if (request.method === "OPTIONS") { response.status(204).send(""); return; }
+  if (!["GET","POST"].includes(request.method)) { response.status(405).send("Method not allowed"); return; }
+  try {
+    const actor = await requireAdmin(request);
+    const orderId = String(request.method === "GET" ? request.query.orderId || "" : request.body?.orderId || "");
+    if (!/^[a-zA-Z0-9_-]{1,200}$/.test(orderId)) throw new Error("invalid_order_id");
+    const orderRef = getAdminDb().collection("orders").doc(orderId);
+    const order = await orderRef.get();
+    if (!order.exists) { response.status(404).json({error:"Order not found."}); return; }
+    if (request.method === "GET") {
+      const image = order.data()?.orderImage;
+      if (!image || !new RegExp(`^order-images/${orderId}/[a-f0-9]{64}$`).test(String(image.path || ""))) {
+        response.status(404).json({error:"No order image."}); return;
+      }
+      const [bytes] = await getAdminBucket().file(image.path).download();
+      response.status(200).json({mime:image.mime, base64:bytes.toString("base64")}); return;
+    }
+    const image = decodeOrderImage(request.body?.base64, request.body?.mime);
+    const path = `order-images/${orderId}/${image.hash}`;
+    await getAdminBucket().file(path).save(image.bytes, {resumable:false, metadata:{contentType:image.mime,cacheControl:"private, no-store"}});
+    const uploadedAt = nowIso();
+    await orderRef.set({orderImage:{path,mime:image.mime,uploadedAt,uploadedByAdminEmail:actor},updatedAt:uploadedAt},{merge:true});
+    logger.info("Admin order image attached", {orderId, actor, hash:image.hash});
+    response.status(200).json({ok:true});
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    response.status(code === "missing_auth_token" ? 401 : code === "admin_denied" ? 403 : 400)
+      .json({error:code === "invalid_order_image" ? "Choose a PNG, JPEG, or WebP image up to 2MB." : "Order image request failed."});
+  }
+});

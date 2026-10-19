@@ -17,6 +17,13 @@
     ],
     "rewrites": [
       {
+        "source": "/api/admin/orders/image",
+        "function": {
+          "functionId": "manageOrderImage",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/create-checkout-session",
         "function": {
           "functionId": "createCheckoutSession",
@@ -143,6 +150,20 @@
         }
       },
       {
+        "source": "/api/admin/orders/create",
+        "function": {
+          "functionId": "createCustomOrder",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/update",
+        "function": {
+          "functionId": "updateCustomOrder",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/admin/orders/resend-customer-email",
         "function": {
           "functionId": "resendCustomerOrderEmail",
@@ -167,6 +188,27 @@
         "source": "/api/admin/orders/close",
         "function": {
           "functionId": "closeOrder",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/mark-paid-cash",
+        "function": {
+          "functionId": "markOrderPaidByCash",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/link-ledger-payment",
+        "function": {
+          "functionId": "linkOrderLedgerPayment",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/orders/import-customer",
+        "function": {
+          "functionId": "importOrderCustomer",
           "region": "us-central1"
         }
       },

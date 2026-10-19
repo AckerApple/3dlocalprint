@@ -8,10 +8,13 @@ import {
   option,
   textarea,
   p,
+  a,
+  span,
   output,
 } from "taggedjs";
 import { Modal } from "../../shared/Modal.tag.js";
 import type { LedgerEntry } from "../../../types/ledger.js";
+import type { OrderRecord } from "../../../types/order.js";
 import type {
   LedgerDraft,
   LedgerModalMode,
@@ -23,14 +26,17 @@ type LedgerEntryModalProps = {
   modalMode?: LedgerModalMode;
   draft: LedgerDraft;
   entries?: LedgerEntry[];
+  activeEntryId?: string;
   submitted?: boolean;
   isSaving?: boolean;
   isDeleting?: boolean;
   validateDraft: (source: LedgerDraft) => LedgerValidationErrors;
   getAllCategoryOptions: (entries: LedgerEntry[]) => string[];
   moneyAccountTitles?: string[];
+  moneyAccountEmojis?: Record<string, string>;
+  orders?: OrderRecord[];
   onClose: () => void;
-  onSave: () => void;
+  onSave: (keepOpen?: boolean) => void;
   onDelete: () => void;
   onSyncSaveState: (showErrors?: boolean) => void;
 };
@@ -81,29 +87,37 @@ export const LedgerEntryModal = tag(({
   modalMode = "create",
   draft,
   entries = [],
+  activeEntryId = "",
   submitted = false,
   isSaving = false,
   isDeleting = false,
   validateDraft,
   getAllCategoryOptions,
   moneyAccountTitles = [],
+  moneyAccountEmojis = {},
+  orders = [],
   onClose,
   onSave,
   onDelete,
   onSyncSaveState,
 }: LedgerEntryModalProps) => {
+  let orderSearch = "";
+
   LedgerEntryModal.inputs((args) => {
     [{
       modalOpen = false,
       modalMode = "create",
       draft,
       entries = [],
+      activeEntryId = "",
       submitted = false,
       isSaving = false,
       isDeleting = false,
       validateDraft,
       getAllCategoryOptions,
       moneyAccountTitles = [],
+      moneyAccountEmojis = {},
+      orders = [],
       onClose,
       onSave,
       onDelete,
@@ -240,6 +254,25 @@ export const LedgerEntryModal = tag(({
       submitted && !String(draft.moneyAccountTitle || "").trim();
     const hasFieldError = (field: keyof LedgerValidationErrors) =>
       submitted && !!errors[field];
+    const orderLabel = (order: OrderRecord) => {
+      const customer = String(order.customerName || order.customerEmail || "").trim();
+      const amount = Number(order.amountTotal) || 0;
+      return `${order.id}${customer ? ` · ${customer}` : ""}${amount ? ` · $${(amount / 100).toFixed(2)}` : ""}`;
+    };
+    const getOrderById = (orderId: string) => orders.find((order) => order.id === orderId);
+    const matchingOrders = () => {
+      const query = orderSearch.trim().toLowerCase();
+      if (!query) return [];
+      return orders
+        .filter((order) => !draft.orderIds.includes(order.id))
+        .filter((order) => [
+          order.id,
+          order.customerName,
+          order.customerEmail,
+          order.status,
+        ].some((value) => String(value || "").toLowerCase().includes(query)))
+        .slice(0, 10);
+    };
 
     return [
       div.class`ledger-form-grid`(
@@ -312,7 +345,10 @@ export const LedgerEntryModal = tag(({
               onSyncSaveState();
             })(
             option.value``("Select account"),
-            moneyAccountTitles.map((title) => option.value(title)(title))
+            moneyAccountTitles.map((title) => {
+              const emoji = String(moneyAccountEmojis[title] || "").trim();
+              return option.value(title)(emoji ? `${emoji} ${title}` : title);
+            })
           ),
           _=> !moneyAccountTitles.length
             ? p.class`ledger-field-error`("No money accounts yet. Add one in Money Accounts first.")
@@ -379,6 +415,59 @@ export const LedgerEntryModal = tag(({
           ),
           renderFieldError(submitted, errors, "billingCategory")
         ),
+        _=> isSalesRevenueCategory()
+          ? div.class`ledger-order-linker`(
+              p.class`ledger-order-linker-title`("Related Orders (optional)"),
+              _=> draft.orderIds.length
+                ? div.class`ledger-linked-orders`(
+                    draft.orderIds.map((orderId) => {
+                      const order = getOrderById(orderId);
+                      return div.class`ledger-linked-order`(
+                        a
+                          .href(`../orders/index.html?orderId=${encodeURIComponent(orderId)}`)
+                          .target`_blank`(order ? orderLabel(order) : orderId),
+                        button
+                          .type`button`
+                          .class`ledger-order-trash`
+                          .attr("aria-label", `Unlink order ${orderId}`)
+                          .title(`Unlink order ${orderId}`)
+                          .onClick(() => {
+                            draft.orderIds = draft.orderIds.filter((id) => id !== orderId);
+                            onSyncSaveState();
+                          })("🗑️")
+                      );
+                    })
+                  )
+                : p.class`ledger-order-empty`("No orders linked yet."),
+              input
+                .type`search`
+                .placeholder`Search by order ID, customer, email, or status`
+                .value(() => orderSearch)
+                .onInput((event) => {
+                  orderSearch = String(event.target.value || "");
+                  onSyncSaveState();
+                }),
+              _=> orderSearch.trim()
+                ? div.class`ledger-order-results`(
+                    matchingOrders().length
+                      ? matchingOrders().map((order) =>
+                          div.class`ledger-order-result`(
+                            span(orderLabel(order)),
+                            button
+                              .type`button`
+                              .class`ghost-button ledger-order-add`
+                              .onClick(() => {
+                                draft.orderIds = [...draft.orderIds, order.id];
+                                orderSearch = "";
+                                onSyncSaveState();
+                              })("Add")
+                          )
+                        )
+                      : p.class`ledger-order-empty`("No matching orders found.")
+                  )
+                : null
+            )
+          : null,
         label(
           "Status",
           select
@@ -440,7 +529,9 @@ export const LedgerEntryModal = tag(({
           .type`button`
         .class`add-button`
         .disabled(() => isSaving || isDeleting)
-        .onClick(() => onSave())(
+        .attr("data-pin-save", "true")
+        .attr("title", "Hold Shift while clicking to save and keep this modal open")
+        .onClick((event) => onSave(Boolean(event.shiftKey)))(
           isSaving ? "⏳ Saving..." : "☁️ Save"
         )
       )

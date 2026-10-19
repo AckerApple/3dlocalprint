@@ -48,8 +48,8 @@ export const adminNavGroups = [
     ],
   },
   {
-    key: "products",
-    title: "Products",
+    key: "operations",
+    title: "Operations",
     items: [
       {
         label: "Attention",
@@ -58,16 +58,34 @@ export const adminNavGroups = [
         emoji: "📌",
       },
       {
+        label: "Orders",
+        details: "Inspect checkout orders, payment status, and Stripe links.",
+        href: "orders/index.html",
+        emoji: "🛎️",
+      },
+      {
+        label: "Customer",
+        details: "Search and edit customer contact records linked to orders by email.",
+        href: "customers/index.html",
+        emoji: "👤",
+      },
+      {
+        label: "Alert Templates",
+        details: "Review static notification and customer email templates.",
+        href: "alert-templates/index.html",
+        emoji: "📣",
+      },
+    ],
+  },
+  {
+    key: "products",
+    title: "Products",
+    items: [
+      {
         label: "Products catalog",
         details: "Manage product records used for cart and checkout.",
         href: "products/index.html",
         emoji: "🛒",
-      },
-      {
-        label: "Orders",
-        details: "Inspect checkout orders, payment status, and Stripe links.",
-        href: "orders/index.html",
-        emoji: "🧾",
       },
       {
         label: "Organizational Checkout",
@@ -86,12 +104,6 @@ export const adminNavGroups = [
         details: "Review model-link quote requests and reply with quotes.",
         href: "link-orders/index.html",
         emoji: "🔗",
-      },
-      {
-        label: "Alert Templates",
-        details: "Review static notification and customer email templates.",
-        href: "alert-templates/index.html",
-        emoji: "📣",
       },
     ],
   },

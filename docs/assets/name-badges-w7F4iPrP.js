@@ -1,0 +1,1 @@
+const t=a=>a.slug==="custom-name-badges",n=a=>{const e=String(a??"").trim();if(!e||e.length>15||/[\r\n\x00-\x1f\x7f]/.test(e))throw new Error("Enter a badge name of 1–15 characters on one line.");return e};export{t as i,n as v};

@@ -8,6 +8,7 @@ import {
   saveLedgerEntries,
   subscribeLedgerEntries,
   subscribeMoneyAccounts,
+  subscribeOrders,
 } from "../../shared/firebase.js";
 import { AdminNav } from "../../shared/AdminNav.tag.js";
 import { ledgerCategories } from "../ledger-categories.array.js";
@@ -17,6 +18,7 @@ import { startAdminAppShell } from "../../shared/adminAppShell.js";
 import { LedgerPanel } from "./LedgerPanel.tag.js";
 import { LedgerEntryModal } from "./LedgerEntryModal.tag.js";
 import type { LedgerEntry, LedgerStatus, MoneyAccount } from "../../../types/ledger.js";
+import type { OrderRecord } from "../../../types/order.js";
 import type {
   LedgerFilterState,
   LedgerTotals,
@@ -29,8 +31,10 @@ let app = document.getElementById("ledgerApp");
 const appRoot = { current: app };
 const entries$ = array<LedgerEntry>([]);
 const moneyAccounts$ = array<MoneyAccount>([]);
+const orders$ = array<OrderRecord>([]);
 let stopLedger = null;
 let stopMoneyAccounts = null;
+let stopOrders = null;
 let isAuthorized = false;
 let appMounted = false;
 let currentUser = null;
@@ -160,6 +164,7 @@ const createDraft = () => ({
   amount: "",
   salesTaxLiability: "",
   processingFees: "",
+  orderIds: [],
   moneyAccountTitle: getLocalStorageValue(
     LOCAL_STORAGE_KEYS.moneyAccountTitle,
     ""
@@ -243,6 +248,14 @@ const normalizeLoadedEntry = (
   item: LedgerEntry
 ): LedgerEntry => ({
   id: String(item?.id || ""),
+  orderId: String(item?.orderId || (String(item?.id || "").startsWith("cash_order_")
+    ? String(item.id).slice("cash_order_".length)
+    : "")),
+  orderIds: Array.from(new Set([
+    ...(Array.isArray(item?.orderIds) ? item.orderIds : []),
+    item?.orderId,
+    String(item?.id || "").startsWith("cash_order_") ? String(item.id).slice("cash_order_".length) : "",
+  ].map((value) => String(value || "").trim()).filter(Boolean))),
   amount: (() => {
     const amount = Number(item?.amount) || 0;
     const legacyDirection = String((item as any)?.direction || "");
@@ -274,6 +287,10 @@ const entryToDraft = (entry: LedgerEntry): LedgerDraft => ({
   processingFees: Number(entry.processingFees || 0)
     ? Number(entry.processingFees || 0).toFixed(2)
     : "",
+  orderIds: Array.from(new Set([
+    ...(Array.isArray(entry.orderIds) ? entry.orderIds : []),
+    entry.orderId,
+  ].map((value) => String(value || "").trim()).filter(Boolean))),
   moneyAccountTitle: String(entry.moneyAccountTitle || ""),
   billingCategory: String(entry.billingCategory || ""),
   applicableDate: String(entry.applicableDate || getTodayIso()),
@@ -346,6 +363,9 @@ const normalizedDraft = (): Omit<LedgerEntry, "id" | "createdAt" | "updatedAt"> 
   const billingCategory = String(draft.billingCategory || "").trim();
   const isSalesRevenue = draft.amountType === "credit" && billingCategory.toLowerCase() === "sales revenue";
   const amount = Math.abs(Number(draft.amount) || 0);
+  const orderIds = isSalesRevenue
+    ? Array.from(new Set((draft.orderIds || []).map((value) => String(value || "").trim()).filter(Boolean)))
+    : [];
   return {
     title,
     notes,
@@ -358,6 +378,8 @@ const normalizedDraft = (): Omit<LedgerEntry, "id" | "createdAt" | "updatedAt"> 
     processingFees: isSalesRevenue
       ? Math.min(0, Number(draft.processingFees || "0") || 0)
       : 0,
+    orderId: orderIds[0] || "",
+    orderIds,
     applicableDate: draft.applicableDate,
     status: draft.status,
   };
@@ -412,6 +434,7 @@ const normalizeLoadedMoneyAccount = (item: MoneyAccount): MoneyAccount => {
   return {
     id: String(item?.id || ""),
     title,
+    emoji: String(item?.emoji || "").trim(),
     notes: String(item?.notes || "").trim(),
     rewardsBillingCategory: String(item?.rewardsBillingCategory || "").trim(),
     createdAt: Number(item?.createdAt) || Date.now(),
@@ -592,7 +615,7 @@ const calculateAccountTotals = (
   };
 };
 
-const handleSave = async () => {
+const handleSave = async (keepOpen = false) => {
   if (!isAuthorized) {
     toast.error("Sign in to save changes.");
     return;
@@ -636,7 +659,23 @@ const handleSave = async () => {
     setLocalStorageValue(LOCAL_STORAGE_KEYS.moneyAccountTitle, normalized.moneyAccountTitle);
     setLocalStorageValue(LOCAL_STORAGE_KEYS.category, normalized.billingCategory);
     toast.success(modalMode === "edit" ? "Ledger entry updated." : "Ledger entry added.");
-    closeModal();
+    if (keepOpen) {
+      isSaving = false;
+      if (modalMode === "create") {
+        const savedEntry = nextEntries.find((entry) =>
+          entry.createdAt === now && entry.updatedAt === now
+        );
+        if (savedEntry) {
+          modalMode = "edit";
+          activeEntryId = savedEntry.id;
+          draft = entryToDraft(savedEntry);
+          setLedgerModalInUrl({ mode: "edit", entryId: savedEntry.id });
+        }
+      }
+      syncModalSaveState();
+    } else {
+      closeModal();
+    }
   } catch (error) {
     console.error("Failed to save ledger entries", error);
     toast.error("Save failed. Try again.");
@@ -686,13 +725,21 @@ const syncModalSaveState = (showErrors = false) => {
 
 const renderModal = (entries: LedgerEntry[]) => {
   const moneyAccountTitles = getMoneyAccountTitles(moneyAccounts$.value);
+  const moneyAccountEmojis = moneyAccounts$.value.reduce<Record<string, string>>((labels, account) => {
+    const title = String(account?.title || "").trim();
+    if (title) labels[title] = String(account?.emoji || "").trim();
+    return labels;
+  }, {});
   return LedgerEntryModal(
     {
       modalOpen,
       modalMode,
       draft,
       entries,
+      activeEntryId,
       moneyAccountTitles,
+      moneyAccountEmojis,
+      orders: orders$.value,
       submitted,
       isSaving,
       isDeleting,
@@ -711,32 +758,34 @@ export const LedgerApp = tag(() => {
     AdminNav(handleSignOut, currentUser),
     subscribe(entries$, (entries) => {
       return subscribe(moneyAccounts$, (moneyAccounts) => {
-        const filteredEntries = getFilteredEntries(entries, filters)
-        const filterCategories = getFilterCategories(entries)
+        return subscribe(orders$, () => {
+          const filteredEntries = getFilteredEntries(entries, filters)
+          const filterCategories = getFilterCategories(entries)
 
-        return LedgerPanel({
-          entries,
-          filteredEntries,
-          moneyAccounts,
-          filterCategories,
-          filters,
-          showAdvancedFilters,
-          setShowAdvancedFilters: (value: boolean) => {
-            showAdvancedFilters = value;
-          },
-          onFiltersChanged: (nextFilters: LedgerFilterState) => {
-            accountTotals = {};
-            Object.assign(filters, nextFilters)
-          },
-          accountTotals,
-          onCalculateAccountTotals: calculateAccountTotals,
-          onOpenCreateModalForAccount: openCreateModal,
-          openCreateModal,
-          openEditModal,
-          toDisplayAmount,
-          toDisplayNet,
-          renderModal,
-          isLoading,
+          return LedgerPanel({
+            entries,
+            filteredEntries,
+            moneyAccounts,
+            filterCategories,
+            filters,
+            showAdvancedFilters,
+            setShowAdvancedFilters: (value: boolean) => {
+              showAdvancedFilters = value;
+            },
+            onFiltersChanged: (nextFilters: LedgerFilterState) => {
+              accountTotals = {};
+              Object.assign(filters, nextFilters)
+            },
+            accountTotals,
+            onCalculateAccountTotals: calculateAccountTotals,
+            onOpenCreateModalForAccount: openCreateModal,
+            openCreateModal,
+            openEditModal,
+            toDisplayAmount,
+            toDisplayNet,
+            renderModal,
+            isLoading,
+          });
         });
       });
     })
@@ -777,6 +826,10 @@ const auth = startAdminAppShell({
       stopMoneyAccounts();
       stopMoneyAccounts = null;
     }
+    if (stopOrders) {
+      stopOrders();
+      stopOrders = null;
+    }
     isLoading = true;
   },
   onDenied: () => {
@@ -788,6 +841,10 @@ const auth = startAdminAppShell({
     if (stopMoneyAccounts) {
       stopMoneyAccounts();
       stopMoneyAccounts = null;
+    }
+    if (stopOrders) {
+      stopOrders();
+      stopOrders = null;
     }
     isLoading = true;
   },
@@ -821,6 +878,11 @@ const auth = startAdminAppShell({
           .filter((item) => item.id && item.title);
         openPendingCreateModalFromUrl(normalized);
         moneyAccounts$.splice(0, moneyAccounts$.length, ...normalized);
+      });
+    }
+    if (!stopOrders) {
+      stopOrders = subscribeOrders((items) => {
+        orders$.splice(0, orders$.length, ...(Array.isArray(items) ? items : []));
       });
     }
     mountApp();

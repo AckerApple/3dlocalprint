@@ -1,3 +1,4 @@
+import { isNameBadgeProduct, validateBadgeName } from "./name-badges.js";
 import { loadProducts } from "./admin/shared/firebase.js";
 import { fetchApiWithFallback } from "./api-url.js";
 import type { ProductItem } from "./types/product.js";
@@ -194,6 +195,7 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
         quantity: item.quantity,
         productId: String(product?.id || item.productId || "").trim(),
         variationId: String(item.variationId || "").trim(),
+        badgeName: product && isNameBadgeProduct(product) ? validateBadgeName(item.badgeName) : "",
       };
     });
 
@@ -208,6 +210,7 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
         productId: entry.productId,
         variationId: entry.variationId,
         quantity: entry.quantity,
+        badgeName: entry.badgeName,
       })),
       successUrl: `${window.location.origin}/receipt.html`,
       cancelUrl: `${window.location.origin}/cart.html`,
@@ -317,7 +320,7 @@ const StripeSandboxBadge = () =>
 
 const CartLineRow = (item: CartItem, product: ProductItem) => {
   const variation = getVariationForCart(product, item.variationId);
-  const title = variation ? `${product.title} (${variation.label})` : product.title;
+  const title = (variation ? `${product.title} (${variation.label})` : product.title) + (item.badgeName ? ` — Name: ${item.badgeName}` : "");
   const unitAmount = variation?.unitAmount ?? product.unitAmount;
   const primaryImageUrl = getPrimaryImageUrl(product);
 
@@ -349,7 +352,7 @@ const CartLineRow = (item: CartItem, product: ProductItem) => {
         .value(_=> String(item.quantity))
         .ariaLabel`Quantity for ${title}`
         .onChange((event) => {
-          updateCartItemQuantity(product.id, Number(event.target.value) || 1, item.variationId || "");
+          updateCartItemQuantity(product.id, Number(event.target.value) || 1, item.variationId || "", item.badgeName || "");
         })()
     ),
     div.class`home-cart-field home-cart-row-subtotal`(
@@ -362,7 +365,7 @@ const CartLineRow = (item: CartItem, product: ProductItem) => {
       .type`button`
       .class`ghost-button delete-button`
       .onClick(() => {
-        removeFromCart(product.id, item.variationId || "");
+        removeFromCart(product.id, item.variationId || "", item.badgeName || "");
       })(
       "🗑️ Remove"
     )

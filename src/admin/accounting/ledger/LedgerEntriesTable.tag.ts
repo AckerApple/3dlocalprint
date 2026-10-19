@@ -1,4 +1,4 @@
-import { tag, div, table, thead, tbody, tr, th, td, span, p, output } from "taggedjs";
+import { tag, div, table, thead, tbody, tr, th, td, span, p, a, output } from "taggedjs";
 import type { LedgerEntry } from "../../../types/ledger.js";
 
 type LedgerEntriesTableProps = {
@@ -11,6 +11,11 @@ const toNotesPreview = (value = "") => {
   const firstLine = String(value || "").split(/\r?\n/)[0]?.trim() || "";
   return firstLine.slice(0, 30);
 };
+
+const getOrderIds = (entry: LedgerEntry) => Array.from(new Set([
+  ...(Array.isArray(entry.orderIds) ? entry.orderIds : []),
+  entry.orderId,
+].map((value) => String(value || "").trim()).filter(Boolean)));
 
 export const LedgerEntriesTable = tag(({
   filteredEntries = [],
@@ -60,7 +65,12 @@ export const LedgerEntriesTable = tag(({
                             .class`ledger-notes-preview`
                             .title(() => entry.notes || "")(notesPreview)
                         : null;
-                    }
+                    },
+                    _=> getOrderIds(entry).map((orderId) =>
+                      a.class`orders-detail-line-admin-link`
+                        .href(`../orders/index.html?orderId=${encodeURIComponent(orderId)}`)
+                        .onClick((event) => event.stopPropagation())(`🛎️ Order ${orderId}`)
+                    )
                   )
                 ),
                 td(_=> entry.billingCategory || "—"),
@@ -90,6 +100,12 @@ export const LedgerEntriesTable = tag(({
                       const tax = Number(entry.salesTaxLiability) || 0;
                       return tax
                         ? p.class`ledger-tax-preview`(_=> `tax ${toDisplayAmount(tax)}`)
+                        : null;
+                    },
+                    _=> {
+                      const fees = Number(entry.processingFees) || 0;
+                      return fees
+                        ? p.class`ledger-tax-preview`(_=> `fees ${toDisplayAmount(fees)}`)
                         : null;
                     }
                   )

@@ -18,10 +18,13 @@ Set these in Firebase Secret Manager (project: `threedlocalprint`):
 
 ```bash
 firebase functions:secrets:set STRIPE_SECRET_KEY
+firebase functions:secrets:set STRIPE_TEST_SECRET_KEY
 firebase functions:secrets:set STRIPE_WEBHOOK_SECRET
 firebase functions:secrets:set SMTP_USER
 firebase functions:secrets:set SMTP_PASS
 ```
+
+`STRIPE_SECRET_KEY` is the live Stripe key used by live custom orders. `STRIPE_TEST_SECRET_KEY` is the sandbox key used when an admin explicitly creates a test order.
 
 `SMTP_USER` and `SMTP_PASS` are used to email `service@3dlocalprint.com` through Gmail SMTP when a Stripe checkout payment completes. Use the full Gmail or Google Workspace email address for `SMTP_USER`, and a Google App Password for `SMTP_PASS`. Sandbox/test Stripe payments include `(test)` in the email subject.
 

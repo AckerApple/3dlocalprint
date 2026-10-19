@@ -179,7 +179,7 @@ const cancelAddTypeModal = () => {
   resetAddTypeModal();
 };
 
-const saveAddTypeFromModal = async (item?: FilamentType) => {
+const saveAddTypeFromModal = async (item?: FilamentType, keepOpen = false) => {
   const draft = item || addTypeDraft;
   if (!draft || addTypeIsSaving) return false;
   if (!auth.authState.isAuthorized) {
@@ -191,7 +191,7 @@ const saveAddTypeFromModal = async (item?: FilamentType) => {
     const cleaned = serializeFilamentTypes([...types$.value, draft]);
     await saveFilamentTypes(cleaned);
     toast.success("Filament type saved.");
-    resetAddTypeModal();
+    if (!keepOpen) resetAddTypeModal();
     return true;
   } catch (error) {
     console.error("Failed to save filament types", error);

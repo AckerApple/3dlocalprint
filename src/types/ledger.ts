@@ -3,6 +3,7 @@ export type LedgerStatus = "pending" | "posted" | "reconciled";
 export interface MoneyAccount {
   id: string;
   title: string;
+  emoji?: string;
   notes?: string;
   rewardsBillingCategory?: string;
   createdAt: number;
@@ -11,6 +12,8 @@ export interface MoneyAccount {
 
 export interface LedgerEntry {
   id: string;
+  orderId?: string;
+  orderIds?: string[];
   amount: number;
   salesTaxLiability: number;
   processingFees: number;

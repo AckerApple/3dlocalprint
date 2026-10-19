@@ -27,6 +27,7 @@ let app = document.getElementById("moneyAccountsApp");
 const appRoot = { current: app };
 const moneyAccounts$ = array<MoneyAccount>([]);
 let newTitle = "";
+let newEmoji = "";
 let newNotes = "";
 let newRewardsBillingCategory = "";
 let stopMoneyAccounts = null;
@@ -44,16 +45,35 @@ const createId = () => {
 
 const normalizeTitle = (value = "") => value.trim().toLowerCase();
 const normalizeRewardsBillingCategory = (value = "") => String(value || "").trim();
+const normalizeEmoji = (value = "") => String(value || "").trim();
+const emojiSegmenter = typeof Intl.Segmenter === "function"
+  ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+  : null;
+const isSingleEmoji = (value = "") => {
+  const emoji = normalizeEmoji(value);
+  if (!emoji) return true;
+  const graphemes = emojiSegmenter
+    ? Array.from(emojiSegmenter.segment(emoji), (part) => part.segment)
+    : Array.from(emoji);
+  if (graphemes.length !== 1) return false;
+  return /\p{Extended_Pictographic}/u.test(emoji)
+    || /^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3)$/u.test(emoji);
+};
 
 const sortMoneyAccounts = (items: MoneyAccount[]) =>
   [...items].sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
 
 const addMoneyAccount = () => {
   const title = String(newTitle || "").trim();
+  const emoji = normalizeEmoji(newEmoji);
   const notes = String(newNotes || "").trim();
   const rewardsBillingCategory = normalizeRewardsBillingCategory(newRewardsBillingCategory);
   if (!title) {
     toast.error("Enter an account title.");
+    return;
+  }
+  if (!isSingleEmoji(emoji)) {
+    toast.error("Choose one emoji character for the account.");
     return;
   }
 
@@ -69,6 +89,7 @@ const addMoneyAccount = () => {
   moneyAccounts$.push({
     id: createId(),
     title,
+    emoji,
     notes,
     rewardsBillingCategory,
     createdAt: now,
@@ -77,6 +98,7 @@ const addMoneyAccount = () => {
   const sorted = sortMoneyAccounts(moneyAccounts$.value);
   moneyAccounts$.splice(0, moneyAccounts$.length, ...sorted);
   newTitle = "";
+  newEmoji = "";
   newNotes = "";
   newRewardsBillingCategory = "";
 };
@@ -97,6 +119,7 @@ const saveList = async () => {
       .map((item) => ({
         id: String(item?.id || "").trim() || createId(),
         title: String(item?.title || "").trim(),
+        emoji: normalizeEmoji(item?.emoji),
         notes: String(item?.notes || "").trim(),
         rewardsBillingCategory: normalizeRewardsBillingCategory(item?.rewardsBillingCategory),
         createdAt: Number(item?.createdAt) || now,
@@ -107,6 +130,10 @@ const saveList = async () => {
 
   const titleSet = new Set<string>();
   for (const item of normalized) {
+    if (!isSingleEmoji(item.emoji)) {
+      toast.error(`${item.title || "Money account"} must use only one emoji character.`);
+      return;
+    }
     const key = normalizeTitle(item.title);
     if (titleSet.has(key)) {
       toast.error(`Duplicate account title: ${item.title}`);
@@ -135,6 +162,19 @@ export const MoneyAccountsApp = tag(() => [
         (items) =>
           items.map((item, index) =>
             div.class`manufacturer-row`(
+              input
+                .class`manufacturer-input money-account-emoji-input`
+                .type`text`
+                .placeholder`Emoji`
+                .attr("aria-label", `Emoji for ${item?.title || "money account"}`)
+                .value(() => item?.emoji ?? "")
+                .onInput((event) => {
+                  moneyAccounts$[index] = {
+                    ...moneyAccounts$[index],
+                    emoji: String(event.target.value || ""),
+                    updatedAt: Date.now(),
+                  };
+                })(),
               input
                 .class`manufacturer-input`
                 .type`text`
@@ -186,6 +226,15 @@ export const MoneyAccountsApp = tag(() => [
       )
     ),
     div.class`manufacturer-add`(
+      input
+        .class`manufacturer-input money-account-emoji-input`
+        .type`text`
+        .placeholder`Emoji`
+        .attr("aria-label", "Emoji for new money account")
+        .value(() => newEmoji)
+        .onInput((event) => {
+          newEmoji = event.target.value;
+        })(),
       input
         .class`manufacturer-input`
         .type`text`
@@ -276,6 +325,7 @@ const auth = startAdminAppShell({
             .map((item) => ({
               id: String(item?.id || "").trim(),
               title: String(item?.title || "").trim(),
+              emoji: normalizeEmoji(item?.emoji),
               notes: String(item?.notes || "").trim(),
               rewardsBillingCategory: normalizeRewardsBillingCategory(item?.rewardsBillingCategory),
               createdAt: Number(item?.createdAt) || Date.now(),

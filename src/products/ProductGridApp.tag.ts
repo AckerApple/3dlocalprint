@@ -1,3 +1,4 @@
+import { isNameBadgeProduct } from "../name-badges.js";
 import { tag, div, a, h2, p, span, subscribe } from "taggedjs";
 import type { ProductItem } from "../types/product.js";
 import { normalizeProductCategories } from "../product-categories.js";
@@ -37,7 +38,7 @@ const ProductCard = (product: ProductItem) => {
         : null,
       div.class`home-card-tag`(_=> getDisplayPrice(product))
     ),
-    _=> HomeCartActions({
+    _=> isNameBadgeProduct(product) ? a.class`add-button`.href(`./product/${encodeURIComponent(product.slug)}`)("Customize badge") : HomeCartActions({
       productId: product.id,
       getVariationId: () => getDefaultVariation(product)?.id || "",
       initialQuantity: 1,

@@ -1,3 +1,4 @@
+import { isNameBadgeProduct, validateBadgeName } from "./name-badges.js";
 import { loadProducts } from "./admin/shared/firebase.js";
 import type { ProductItem } from "./types/product.js";
 import { normalizeProductCategories } from "./product-categories.js";
@@ -13,6 +14,7 @@ import {
   span,
   label,
   select,
+  input,
   option,
   a,
   array,
@@ -25,6 +27,7 @@ let loadedProduct: ProductItem | null = null;
 let selectedVariationId = "";
 let messageState: { title: string; message: string } | null = null;
 let selectedQuantity = 1;
+let badgeName = "";
 const productDetailRender$ = array([{ version: 0 }]);
 
 type ProductVariationView = {
@@ -181,6 +184,13 @@ const ProductDetailContent = () => {
           _=> formatPrice(selectedVariation?.unitAmount ?? product.unitAmount, product.currency)
         ),
         div.class`home-product-detail-actions`(
+          isNameBadgeProduct(product) ? div(
+            label("Name on badge (required, up to 15 characters)",
+              input.type`text`.attr("maxlength", "15").attr("required", "").value(() => badgeName)
+                .onInput((event) => { badgeName = event.target.value; })()
+            ),
+            p("Quantity makes copies of this name. For different names, add each name separately.")
+          ) : null,
           variations.length
             ? label.class`home-products-filter-label`(
                 "OPTIONS",
@@ -201,6 +211,7 @@ const ProductDetailContent = () => {
           div.class`home-product-detail-cart-actions`(
             _=> HomeCartActions({
               productId: product.id,
+              getBadgeName: isNameBadgeProduct(product) ? () => validateBadgeName(badgeName) : undefined,
               getVariationId: () => selectedVariationId,
               initialQuantity: 1,
               getQuantityState: () => selectedQuantity,

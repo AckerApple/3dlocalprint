@@ -453,7 +453,7 @@ const removeServiceDraft = (index: number) => {
   });
 };
 
-const saveAgreement = async () => {
+const saveAgreement = async (keepOpen = false) => {
   const currentUi = getAgreementsUi();
   if (currentUi.createLoading) return;
   const agreementDraft = currentUi.agreementDraft;
@@ -521,7 +521,7 @@ const saveAgreement = async () => {
     const actionLabel = isEdit ? "Updated" : "Created";
     setAgreementsUi({
       createStatusText: `${actionLabel} agreement for ${clientBusiness}.`,
-      createModalOpen: false,
+      createModalOpen: keepOpen,
     });
     toast.success(`${actionLabel} agreement for ${clientBusiness}.`);
     if (!isEdit && publicUrl && navigator.clipboard) {
@@ -916,8 +916,10 @@ const AgreementCreateForm = tag((ui: AgreementsUiState = getAgreementsUi()) => {
       button
         .type`button`
         .class`add-button`
+        .attr("data-pin-save", "true")
+        .attr("title", "Hold Shift while clicking to save and keep this modal open")
         .disabled(_=> createLoading || deleteAgreementLoading)
-        .onClick(saveAgreement)(
+        .onClick((event) => saveAgreement(Boolean(event.shiftKey)))(
         _=> createLoading ? "⏳ Saving..." : ui.modalMode === "edit" ? "☁️ Save agreement" : "Create agreement"
       )
     ),

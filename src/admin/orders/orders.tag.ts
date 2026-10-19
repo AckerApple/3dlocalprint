@@ -1,4 +1,5 @@
-import { auth as firebaseAuth, loadProducts, subscribeOrders } from "../shared/firebase.js";
+import { isNameBadgeProduct, validateBadgeName } from "../../name-badges.js";
+import { auth as firebaseAuth, loadProducts, subscribeCustomers, subscribeLedgerEntries, subscribeOrders } from "../shared/firebase.js";
 import {
   tag,
   label,
@@ -13,6 +14,7 @@ import {
   td,
   span,
   p,
+  img,
   h1,
   h2,
   a,
@@ -30,10 +32,26 @@ import { Modal } from "../shared/Modal.tag.js";
 import { replaceMountRoot } from "../shared/ssoMount.js";
 import { startAdminAppShell } from "../shared/adminAppShell.js";
 import type { OrderRecord, OrderStatus } from "../../types/order.js";
+import type { ProductItem } from "../../types/product.js";
+import type { CustomerRecord } from "../../types/customer.js";
+import type { LedgerEntry } from "../../types/ledger.js";
+
+type CustomOrderDraftItem = {
+  productId: string;
+  variationId: string;
+  badgeName?: string;
+  title: string;
+  unitAmount: number;
+  currency: string;
+  quantity: number;
+  imageUrl: string;
+};
 
 let app = document.getElementById("ordersApp");
 const appRoot = { current: app };
 const orders$ = array<OrderRecord>([]);
+const customers$ = array<CustomerRecord>([]);
+const ledgerEntries$ = array<LedgerEntry>([]);
 const orderModal$ = new Subject<number>(0, (subscription) => {
   subscription.next(0);
 });
@@ -44,6 +62,8 @@ const orderStatusFilterModal$ = new Subject<number>(0, (subscription) => {
   subscription.next(0);
 });
 let stopOrders: null | (() => void) = null;
+let stopCustomers: null | (() => void) = null;
+let stopLedgerEntries: null | (() => void) = null;
 let appMounted = false;
 let currentUser: any = null;
 let currentAuthUser: null | { email?: string | null; getIdToken?: () => Promise<string> } = null;
@@ -54,11 +74,45 @@ let resendEmailStatusText = "";
 let deleteOrderLoadingId = "";
 let cancelOrderLoadingId = "";
 let closeOrderLoadingId = "";
+let cashPaymentLoadingId = "";
+let ledgerPaymentLinkLoadingId = "";
+let ledgerPaymentSearch = "";
+let importCustomerLoadingOrderId = "";
 let orderProductLinksLoaded = false;
-let orderIdFilter = "";
-let orderEmailFilter = "";
-let orderTestFilter: "all" | "test" | "live" = "all";
+const initialOrderFilterParams = new URLSearchParams(window.location.search);
+let orderIdFilter = String(initialOrderFilterParams.get("filterOrderId") || "");
+let orderEmailFilter = String(initialOrderFilterParams.get("filterEmail") || "");
+const initialOrderModeFilter = String(initialOrderFilterParams.get("orderMode") || "live");
+let orderTestFilter: "all" | "test" | "live" = initialOrderModeFilter === "all" || initialOrderModeFilter === "test"
+  ? initialOrderModeFilter
+  : "live";
 let orderStatusFilterModalOpen = false;
+let createOrderModalOpen = false;
+let createOrderLoading = false;
+let customOrderRequestKey = crypto.randomUUID();
+let lastCustomOrderSubmission = "";
+let imageBusy = false;
+let privateOrderImage = "";
+let editingCustomOrderId = "";
+let editReturnOrderId = "";
+let discardOrderChangesPending = false;
+let pendingEditNavigation: { orderId: string } | null = null;
+let editingCustomOrderStripeMode: "sandbox" | "live" | "" = "";
+let editingCustomOrderStatus: OrderStatus | "" = "";
+let customOrderStripeMode: "sandbox" | "live" = "live";
+let customOrderCatalog: ProductItem[] = [];
+let customOrderProductSearch = "";
+let customOrderProductLookupOpen = false;
+let customOrderCustomerSearch = "";
+let customOrderCustomerLookupOpen = false;
+let selectedCustomOrderCustomerEmail = "";
+let initialCustomOrderFormState = "";
+let customOrderDraft = {
+  customerName: "",
+  customerEmail: "",
+  amountShipping: "",
+  items: [] as CustomOrderDraftItem[],
+};
 
 const ORDER_STATUS_OPTIONS: Array<{ value: OrderStatus; label: string }> = [
   { value: "checkout_created", label: "Checkout created" },
@@ -77,7 +131,56 @@ const getDefaultOrderStatusFilters = () =>
   );
 
 let selectedOrderStatusFilters = getDefaultOrderStatusFilters();
+if (initialOrderFilterParams.has("statuses")) {
+  const requestedStatuses = new Set(
+    String(initialOrderFilterParams.get("statuses") || "")
+      .split(",")
+      .map((status) => status.trim())
+      .filter((status): status is OrderStatus =>
+        ORDER_STATUS_OPTIONS.some((option) => option.value === status)
+      )
+  );
+  selectedOrderStatusFilters = requestedStatuses;
+}
 let draftOrderStatusFilters = new Set<OrderStatus>(selectedOrderStatusFilters);
+
+const syncOrderFiltersToUrl = () => {
+  const url = new URL(window.location.href);
+  const normalizedOrderId = orderIdFilter.trim();
+  const normalizedEmail = orderEmailFilter.trim();
+  if (normalizedOrderId) url.searchParams.set("filterOrderId", normalizedOrderId);
+  else url.searchParams.delete("filterOrderId");
+  if (normalizedEmail) url.searchParams.set("filterEmail", normalizedEmail);
+  else url.searchParams.delete("filterEmail");
+  url.searchParams.set("orderMode", orderTestFilter);
+  url.searchParams.set(
+    "statuses",
+    ORDER_STATUS_OPTIONS
+      .filter((option) => selectedOrderStatusFilters.has(option.value))
+      .map((option) => option.value)
+      .join(",")
+  );
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+};
+
+const applyOrderFiltersFromUrl = () => {
+  const params = new URLSearchParams(window.location.search);
+  orderIdFilter = String(params.get("filterOrderId") || "");
+  orderEmailFilter = String(params.get("filterEmail") || "");
+  const mode = String(params.get("orderMode") || "live");
+  orderTestFilter = mode === "all" || mode === "test" ? mode : "live";
+  selectedOrderStatusFilters = params.has("statuses")
+    ? new Set<OrderStatus>(
+        String(params.get("statuses") || "")
+          .split(",")
+          .filter((status): status is OrderStatus =>
+            ORDER_STATUS_OPTIONS.some((option) => option.value === status)
+          )
+      )
+    : getDefaultOrderStatusFilters();
+  draftOrderStatusFilters = new Set<OrderStatus>(selectedOrderStatusFilters);
+  refreshOrderFilters();
+};
 
 const getOrderIdFromUrl = () =>
   new URLSearchParams(window.location.search).get("orderId")?.trim()
@@ -127,7 +230,7 @@ const formatListDate = (value = "") => {
 };
 
 const getCustomerLabel = (order: OrderRecord) =>
-  [order.customerName, order.customerEmail].filter(Boolean).join(" · ") || "—";
+  [order.customerName, order.customerEmail].filter(Boolean).join(" · ") || "Customer details pending";
 
 const getLineItemsLabel = (order: OrderRecord) =>
   order.lineItems.length
@@ -135,7 +238,7 @@ const getLineItemsLabel = (order: OrderRecord) =>
     : "No line items recorded";
 
 const isTestOrder = (order: OrderRecord) =>
-  order.stripeMode === "sandbox" || /\btest\b|_test_/i.test(order.id);
+  order.stripeMode === "sandbox";
 
 const isNewOrder = (order: OrderRecord) => {
   const createdAt = new Date(order.createdAt).getTime();
@@ -167,6 +270,7 @@ const getStripeHref = (order: OrderRecord) => {
 };
 
 const getPublicOrderHref = (order: OrderRecord) => {
+  if (!order.customerEmail) return "";
   if (order.publicOrderUrl) return order.publicOrderUrl;
   if (!order.id || !order.customerEmail) return "";
   const url = new URL("/order.html", window.location.origin);
@@ -181,6 +285,8 @@ const orderProductSlugs = new Map<string, string>();
 const orderProductTitleSlugs = new Map<string, string | null>();
 const orderProductTitleIds = new Map<string, string | null>();
 const orderProductIds = new Set<string>();
+const orderProductImages = new Map<string, string>();
+const orderProductTitleImages = new Map<string, string | null>();
 
 const normalizeProductTitle = (value = "") =>
   String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
@@ -197,6 +303,16 @@ const loadOrderProductLinks = async () => {
         const normalizedTitle = normalizeProductTitle(product?.title);
         if (productId) {
           orderProductIds.add(productId);
+        }
+        const imageUrl = String(product?.imageUrl || "").trim();
+        if (productId && imageUrl) {
+          orderProductImages.set(productId, imageUrl);
+        }
+        if (normalizedTitle && imageUrl) {
+          orderProductTitleImages.set(
+            normalizedTitle,
+            orderProductTitleImages.has(normalizedTitle) ? null : imageUrl
+          );
         }
         if (productId && slug && product?.active) {
           orderProductSlugs.set(productId, slug);
@@ -240,6 +356,11 @@ const getProductAdminHref = (productId = "", title = "") => {
     : "";
 };
 
+const getProductImageUrl = (productId = "", title = "") =>
+  orderProductImages.get(String(productId || "").trim())
+  || orderProductTitleImages.get(normalizeProductTitle(title))
+  || "";
+
 const getFilteredOrders = (orders: OrderRecord[]) => {
   const idNeedle = orderIdFilter.trim().toLowerCase();
   const emailNeedle = orderEmailFilter.trim().toLowerCase();
@@ -272,6 +393,7 @@ const closeOrderStatusFilterModal = () => {
   orderStatusFilterModalOpen = false;
   refreshOrderStatusFilterModal();
   refreshOrderFilters();
+  syncOrderFiltersToUrl();
 };
 
 const toggleDraftOrderStatusFilter = (status: OrderStatus, checked: boolean) => {
@@ -280,6 +402,16 @@ const toggleDraftOrderStatusFilter = (status: OrderStatus, checked: boolean) => 
   } else {
     draftOrderStatusFilters.delete(status);
   }
+  refreshOrderStatusFilterModal();
+};
+
+const areAllDraftOrderStatusesSelected = () =>
+  ORDER_STATUS_OPTIONS.every((option) => draftOrderStatusFilters.has(option.value));
+
+const toggleAllDraftOrderStatusFilters = () => {
+  draftOrderStatusFilters = areAllDraftOrderStatusesSelected()
+    ? new Set<OrderStatus>()
+    : new Set<OrderStatus>(ORDER_STATUS_OPTIONS.map((option) => option.value));
   refreshOrderStatusFilterModal();
 };
 
@@ -312,13 +444,252 @@ const getCancelOrderUrl = () =>
 const getCloseOrderUrl = () =>
   getAdminOrderActionUrl("/api/admin/orders/close", "closeOrder");
 
+const getMarkPaidCashUrl = () =>
+  getAdminOrderActionUrl("/api/admin/orders/mark-paid-cash", "markOrderPaidByCash");
+
+const getLinkOrderLedgerPaymentUrl = () =>
+  getAdminOrderActionUrl("/api/admin/orders/link-ledger-payment", "linkOrderLedgerPayment");
+
+const getCreateOrderUrl = () =>
+  getAdminOrderActionUrl("/api/admin/orders/create", "createCustomOrder");
+
+const getUpdateOrderUrl = () =>
+  getAdminOrderActionUrl("/api/admin/orders/update", "updateCustomOrder");
+
+const getImportOrderCustomerUrl = () =>
+  getAdminOrderActionUrl("/api/admin/orders/import-customer", "importOrderCustomer");
+
+const canEditCustomOrder = (order: OrderRecord) =>
+  order.orderType === "custom_order" && ["checkout_created", "closed"].includes(order.status);
+
+const loadCustomOrderCatalog = () => {
+  loadProducts().then((products) => {
+    customOrderCatalog = (Array.isArray(products) ? products : []).filter((product) => product.active);
+    refreshOrderModal();
+  }).catch(() => toast.error("Could not load the product catalog."));
+};
+
+const getCustomOrderFormState = () => JSON.stringify({
+  customerName: customOrderDraft.customerName,
+  customerEmail: customOrderDraft.customerEmail,
+  amountShipping: customOrderDraft.amountShipping,
+  items: customOrderDraft.items,
+  stripeMode: customOrderStripeMode,
+});
+
+const openCreateOrderModal = () => {
+  discardOrderChangesPending = false;
+  pendingEditNavigation = null;
+  editReturnOrderId = "";
+  customOrderDraft = {
+    customerName: "",
+    customerEmail: "",
+    amountShipping: "",
+    items: [],
+  };
+  customOrderProductSearch = "";
+  customOrderProductLookupOpen = false;
+  customOrderCustomerSearch = "";
+  customOrderCustomerLookupOpen = false;
+  selectedCustomOrderCustomerEmail = "";
+  editingCustomOrderId = "";
+  editingCustomOrderStripeMode = "";
+  editingCustomOrderStatus = "";
+  customOrderStripeMode = "live";
+  initialCustomOrderFormState = getCustomOrderFormState();
+  customOrderRequestKey = crypto.randomUUID();
+  createOrderModalOpen = true;
+  refreshOrderModal();
+  loadCustomOrderCatalog();
+};
+
+const openEditOrderModal = (order: OrderRecord) => {
+  const latestOrder = orders$.find((item) => item.id === order.id);
+  if (!latestOrder) { toast.info("This order is no longer available."); return; }
+  order = latestOrder;
+  if (!canEditCustomOrder(order)) {
+    toast.info("Only unpaid or closed custom orders can be edited.");
+    return;
+  }
+  discardOrderChangesPending = false;
+  pendingEditNavigation = null;
+  editReturnOrderId = selectedOrderId === order.id ? order.id : "";
+  customOrderDraft = {
+    customerName: order.customerName || "",
+    customerEmail: order.customerEmail || "",
+    amountShipping: order.amountShipping ? (order.amountShipping / 100).toFixed(2) : "",
+    items: order.lineItems.map((item) => ({
+      productId: String(item.productId || ""),
+      variationId: String(item.variationId || ""),
+      badgeName: item.badgeName || item.title.split(" — Name: ")[1] || "",
+      title: item.title,
+      unitAmount: Number(item.unitAmount) || 0,
+      currency: item.currency || order.currency || "usd",
+      quantity: Math.max(1, Number(item.quantity) || 1),
+      imageUrl: getProductImageUrl(String(item.productId || ""), item.title),
+    })),
+  };
+  customOrderProductSearch = "";
+  customOrderProductLookupOpen = false;
+  customOrderCustomerSearch = "";
+  customOrderCustomerLookupOpen = false;
+  selectedCustomOrderCustomerEmail = "";
+  editingCustomOrderId = order.id;
+  editingCustomOrderStripeMode = order.stripeMode;
+  editingCustomOrderStatus = order.status;
+  customOrderStripeMode = order.stripeMode === "sandbox" ? "sandbox" : "live";
+  initialCustomOrderFormState = getCustomOrderFormState();
+  customOrderRequestKey = crypto.randomUUID();
+  createOrderModalOpen = true;
+  closeOrderModal(false);
+  refreshOrderModal();
+  loadCustomOrderCatalog();
+};
+
+const keepEditingOrder = () => {
+  discardOrderChangesPending = false;
+  pendingEditNavigation = null;
+  syncOrderUrl(editingCustomOrderId, true);
+  refreshOrderModal();
+};
+
+const closeCreateOrderModal = (discardChanges: unknown = false) => {
+  if (createOrderLoading) return;
+  if (discardChanges !== true && getCustomOrderFormState() !== initialCustomOrderFormState) {
+    discardOrderChangesPending = true;
+    refreshOrderModal();
+    return;
+  }
+  const returnOrderId = editReturnOrderId;
+  const navigation = pendingEditNavigation;
+  createOrderModalOpen = false;
+  discardOrderChangesPending = false;
+  pendingEditNavigation = null;
+  editingCustomOrderId = "";
+  editReturnOrderId = "";
+  editingCustomOrderStripeMode = "";
+  editingCustomOrderStatus = "";
+  if (navigation) {
+    syncOrderUrl(navigation.orderId, true);
+    if (navigation.orderId) openOrderModal(navigation.orderId, false);
+    else closeOrderModal(false);
+  } else if (returnOrderId && orders$.value.some((order: OrderRecord) => order.id === returnOrderId)) {
+    openOrderModal(returnOrderId, false);
+  } else refreshOrderModal();
+};
+
+const createCustomOrder = async (keepOpen = false) => {
+  if (createOrderLoading) return;
+  const user = currentAuthUser || firebaseAuth.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    toast.error("Sign in again to create an order.");
+    return;
+  }
+  if (!customOrderDraft.items.length) {
+    toast.error("At least one catalog item is required.");
+    return;
+  }
+
+  try {
+    for (const item of customOrderDraft.items) {
+      if (customOrderCatalog.some((product) => product.id === item.productId && isNameBadgeProduct(product))) {
+        item.badgeName = validateBadgeName(item.badgeName);
+      }
+    }
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Enter a badge name.");
+    return;
+  }
+  const submissionState = getCustomOrderFormState();
+  if (lastCustomOrderSubmission && lastCustomOrderSubmission !== submissionState) customOrderRequestKey = crypto.randomUUID();
+  lastCustomOrderSubmission = submissionState;
+  createOrderLoading = true;
+  refreshOrderModal();
+  try {
+    const token = await user.getIdToken();
+    const isEditing = Boolean(editingCustomOrderId);
+    const editedOrderId = editingCustomOrderId;
+    const response = await fetch(isEditing ? getUpdateOrderUrl() : getCreateOrderUrl(), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Idempotency-Key": customOrderRequestKey },
+      body: JSON.stringify({
+        ...customOrderDraft,
+        orderId: editingCustomOrderId,
+        stripeMode: customOrderStripeMode,
+        cartItems: customOrderDraft.items.map((item) => ({
+          productId: item.productId,
+          variationId: item.variationId,
+          badgeName: item.badgeName || "",
+          quantity: item.quantity,
+        })),
+        amountShipping: Math.round((Number(customOrderDraft.amountShipping) || 0) * 100),
+        currency: "usd",
+        sourceUrl: window.location.origin,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Failed to create custom order."));
+    const checkoutUrl = String(payload?.checkoutUrl || "");
+    if (checkoutUrl && navigator.clipboard) {
+      await navigator.clipboard.writeText(checkoutUrl).catch(() => {});
+    }
+    customOrderRequestKey = crypto.randomUUID();
+    discardOrderChangesPending = false;
+    pendingEditNavigation = null;
+    if (keepOpen) {
+      editingCustomOrderId = String(payload?.orderId || editingCustomOrderId);
+      if (editReturnOrderId) editReturnOrderId = editingCustomOrderId;
+      editingCustomOrderStripeMode = customOrderStripeMode;
+      editingCustomOrderStatus = String(payload?.status || editingCustomOrderStatus);
+      initialCustomOrderFormState = getCustomOrderFormState();
+    } else {
+      createOrderModalOpen = false;
+      editReturnOrderId = "";
+      editingCustomOrderId = "";
+      editingCustomOrderStripeMode = "";
+      editingCustomOrderStatus = "";
+    }
+    toast.success(isEditing
+      ? payload?.closedOrderUpdated
+        ? "Closed order updated. Its status and payment history were preserved."
+        : "Custom order updated. Replacement payment link copied."
+      : checkoutUrl ? "Custom order created. Checkout link copied." : "Custom order created.");
+    const savedOrderId = String(payload?.orderId || editedOrderId || "");
+    if (!keepOpen && savedOrderId) openOrderModal(savedOrderId);
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Failed to create custom order.", { duration: 10000 });
+  } finally {
+    createOrderLoading = false;
+    refreshOrderModal();
+  }
+};
+
 const getSelectedOrder = () =>
   orders$.find((order) => order.id === selectedOrderId) || null;
+
+const getLinkedLedgerEntry = (order: OrderRecord) => {
+  const explicitId = order.ledgerEntryId || order.cashLedgerEntryId;
+  return ledgerEntries$.value.find((entry: LedgerEntry) =>
+    entry.id === explicitId || entry.orderId === order.id || entry.id === `cash_order_${order.id}`
+  ) || null;
+};
+
+const getLedgerPaymentMatches = (order: OrderRecord) => {
+  const needle = ledgerPaymentSearch.trim().toLowerCase();
+  if (needle.length < 2) return [];
+  return ledgerEntries$.value.filter((entry: LedgerEntry) => {
+    if ((Number(entry.amount) || 0) <= 0) return false;
+    if (entry.orderId && entry.orderId !== order.id) return false;
+    return [entry.id, entry.title, entry.moneyAccountTitle, entry.applicableDate, entry.amount]
+      .some((value) => String(value || "").toLowerCase().includes(needle));
+  }).slice(0, 12);
+};
 
 const refreshOrderModal = () =>
   orderModal$.next((Number(orderModal$.value) || 0) + 1);
 
 const openOrderModal = (orderId: string, updateUrl = true) => {
+  privateOrderImage = "";
   selectedOrderId = orderId;
   if (updateUrl) {
     syncOrderUrl(orderId);
@@ -327,7 +698,9 @@ const openOrderModal = (orderId: string, updateUrl = true) => {
 };
 
 const closeOrderModal = (updateUrl = true) => {
+  privateOrderImage = "";
   selectedOrderId = "";
+  ledgerPaymentSearch = "";
   if (updateUrl) {
     syncOrderUrl("");
   }
@@ -336,6 +709,16 @@ const closeOrderModal = (updateUrl = true) => {
 
 const syncModalFromUrl = () => {
   const orderId = getOrderIdFromUrl();
+  if (createOrderModalOpen) {
+    if (createOrderLoading) { syncOrderUrl(editingCustomOrderId, true); return; }
+    pendingEditNavigation = { orderId };
+    if (getCustomOrderFormState() !== initialCustomOrderFormState) {
+      discardOrderChangesPending = true;
+      syncOrderUrl(editingCustomOrderId, true);
+      refreshOrderModal();
+    } else closeCreateOrderModal(true);
+    return;
+  }
   if (orderId) {
     openOrderModal(orderId, false);
     return;
@@ -577,6 +960,138 @@ const closeOrder = async (order: OrderRecord) => {
   }
 };
 
+const markOrderPaidByCash = async (order: OrderRecord) => {
+  if (!order?.id || cashPaymentLoadingId) return;
+  if (order.status === "paid") {
+    toast.info("This order is already paid.");
+    return;
+  }
+  if (["closed", "canceled"].includes(order.status)) {
+    toast.error("Canceled or completed orders cannot be marked paid.");
+    return;
+  }
+  const confirmed = window.confirm(
+    `Mark order ${order.id} paid by cash for ${formatMoney(order.amountTotal, order.currency)}? This will post the payment to the Cash money account.`
+  );
+  if (!confirmed) return;
+
+  const user = currentAuthUser || firebaseAuth.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    toast.error("Sign in again to record this cash payment.");
+    return;
+  }
+
+  cashPaymentLoadingId = order.id;
+  refreshOrderModal();
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(getMarkPaidCashUrl(), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId: order.id }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Failed to record cash payment."));
+    toast.success(`Order ${order.id} was marked paid and posted to Cash.`);
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Failed to record cash payment.", { duration: 10000 });
+  } finally {
+    cashPaymentLoadingId = "";
+    refreshOrderModal();
+  }
+};
+
+const linkExistingLedgerPayment = async (order: OrderRecord, requestedLedgerEntryId = "") => {
+  if (!order?.id || ledgerPaymentLinkLoadingId) return;
+  const ledgerEntryId = requestedLedgerEntryId.trim();
+  if (!ledgerEntryId || ledgerEntryId === order.ledgerEntryId) return;
+  const user = currentAuthUser || firebaseAuth.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    toast.error("Sign in again to link this payment.");
+    return;
+  }
+  ledgerPaymentLinkLoadingId = order.id;
+  refreshOrderModal();
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(getLinkOrderLedgerPaymentUrl(), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId: order.id, ledgerEntryId }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Failed to link payment."));
+    toast.success(`Linked ledger payment ${ledgerEntryId} to order ${order.id}.`);
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Failed to link payment.", { duration: 10000 });
+  } finally {
+    ledgerPaymentLinkLoadingId = "";
+    refreshOrderModal();
+  }
+};
+
+const findCustomerByEmail = (email = "") => {
+  const normalized = String(email || "").trim().toLowerCase();
+  return customers$.value.find((customer: CustomerRecord) => customer.emailNormalized === normalized) || null;
+};
+
+const getCustomerAdminHref = (customer: CustomerRecord) =>
+  `../customers/index.html?customerId=${encodeURIComponent(customer.id)}`;
+
+const importOrderCustomer = async (order: OrderRecord) => {
+  if (!order?.id || importCustomerLoadingOrderId) return;
+  const user = currentAuthUser || firebaseAuth.currentUser;
+  if (!user || typeof user.getIdToken !== "function") {
+    toast.error("Sign in again to import this customer.");
+    return;
+  }
+  importCustomerLoadingOrderId = order.id;
+  refreshOrderModal();
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(getImportOrderCustomerUrl(), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId: order.id }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Failed to import customer."));
+    toast.success(payload?.created ? "Customer created from order." : "Existing customer matched by email.");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Failed to import customer.");
+  } finally {
+    importCustomerLoadingOrderId = "";
+    refreshOrderModal();
+  }
+};
+
+const managePrivateOrderImage = async (order: OrderRecord, file?: File) => {
+  if (imageBusy) return;
+  if (file && (file.size > 2*1024*1024 || !["image/png","image/jpeg","image/webp"].includes(file.type))) { toast.error("Choose a PNG, JPEG, or WebP image up to 2MB."); return; }
+  imageBusy = true;
+  try {
+    refreshOrderModal();
+    const user = currentAuthUser || firebaseAuth.currentUser;
+    if (!user?.getIdToken) throw new Error("Sign in required.");
+    const token = await user.getIdToken();
+    const url = getAdminOrderActionUrl("/api/admin/orders/image", "manageOrderImage");
+    let body: string | undefined;
+    if (file) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
+      body = JSON.stringify({orderId:order.id,mime:file.type,base64:btoa(binary)});
+    }
+    const response = await fetch(file ? url : `${url}?orderId=${encodeURIComponent(order.id)}`, {
+      method:file ? "POST" : "GET", headers:{Authorization:`Bearer ${token}`, "Content-Type":"application/json"}, body,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Image request failed.");
+    if (file) { privateOrderImage = ""; toast.success("Private order image attached."); }
+    else if (selectedOrderId === order.id && ["image/png","image/jpeg","image/webp"].includes(data.mime)) privateOrderImage = `data:${data.mime};base64,${data.base64}`;
+  } catch (error) { toast.error(error instanceof Error ? error.message : "Image request failed."); }
+  finally { imageBusy = false; refreshOrderModal(); }
+};
+
 const OrderDetailModal = () =>
   subscribe(orderModal$, () => {
     const order = getSelectedOrder();
@@ -586,6 +1101,10 @@ const OrderDetailModal = () =>
       className: "orders-detail-modal",
       cardClassName: "orders-detail-card",
       bodyClassName: "orders-detail-body",
+      headerActions: () => button.type`button`.class`ghost-button`
+        .disabled(() => !order || !canEditCustomOrder(order))
+        .attr("title", order && canEditCustomOrder(order) ? "Edit this order" : "Only unpaid or closed custom orders can be edited")
+        .onClick(() => { const current = getSelectedOrder(); if (current) openEditOrderModal(current); })("✏️ Edit"),
       onClose: closeOrderModal,
       content: () =>
         order
@@ -597,15 +1116,28 @@ const OrderDetailModal = () =>
                 DetailMoney("Tax", order.amountTax, order.currency),
                 DetailMoney("Shipping", order.amountShipping, order.currency),
                 DetailMoney("Total", order.amountTotal, order.currency),
+                DetailItem("Payment method", order.paymentMethod || (order.paymentIntentId ? "Stripe" : "—")),
                 DetailItem("Stripe mode", order.stripeMode || "—")
               ),
               div.class`orders-detail-section`(
-                h2.class`orders-detail-section-title`("Customer"),
-                DetailItem("Name", order.customerName),
+                h2.class`orders-detail-section-title`("👤 Customer"),
+                DetailItem("Name", order.customerName || "Customer details pending"),
                 DetailItem("Email", order.customerEmail),
                 DetailItem("Created", formatDate(order.createdAt)),
                 DetailItem("Updated", formatDate(order.updatedAt)),
-                DetailItem("Paid", order.paidAt ? formatDate(order.paidAt) : "")
+                DetailItem("Paid", order.paidAt ? formatDate(order.paidAt) : ""),
+                div.class`orders-detail-actions`(
+                  (() => {
+                    const customer = findCustomerByEmail(order.customerEmail);
+                    return customer
+                      ? a.class`ghost-button`.href(getCustomerAdminHref(customer))("Open customer")
+                      : button.type`button`.class`ghost-button`
+                          .disabled(_=> !order.customerEmail || importCustomerLoadingOrderId === order.id)
+                          .onClick(() => importOrderCustomer(order))(
+                            _=> importCustomerLoadingOrderId === order.id ? "Importing..." : "Import customer"
+                          );
+                  })()
+                )
               ),
               div.class`orders-detail-section orders-detail-section-wide`(
                 h2.class`orders-detail-section-title`("Items"),
@@ -614,16 +1146,24 @@ const OrderDetailModal = () =>
                       order.lineItems.map((item) => {
                         const productHref = getProductHref(item.productId, item.title);
                         const productAdminHref = getProductAdminHref(item.productId, item.title);
+                        const productImageUrl = getProductImageUrl(item.productId, item.title);
                         return div.class`orders-detail-line`(
-                          productHref
-                            ? a
-                                .class`orders-detail-line-title orders-detail-line-link`
-                                .href(productHref)(item.title)
-                            : span.class`orders-detail-line-title`(item.title),
-                          span.class`orders-detail-line-meta`(
-                            `qty ${item.quantity}`,
-                            item.productId ? ` · product ${item.productId}` : "",
-                            item.variationId ? ` · option ${item.variationId}` : ""
+                          div.class`order-product-line-main`(
+                            productImageUrl
+                              ? img.class`order-product-thumbnail`.src(productImageUrl).alt("")()
+                              : null,
+                            div(
+                              productHref
+                                ? a
+                                    .class`orders-detail-line-title orders-detail-line-link`
+                                    .href(productHref)(item.title)
+                                : span.class`orders-detail-line-title`(item.title),
+                              span.class`orders-detail-line-meta`(
+                                `qty ${item.quantity}`,
+                                item.productId ? ` · product ${item.productId}` : "",
+                                item.variationId ? ` · option ${item.variationId}` : ""
+                              )
+                            )
                           ),
                           productAdminHref
                             ? a
@@ -635,7 +1175,7 @@ const OrderDetailModal = () =>
                     )
                   : p.class`orders-meta`("No line items recorded.")
               ),
-              order.orderType || order.agreementId
+              order.agreementId || order.agreementPublicUrl
                 ? div.class`orders-detail-section orders-detail-section-wide`(
                     h2.class`orders-detail-section-title`("📄 Agreement"),
                     DetailItem("Order type", order.orderType || ""),
@@ -652,7 +1192,69 @@ const OrderDetailModal = () =>
                   )
                 : null,
               div.class`orders-detail-section orders-detail-section-wide`(
-                h2.class`orders-detail-section-title`("Stripe"),
+                h2.class`orders-detail-section-title`("📒 Payment ledger"),
+                (() => {
+                  const linkedEntry = getLinkedLedgerEntry(order);
+                  if (linkedEntry) {
+                    const href = `../accounting/ledger.html?entry=${encodeURIComponent(linkedEntry.id)}`;
+                    return div(
+                      div.class`orders-detail-item`(
+                        span.class`orders-detail-label`("Ledger payment"),
+                        a.class`orders-detail-value orders-detail-link`.href(href)(
+                          `${linkedEntry.title} · ${formatMoney(linkedEntry.amount * 100, order.currency)}`
+                        )
+                      ),
+                      div.class`orders-detail-actions`(a.class`ghost-button`.href(href)("Open ledger payment"))
+                    );
+                  }
+                  const matches = getLedgerPaymentMatches(order);
+                  return div(
+                    p.class`orders-meta`("No ledger payment is linked. Search by payment title, ID, account, date, or amount."),
+                    input.class`manufacturer-input`.type`search`.placeholder`Search existing ledger payments`
+                      .value(_=> ledgerPaymentSearch)
+                      .onInput((event) => {
+                        ledgerPaymentSearch = String(event.target.value || "");
+                        refreshOrderModal();
+                      })(),
+                    ledgerPaymentSearch.trim().length >= 2
+                      ? div.class`orders-detail-lines custom-order-product-results`(
+                          matches.length
+                            ? matches.map((entry: LedgerEntry) =>
+                                div.class`orders-detail-line`(
+                                  div.class`ledger-title-stack`(
+                                    span.class`orders-detail-line-title`(entry.title || entry.id),
+                                    span.class`orders-detail-line-meta`(`${formatMoney(entry.amount * 100, order.currency)} · ${entry.applicableDate} · ${entry.moneyAccountTitle} · ${entry.id}`)
+                                  ),
+                                  button.type`button`.class`ghost-button`
+                                    .disabled(_=> ledgerPaymentLinkLoadingId === order.id)
+                                    .onClick(() => linkExistingLedgerPayment(order, entry.id))("Link payment")
+                                ).key(entry.id)
+                              )
+                            : p.class`orders-meta`("No matching unlinked credit payments found.")
+                        )
+                      : null
+                  );
+                })()
+              ),
+              div.class`orders-detail-section orders-detail-section-wide`(
+                h2.class`orders-detail-section-title`("Private order image"),
+                p.class`orders-meta`("Visible to admins only. PNG, JPEG, or WebP up to 2MB. Uploading another image replaces the displayed image."),
+                input.type`file`.attr("accept", "image/png,image/jpeg,image/webp").disabled(() => imageBusy)
+                  .onChange((event) => { const file = event.target.files?.[0]; if (file) void managePrivateOrderImage(order, file); })(),
+                button.type`button`.class`ghost-button`.disabled(() => imageBusy || !order.orderImage)
+                  .onClick(() => managePrivateOrderImage(order))("View private image"),
+                div(_=> privateOrderImage ? img.src(privateOrderImage).alt("Private order reference").style("max-width:100%;max-height:320px;object-fit:contain")() : null)
+              ),
+              div.class`orders-detail-section orders-detail-section-wide`(
+                h2.class`orders-detail-section-title`("Checkout link"),
+                p.class`orders-meta`("Share only the Stripe checkout link. It collects customer details and payment. Private order images are not included."),
+                p.class`orders-meta`.style("overflow-wrap:anywhere;user-select:all")(order.checkoutUrl || "Checkout link unavailable. Use Edit Order to create one."),
+                button.type`button`.class`ghost-button`.disabled(() => !order.checkoutUrl || order.status !== "checkout_created")
+                  .onClick(async () => { try { await navigator.clipboard.writeText(order.checkoutUrl); toast.success("Checkout link copied."); } catch { toast.info("Select and copy the checkout link above."); } })("Copy checkout link"),
+                p.class`orders-meta`("To replace an expired checkout link, use Edit Order and save. Previously shared checkout links will expire.")
+              ),
+              div.class`orders-detail-section orders-detail-section-wide`(
+                h2.class`orders-detail-section-title`("🐠 Stripe"),
                 DetailItem("Checkout session", order.checkoutSessionId),
                 DetailLink("Payment intent", order.paymentIntentId, getStripePaymentIntentHref(order)),
                 DetailItem("Stripe customer", order.stripeCustomerId),
@@ -661,6 +1263,10 @@ const OrderDetailModal = () =>
                 DetailItem("Notification status", order.notificationEmailStatus),
                 DetailItem("Admin order URL", order.adminOrderUrl),
                 div.class`orders-detail-actions`(
+                  button.type`button`.class`ghost-button`
+                    .disabled(_=> !canEditCustomOrder(order))
+                    .attr("title", canEditCustomOrder(order) ? "Edit order" : "Only unpaid or closed custom orders can be edited")
+                    .onClick(() => openEditOrderModal(order))("✏️ Edit Order"),
                   getPublicOrderHref(order)
                     ? a
                         .class`add-button`
@@ -716,6 +1322,18 @@ const OrderDetailModal = () =>
                   ? p.class`orders-email-status`(_=> resendEmailStatusText)
                   : null
               ),
+              _=> !["paid", "canceled", "closed"].includes(order.status) &&
+                div.class`orders-detail-section orders-detail-section-wide orders-info-section`(
+                  h2.class`orders-detail-section-title`("Cash Payment"),
+                  p.class`orders-meta`(`Record ${formatMoney(order.amountTotal, order.currency)} as received in cash. A Cash money account will be created automatically if needed.`),
+                  div.class`orders-detail-actions`(
+                    button.type`button`.class`add-button`
+                      .disabled(_=> cashPaymentLoadingId === order.id || order.amountTotal <= 0)
+                      .onClick(() => markOrderPaidByCash(order))(
+                        _=> cashPaymentLoadingId === order.id ? "Recording..." : "Mark paid by cash"
+                      )
+                  )
+                ),
               _=> !['canceled', 'closed'].includes(order.status) && 
                 div.class`orders-detail-section orders-detail-section-wide orders-info-section`(
                   h2.class`orders-detail-section-title`("Complete Order"),
@@ -776,7 +1394,269 @@ const stopOrderSubscription = () => {
     stopOrders();
     stopOrders = null;
   }
+  if (stopCustomers) {
+    stopCustomers();
+    stopCustomers = null;
+  }
+  if (stopLedgerEntries) {
+    stopLedgerEntries();
+    stopLedgerEntries = null;
+  }
 };
+
+const getCustomOrderProductMatches = () => {
+  const needle = customOrderProductSearch.trim().toLowerCase();
+  if (needle.length < 3) return [];
+  return customOrderCatalog.filter((product) =>
+    [product.title, product.id, product.slug]
+      .some((value) => String(value || "").toLowerCase().includes(needle))
+  ).slice(0, 12);
+};
+
+const getCustomOrderCustomerMatches = () => {
+  const needle = customOrderCustomerSearch.trim().toLowerCase();
+  if (needle.length < 2) return [];
+  return customers$.value.filter((customer: CustomerRecord) =>
+    [customer.name, customer.email, customer.phone]
+      .some((value) => String(value || "").toLowerCase().includes(needle))
+  ).slice(0, 10);
+};
+
+const selectCustomOrderCustomer = (customer: CustomerRecord) => {
+  customOrderDraft.customerName = customer.name;
+  customOrderDraft.customerEmail = customer.email;
+  selectedCustomOrderCustomerEmail = customer.emailNormalized;
+  customOrderCustomerSearch = "";
+  refreshOrderModal();
+};
+
+const clearCustomOrderCustomer = () => {
+  selectedCustomOrderCustomerEmail = "";
+  customOrderDraft.customerName = "";
+  customOrderDraft.customerEmail = "";
+  refreshOrderModal();
+};
+
+const addCustomOrderItem = (product: ProductItem, variationId = "") => {
+  const variation = (product.variations || []).find((item) => item.id === variationId);
+  const existing = customOrderDraft.items.find((item) =>
+    item.productId === product.id && item.variationId === variationId
+  );
+  if (existing && !isNameBadgeProduct(product)) {
+    existing.quantity = Math.min(99, existing.quantity + 1);
+  } else {
+    customOrderDraft.items.push({
+      productId: product.id,
+      variationId,
+      title: variation ? `${product.title} (${variation.label})` : product.title,
+      unitAmount: variation?.unitAmount ?? product.unitAmount,
+      currency: product.currency || "usd",
+      quantity: 1,
+      imageUrl: product.imageUrl || "",
+    });
+  }
+  refreshOrderModal();
+};
+
+const updateCustomOrderItemQuantity = (index: number, value: unknown) => {
+  const item = customOrderDraft.items[index];
+  if (!item) return;
+  item.quantity = Math.max(1, Math.min(99999, Math.round(Number(value) || 1)));
+};
+
+const removeCustomOrderItem = (index: number) => {
+  customOrderDraft.items.splice(index, 1);
+  refreshOrderModal();
+};
+
+const CreateOrderModal = () =>
+  subscribe(orderModal$, () => Modal({
+    modalOpen: createOrderModalOpen,
+    title: editingCustomOrderId ? "Edit Order" : "Add Custom Order",
+    className: "ledger-modal orders-create-modal",
+    cardClassName: "ledger-modal-card",
+    bodyClassName: "orders-detail-body",
+    onClose: closeCreateOrderModal,
+    content: () => div.class`agreement-create-form`(
+      _=> discardOrderChangesPending ? div.class`orders-detail-section`.attr("role", "alert")(
+        p("Discard your unsaved changes?"),
+        div.class`auth-actions`(
+          button.type`button`.class`ghost-button`.onClick(keepEditingOrder)("Keep editing"),
+          button.type`button`.class`delete-button`.onClick(() => closeCreateOrderModal(true))("Discard changes")
+        )
+      ) : null,
+      _=> editingCustomOrderId ? p.class`orders-meta`(`Order ID: ${editingCustomOrderId}`) : null,
+      p.class`orders-meta`(editingCustomOrderId
+        ? editingCustomOrderStatus === "closed"
+          ? "Update this closed order without reopening it or changing its payment history."
+          : "Update this unpaid order. Its previous Stripe checkout will be replaced."
+        : "Create a private order. Customer details may be left pending; the recipient must provide their name and email at Stripe checkout. Copy the checkout link to share it."),
+      button.type`button`.class`ghost-button`.onClick(() => {
+        customOrderCustomerLookupOpen = !customOrderCustomerLookupOpen;
+        refreshOrderModal();
+      })(_=> customOrderCustomerLookupOpen ? "Hide customer lookup" : "👤 Customer lookup"),
+      _=> customOrderCustomerLookupOpen
+        ? div.class`orders-detail-section orders-detail-section-wide`(
+            h2.class`orders-detail-section-title`("👤 Customer lookup"),
+            _=> selectedCustomOrderCustomerEmail
+              ? div.class`orders-detail-actions`(
+                  p.class`orders-meta`(`Using saved customer: ${customOrderDraft.customerName || customOrderDraft.customerEmail} · ${customOrderDraft.customerEmail}`),
+                  button.type`button`.class`ghost-button`.onClick(clearCustomOrderCustomer)("Use manual details instead")
+                )
+              : input.class`manufacturer-input`.type`search`.placeholder`Search saved customers by name, email, or phone`
+                  .value(_=> customOrderCustomerSearch)
+                  .onInput((event) => {
+                    customOrderCustomerSearch = String(event.target.value || "");
+                    refreshOrderModal();
+                  })(),
+            _=> !selectedCustomOrderCustomerEmail && customOrderCustomerSearch.trim().length >= 2
+              ? div.class`orders-detail-lines custom-order-product-results`(
+                  getCustomOrderCustomerMatches().length
+                    ? getCustomOrderCustomerMatches().map((customer: CustomerRecord) =>
+                        div.class`orders-detail-line`(
+                          div.class`ledger-title-stack`(
+                            span.class`orders-detail-line-title`(customer.name || customer.email),
+                            span.class`orders-detail-line-meta`([customer.email, customer.phone].filter(Boolean).join(" · "))
+                          ),
+                          button.type`button`.class`ghost-button`.onClick(() => selectCustomOrderCustomer(customer))("Select")
+                        ).key(customer.id)
+                      )
+                    : p.class`orders-meta`("No saved customers match. Enter the order details manually below.")
+                )
+              : null
+          )
+        : null,
+      div.class`agreement-create-grid`(
+        label("Customer name (optional until checkout)", input.class`manufacturer-input`.type`text`.disabled(_=> Boolean(selectedCustomOrderCustomerEmail)).value(_=> customOrderDraft.customerName)
+          .onInput((event) => { customOrderDraft.customerName = String(event.target.value || ""); })()),
+        label("Customer email (optional until checkout)", input.class`manufacturer-input`.type`email`.disabled(_=> Boolean(selectedCustomOrderCustomerEmail)).value(_=> customOrderDraft.customerEmail)
+          .onInput((event) => { customOrderDraft.customerEmail = String(event.target.value || ""); })()),
+        label("Shipping Cost", input.class`manufacturer-input`.type`number`.attr("min", "0").attr("step", "0.01")
+          .value(_=> customOrderDraft.amountShipping).onInput((event) => { customOrderDraft.amountShipping = String(event.target.value || ""); })())
+      ),
+      div.class`orders-detail-section orders-detail-section-wide`(
+        h2.class`orders-detail-section-title`("Order items"),
+        button.type`button`.class`ghost-button`.onClick(() => {
+          customOrderProductLookupOpen = !customOrderProductLookupOpen;
+          refreshOrderModal();
+        })(_=> customOrderProductLookupOpen ? "Hide product lookup" : "Product lookup"),
+        _=> customOrderProductLookupOpen
+          ? div.class`orders-detail-section`(
+              input.class`manufacturer-input`.type`search`.placeholder`Search by product name, code, or slug`
+                .value(_=> customOrderProductSearch)
+                .onInput((event) => {
+                  customOrderProductSearch = String(event.target.value || "");
+                  refreshOrderModal();
+                })(),
+              _=> customOrderProductSearch.trim().length < 3
+                ? p.class`orders-meta`("Enter at least 3 characters to search the catalog.")
+                : div.class`orders-detail-lines custom-order-product-results`(
+                    getCustomOrderProductMatches().length
+                      ? getCustomOrderProductMatches().map((product) => {
+                          const variations = (product.variations || []).filter((variation) => variation.active);
+                          return div.class`orders-detail-line custom-order-product-result`(
+                            div.class`custom-order-product-details`(
+                              product.imageUrl
+                                ? img.class`order-product-thumbnail`.src(product.imageUrl).alt("")()
+                                : null,
+                              div(
+                                span.class`orders-detail-line-title`(product.title),
+                                span.class`orders-detail-line-meta`(`${product.id} · ${product.slug}`)
+                              )
+                            ),
+                            variations.length
+                              ? div.class`orders-detail-actions`(
+                                  variations.map((variation) =>
+                                    button.type`button`.class`ghost-button`.onClick(() => addCustomOrderItem(product, variation.id))(
+                                      `${variation.label} · ${formatMoney(variation.unitAmount, product.currency)}`
+                                    ).key(`${product.id}-${variation.id}`)
+                                  )
+                                )
+                              : button.type`button`.class`ghost-button`.onClick(() => addCustomOrderItem(product))(
+                                  `Add · ${formatMoney(product.unitAmount, product.currency)}`
+                                )
+                          ).key(product.id);
+                        })
+                      : p.class`orders-meta`("No matching products found.")
+                  )
+            )
+          : null,
+        _=> customOrderDraft.items.length
+          ? div.class`orders-detail-lines`(
+              customOrderDraft.items.map((item, index) =>
+                div.class`orders-detail-line custom-order-item-row`(
+                  div.class`order-product-line-main`(
+                    item.imageUrl
+                      ? img.class`order-product-thumbnail`.src(item.imageUrl).alt("")()
+                      : null,
+                    div(
+                      span.class`orders-detail-line-title`(item.title),
+                      span.class`orders-detail-line-meta`(`${formatMoney(item.unitAmount, item.currency)} each`)
+                    )
+                  ),
+                  div.class`custom-order-item-controls`(
+                    _=> customOrderCatalog.some((product) => product.id === item.productId && isNameBadgeProduct(product)) || item.badgeName
+                      ? label(
+                          span("Badge name (1–15 characters); quantity copies this name"),
+                          input.class`manufacturer-input`.type`text`.attr("maxlength", "15").attr("required", "")
+                            .value(() => item.badgeName || "")
+                            .onInput((event) => { item.badgeName = event.target.value; })()
+                        ) : null,
+                    label.class`custom-order-quantity-field`(
+                      span("Qty"),
+                      input.class`manufacturer-input custom-order-quantity-input`.type`number`.attr("min", "1").attr("max", "99999")
+                        .value(_=> String(item.quantity)).onInput((event) => updateCustomOrderItemQuantity(index, event.target.value))()
+                    ),
+                    button.type`button`.class`ghost-button delete-button`.onClick(() => removeCustomOrderItem(index))("Remove")
+                  )
+                ).key(`${item.productId}-${item.variationId}-${index}`)
+              )
+            )
+          : p.class`orders-meta`("Search the catalog and add at least one product.")
+      ),
+      div.class`orders-detail-section orders-detail-section-wide`(
+        h2.class`orders-detail-section-title`("Order mode"),
+        div.class`orders-detail-actions`(
+          span.class(_=> `pill ${customOrderStripeMode === "sandbox" ? "orders-test-pill" : "orders-status-paid"}`)(
+            _=> customOrderStripeMode === "sandbox" ? "🧪 Test order" : "🟢 Live order"
+          ),
+          button.type`button`.class`ghost-button`
+            .disabled(_=> createOrderLoading)
+            .onClick(() => {
+              customOrderStripeMode = customOrderStripeMode === "sandbox" ? "live" : "sandbox";
+              refreshOrderModal();
+            })(_=> {
+              const targetMode = customOrderStripeMode === "sandbox" ? "live" : "test";
+              return editingCustomOrderId ? `Move to ${targetMode} order` : `Create as ${targetMode} order`;
+            })
+        ),
+        p.class`orders-meta`(_=> {
+          if (editingCustomOrderId && customOrderStripeMode !== editingCustomOrderStripeMode) {
+            return editingCustomOrderStatus === "closed"
+              ? `This closed order will be recorded as a ${customOrderStripeMode === "sandbox" ? "test" : "live"} order.`
+              : `Changing to ${customOrderStripeMode === "sandbox" ? "test" : "live"} mode will replace the unpaid order and its Stripe checkout.`;
+          }
+          return customOrderStripeMode === "sandbox"
+            ? "This is a test order. Stripe sandbox payments do not collect real money."
+            : "This is a live order and can collect a real payment.";
+        })
+      ),
+      div.class`auth-actions`(
+        button.type`button`.class`ghost-button`.disabled(_=> createOrderLoading).onClick(closeCreateOrderModal)("Cancel"),
+        button.type`button`.class`add-button`
+          .attr("data-pin-save", "true")
+          .attr("title", "Hold Shift while clicking to save and keep this modal open")
+          .disabled(_=> createOrderLoading)
+          .onClick((event) => createCustomOrder(Boolean(event.shiftKey)))(
+          _=> createOrderLoading
+            ? editingCustomOrderId ? "Updating order..." : "Creating payment link..."
+            : editingCustomOrderId
+              ? editingCustomOrderStatus === "closed" ? "Save Order" : "Save Order & Copy Link"
+              : "Create Order & Copy Link"
+        )
+      )
+    ),
+  }));
 
 const OrderFilters = () =>
   subscribe(orderFilters$, () =>
@@ -791,6 +1671,7 @@ const OrderFilters = () =>
           .onInput((event) => {
             orderIdFilter = String(event.target.value || "");
             refreshOrderFilters();
+            syncOrderFiltersToUrl();
           })()
       ),
       label.class`orders-filter-field`(
@@ -803,6 +1684,7 @@ const OrderFilters = () =>
           .onInput((event) => {
             orderEmailFilter = String(event.target.value || "");
             refreshOrderFilters();
+            syncOrderFiltersToUrl();
           })()
       ),
       label.class`orders-filter-field`(
@@ -814,6 +1696,7 @@ const OrderFilters = () =>
             const value = String(event.target.value || "all");
             orderTestFilter = value === "test" || value === "live" ? value : "all";
             refreshOrderFilters();
+            syncOrderFiltersToUrl();
           })(
           option.value`all`("All orders"),
           option.value`test`("Test only"),
@@ -843,17 +1726,30 @@ const OrderStatusFilterModal = () =>
       onClose: closeOrderStatusFilterModal,
       closeLabel: "Apply",
       content: () =>
-        div.class`orders-status-filter-list`(
-          ORDER_STATUS_OPTIONS.map((option) =>
-            label.class`orders-status-filter-option`(
-              input
-                .type`checkbox`
-                .checked(_=> draftOrderStatusFilters.has(option.value))
-                .onChange((event) => {
-                  toggleDraftOrderStatusFilter(option.value, Boolean(event.target.checked));
-                })(),
-              span(option.label)
-            ).key(option.value)
+        div(
+          div.class`orders-status-filter-list`(
+            ORDER_STATUS_OPTIONS.map((option) =>
+              label.class`orders-status-filter-option`(
+                input
+                  .type`checkbox`
+                  .checked(_=> draftOrderStatusFilters.has(option.value))
+                  .onChange((event) => {
+                    toggleDraftOrderStatusFilter(option.value, Boolean(event.target.checked));
+                  })(),
+                span(option.label)
+              ).key(option.value)
+            )
+          ),
+          div.class`auth-actions orders-status-filter-actions`(
+            button
+              .type`button`
+              .class`ghost-button`
+              .attr("aria-label", _=> areAllDraftOrderStatusesSelected()
+                ? "Remove all order status filters"
+                : "Select all order status filters")
+              .onClick(toggleAllDraftOrderStatusFilters)(
+                _=> areAllDraftOrderStatusesSelected() ? "Remove all" : "Select all"
+              )
           )
         ),
     })
@@ -864,9 +1760,10 @@ export const OrdersApp = tag(() => [
   section.class`panel ledger-panel orders-panel`(
     div.class`ledger-header`(
       div.class`ledger-heading`(
-        h1("Orders"),
+        h1("🛎️ Orders"),
         p("Review checkout orders, payment status, and Stripe links.")
-      )
+      ),
+      button.type`button`.class`add-button`.onClick(openCreateOrderModal)("Add Order")
     ),
     OrderFilters(),
     subscribe(
@@ -884,7 +1781,8 @@ export const OrdersApp = tag(() => [
                       th("Status"),
                       th("Customer"),
                       th("Items"),
-                      th("Total")
+                      th("Total"),
+                      th("Actions")
                     )
                   ),
                   tbody(
@@ -911,6 +1809,9 @@ export const OrdersApp = tag(() => [
                             span.class(_=> `pill ledger-status-pill orders-status-${order.status}`)(
                               _=> order.status.replace(/_/g, " ")
                             ),
+                            order.paidAt && order.status !== "paid"
+                              ? span.class`pill ledger-status-pill orders-status-paid`("Paid")
+                              : null,
                             isTestOrder(order)
                               ? span.class`pill orders-test-pill`("test")
                               : null,
@@ -947,6 +1848,16 @@ export const OrdersApp = tag(() => [
                               ? p.class`orders-meta`(_=> `shipping ${formatMoney(order.amountShipping, order.currency)}`)
                               : null
                           )
+                        ),
+                        td(
+                          button.type`button`.class`ghost-button`
+                            .disabled(_=> !canEditCustomOrder(order))
+                            .attr("aria-label", `Edit order ${order.id}`)
+                            .attr("title", canEditCustomOrder(order) ? "Edit order" : "Only unpaid or closed custom orders can be edited")
+                            .onClick((event) => {
+                              event.stopPropagation();
+                              openEditOrderModal(order);
+                            })("✏️")
                         )
                       ).key(order.id)
                     )
@@ -959,6 +1870,7 @@ export const OrdersApp = tag(() => [
         })
     ),
     OrderStatusFilterModal(),
+    CreateOrderModal(),
     OrderDetailModal()
   ),
 ]);
@@ -1013,9 +1925,24 @@ const adminShell = startAdminAppShell({
         }
       });
     }
+    if (!stopCustomers) {
+      stopCustomers = subscribeCustomers((items) => {
+        customers$.splice(0, customers$.length, ...items);
+        if (selectedOrderId || createOrderModalOpen) refreshOrderModal();
+      });
+    }
+    if (!stopLedgerEntries) {
+      stopLedgerEntries = subscribeLedgerEntries((items) => {
+        ledgerEntries$.splice(0, ledgerEntries$.length, ...(Array.isArray(items) ? items : []));
+        if (selectedOrderId) refreshOrderModal();
+      });
+    }
     mountApp();
   },
 });
 handleSignOut = adminShell.handleSignOut;
 
-window.addEventListener("popstate", syncModalFromUrl);
+window.addEventListener("popstate", () => {
+  applyOrderFiltersFromUrl();
+  syncModalFromUrl();
+});

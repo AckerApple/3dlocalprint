@@ -9,6 +9,7 @@ import {
 type HomeCartActionsOptions = HomeQuantityControlOptions & {
   productId: string;
   getVariationId?: () => string;
+  getBadgeName?: () => string;
 };
 
 const addedProductIds = new Set<string>();
@@ -19,6 +20,7 @@ const getActionKey = (productId: string, variationId = "") => `${productId}::${v
 export const HomeCartActions = tag(({
   productId,
   getVariationId,
+  getBadgeName,
   initialQuantity = 1,
   getQuantityState,
   setQuantityState,
@@ -64,7 +66,12 @@ export const HomeCartActions = tag(({
 
   const handleAdd = (event: Event) => {
     const quantity = getActionQuantity();
-    addToCart(productId, quantity, variationId);
+    let badgeName = "";
+    try { badgeName = getBadgeName?.() || ""; } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Enter a badge name.");
+      return;
+    }
+    addToCart(productId, quantity, variationId, badgeName);
     addedProductIds.add(actionKey);
     onBeforeAction(event);
 
@@ -99,7 +106,7 @@ export const HomeCartActions = tag(({
           .class`ghost-button home-view-cart-btn`
           .onClick((event) => {
             onBeforeAction?.(event);
-            window.location.href = "./cart.html";
+            window.location.href = /\/product\//i.test(window.location.pathname) ? "../cart.html" : "./cart.html";
           })(
           "View cart"
         )

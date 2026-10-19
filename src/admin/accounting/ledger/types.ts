@@ -30,6 +30,7 @@ export type LedgerDraft = {
   amount: string;
   salesTaxLiability: string;
   processingFees: string;
+  orderIds: string[];
   moneyAccountTitle: string;
   billingCategory: string;
   applicableDate: string;

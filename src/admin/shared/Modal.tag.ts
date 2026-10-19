@@ -140,6 +140,9 @@ export const Modal = tag(({
   };
 
   const onDialogKeyDown = (event) => {
+    if (event?.key === "Shift") {
+      getDialog()?.classList.add("is-shift-held");
+    }
     onKeyDown(event);
     if (event?.defaultPrevented) return;
     if (event?.key !== "Escape") return;
@@ -150,6 +153,12 @@ export const Modal = tag(({
       return;
     }
     ignoreNextCancel = false;
+  };
+
+  const onDialogKeyUp = (event) => {
+    if (event?.key === "Shift") {
+      getDialog()?.classList.remove("is-shift-held");
+    }
   };
 
   return [
@@ -170,7 +179,8 @@ export const Modal = tag(({
           event.preventDefault();
           onClose();
         })
-        .onKeyDown((event) => onDialogKeyDown(event))(
+        .onKeyDown((event) => onDialogKeyDown(event))
+        .onKeyUp((event) => onDialogKeyUp(event))(
         div
           .class(_=> `qr-modal-card ${cardClassName}`.trim())(
           div

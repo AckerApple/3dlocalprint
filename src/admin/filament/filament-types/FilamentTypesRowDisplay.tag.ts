@@ -94,7 +94,7 @@ const getManufacturerOptions = (manufacturers: ManufacturerItem[] = []) => {
 type FilamentTypeEditorProps = {
   item: FilamentType;
   isAddMode?: boolean;
-  onSave?: (item: FilamentType) => void | Promise<void>;
+  onSave?: (item: FilamentType, keepOpen?: boolean) => void | Promise<void>;
   saveLabel?: string;
   saveDisabled?: boolean;
   onCancelAdd?: (item: FilamentType) => void;
@@ -303,9 +303,9 @@ export const FilamentTypeEditor = tag(({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = (event?: MouseEvent) => {
     if (typeof onSave === "function") {
-      return onSave(item);
+      return onSave(item, Boolean(event?.shiftKey && isAddMode));
     }
     return saveType(item);
   };
@@ -634,6 +634,8 @@ export const FilamentTypeEditor = tag(({
       button
         .type`button`
         .class`add-button`
+        .attr("data-pin-save", isAddMode ? "true" : null)
+        .attr("title", isAddMode ? "Hold Shift while clicking to save and keep this modal open" : null)
         .disabled(_=> saveDisabled)
         .onClick(handleSave)(
         _=> saveLabel

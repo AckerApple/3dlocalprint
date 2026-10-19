@@ -1,5 +1,6 @@
 export const PRODUCT_CATEGORIES = [
   "art",
+  "business",
   "craft party",
   "fashion",
   "gifts",

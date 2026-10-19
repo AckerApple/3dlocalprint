@@ -36,6 +36,7 @@ import { slugifyLocation } from "../filament/location-utils.js";
 import type { ManufacturerItem } from "../../types/filament.js";
 import type { AgreementRecord, AgreementServiceItem, AgreementStatus } from "../../types/agreement.js";
 import type { ModelLinkQuoteRequestRecord } from "../../types/model-link-quote-request.js";
+import type { CustomerRecord } from "../../types/customer.js";
 import type { OrderLineItem, OrderRecord, OrderStatus } from "../../types/order.js";
 import type { ProductImage, ProductItem } from "../../types/product.js";
 import { normalizeProductCategories } from "../../product-categories.js";
@@ -112,6 +113,7 @@ const PRODUCTS_DOC = doc(db, "products", "list");
 const ORDERS_COLLECTION = collection(db, "orders");
 const AGREEMENTS_COLLECTION = collection(db, "agreements");
 const MODEL_LINK_QUOTE_REQUESTS_COLLECTION = collection(db, "model_link_quote_requests");
+const CUSTOMERS_COLLECTION = collection(db, "customers");
 
 const normalizeEmail = (email = "") => email.trim().toLowerCase();
 const normalizeManufacturerItems = (items: unknown): ManufacturerItem[] =>
@@ -511,6 +513,12 @@ const serializeLedgerEntries = (items = []) =>
 
     return {
       id,
+      orderId: String(item.orderId || (id.startsWith("cash_order_") ? id.slice("cash_order_".length) : "")).trim(),
+      orderIds: Array.from(new Set([
+        ...(Array.isArray(item.orderIds) ? item.orderIds : []),
+        item.orderId,
+        id.startsWith("cash_order_") ? id.slice("cash_order_".length) : "",
+      ].map((value) => String(value || "").trim()).filter(Boolean))),
       amount,
       salesTaxLiability: Math.min(0, Number(item.salesTaxLiability) || 0),
       processingFees: Math.min(0, Number(item.processingFees) || 0),
@@ -592,6 +600,7 @@ const normalizeOrderLineItems = (items: unknown): OrderLineItem[] =>
         currency: String((item as { currency?: unknown }).currency || "").trim().toLowerCase(),
         productId: String((item as { productId?: unknown }).productId || "").trim(),
         variationId: String((item as { variationId?: unknown }).variationId || "").trim(),
+        badgeName: String((item as { badgeName?: unknown }).badgeName || "").trim(),
       });
       return acc;
     }, []);
@@ -626,6 +635,8 @@ const normalizeOrderRecord = (id: string, data: Record<string, unknown>): OrderR
     amountTotal: Math.max(0, Math.round(Number(data.amountTotal) || 0)),
     customerEmail: String(data.customerEmail || "").trim(),
     customerName: String(data.customerName || "").trim(),
+    customerDetailsPending: Boolean(data.customerDetailsPending),
+    orderImage: data.orderImage && typeof data.orderImage === "object" ? data.orderImage as OrderRecord["orderImage"] : undefined,
     checkoutSessionId: String(data.checkoutSessionId || "").trim(),
     checkoutUrl: String(data.checkoutUrl || "").trim(),
     paymentIntentId,
@@ -641,6 +652,9 @@ const normalizeOrderRecord = (id: string, data: Record<string, unknown>): OrderR
     createdAt: String(data.createdAt || "").trim(),
     updatedAt: String(data.updatedAt || "").trim(),
     paidAt: String(data.paidAt || "").trim(),
+    paymentMethod: String(data.paymentMethod || "").trim(),
+    cashLedgerEntryId: String(data.cashLedgerEntryId || "").trim(),
+    ledgerEntryId: String(data.ledgerEntryId || data.cashLedgerEntryId || "").trim(),
     stripeDashboardUrl: getStripePaymentIntentUrl(paymentIntentId, stripeMode)
       || String(data.stripeDashboardUrl || "").trim(),
     adminOrderUrl: String(data.adminOrderUrl || "").trim(),
@@ -659,6 +673,46 @@ const subscribeOrders = (callback: (items: OrderRecord[]) => void) =>
       callback([]);
     }
   );
+
+const normalizeCustomerRecord = (id: string, data: Record<string, unknown>): CustomerRecord => ({
+  id: String(data.id || id || "").trim(),
+  name: String(data.name || "").trim(),
+  email: String(data.email || "").trim(),
+  emailNormalized: normalizeEmail(String(data.emailNormalized || data.email || "")),
+  phone: String(data.phone || "").trim(),
+  notes: String(data.notes || "").trim(),
+  sourceOrderId: String(data.sourceOrderId || "").trim(),
+  createdAt: String(data.createdAt || "").trim(),
+  updatedAt: String(data.updatedAt || "").trim(),
+});
+
+const subscribeCustomers = (callback: (items: CustomerRecord[]) => void) =>
+  onSnapshot(
+    query(CUSTOMERS_COLLECTION, orderBy("updatedAt", "desc"), limit(500)),
+    (snapshot) => callback(snapshot.docs.map((item) => normalizeCustomerRecord(item.id, item.data()))),
+    (error) => {
+      console.error("Failed to subscribe to customers", error);
+      callback([]);
+    }
+  );
+
+const saveCustomer = async (customer: CustomerRecord) => {
+  const id = String(customer?.id || "").trim();
+  const email = String(customer?.email || "").trim();
+  if (!id) throw new Error("Customer id is required.");
+  if (!email) throw new Error("Customer email is required.");
+  await setDoc(doc(CUSTOMERS_COLLECTION, id), {
+    id,
+    name: String(customer?.name || "").trim(),
+    email,
+    emailNormalized: normalizeEmail(email),
+    phone: String(customer?.phone || "").trim(),
+    notes: String(customer?.notes || "").trim(),
+    sourceOrderId: String(customer?.sourceOrderId || "").trim(),
+    createdAt: String(customer?.createdAt || "").trim() || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
+};
 
 const normalizeAgreementStatus = (value: unknown): AgreementStatus => {
   const status = String(value || "").trim() as AgreementStatus;
@@ -812,6 +866,7 @@ const serializeMoneyAccounts = (items = []) =>
     return {
       id,
       title,
+      emoji: String(item.emoji || "").trim(),
       notes: String(item.notes || "").trim(),
       rewardsBillingCategory: String(item.rewardsBillingCategory || "").trim(),
       createdAt: Number(item.createdAt) || Date.now(),
@@ -963,6 +1018,8 @@ export {
   saveLedgerEntries,
   subscribeLedgerEntries,
   subscribeOrders,
+  subscribeCustomers,
+  saveCustomer,
   subscribeAgreements,
   subscribeModelLinkQuoteRequests,
   loadMoneyAccounts,

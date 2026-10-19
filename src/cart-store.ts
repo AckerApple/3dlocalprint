@@ -1,7 +1,9 @@
+import { validateBadgeName } from "./name-badges.js";
 export type CartItem = {
   productId: string;
   variationId?: string;
   quantity: number;
+  badgeName?: string;
 };
 
 const CART_STORAGE_KEY = "threedlocalprint_cart_v1";
@@ -22,6 +24,7 @@ export const loadCart = (): CartItem[] => {
         productId: String(item?.productId || "").trim(),
         variationId: String(item?.variationId || "").trim(),
         quantity: clampQuantity(item?.quantity),
+        badgeName: String(item?.badgeName || "").trim(),
       }))
       .filter((item) => item.productId && item.quantity > 0);
   } catch {
@@ -35,6 +38,7 @@ export const saveCart = (items: CartItem[]) => {
       productId: String(item?.productId || "").trim(),
       variationId: String(item?.variationId || "").trim(),
       quantity: clampQuantity(item?.quantity),
+        badgeName: String(item?.badgeName || "").trim(),
     }))
     .filter((item) => item.productId && item.quantity > 0);
   localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(normalized));
@@ -44,39 +48,41 @@ export const saveCart = (items: CartItem[]) => {
 export const getCartQuantity = () =>
   loadCart().reduce((sum, item) => sum + clampQuantity(item.quantity), 0);
 
-export const getCartItemQuantity = (productId: string, variationId = "") => {
+export const getCartItemQuantity = (productId: string, variationId = "", badgeName?: string) => {
   const id = String(productId || "").trim();
   const variant = String(variationId || "").trim();
   if (!id) return 0;
   return loadCart()
-    .filter((item) => item.productId === id && String(item.variationId || "") === variant)
+    .filter((item) => item.productId === id && String(item.variationId || "") === variant && (badgeName === undefined || String(item.badgeName || "") === badgeName))
     .reduce((sum, item) => sum + clampQuantity(item.quantity), 0);
 };
 
-export const addToCart = (productId: string, quantity: number, variationId = "") => {
+export const addToCart = (productId: string, quantity: number, variationId = "", badgeName = "") => {
   const id = String(productId || "").trim();
   const variant = String(variationId || "").trim();
+  if (badgeName) badgeName = validateBadgeName(badgeName);
   const qty = clampQuantity(quantity);
   if (!id || qty <= 0) return;
 
   const cart = loadCart();
-  const index = cart.findIndex((item) => item.productId === id && String(item.variationId || "") === variant);
+  const index = cart.findIndex((item) => item.productId === id && String(item.variationId || "") === variant && String(item.badgeName || "") === badgeName);
   if (index === -1) {
-    cart.push({ productId: id, variationId: variant, quantity: qty });
+    cart.push({ productId: id, variationId: variant, badgeName, quantity: qty });
   } else {
     cart[index].quantity = clampQuantity(cart[index].quantity + qty);
   }
   saveCart(cart);
 };
 
-export const updateCartItemQuantity = (productId: string, quantity: number, variationId = "") => {
+export const updateCartItemQuantity = (productId: string, quantity: number, variationId = "", badgeName = "") => {
   const id = String(productId || "").trim();
   const variant = String(variationId || "").trim();
   if (!id) return;
+  if (badgeName) badgeName = validateBadgeName(badgeName);
   const qty = clampQuantity(quantity);
   const next = loadCart()
     .map((item) =>
-      item.productId === id && String(item.variationId || "") === variant
+      item.productId === id && String(item.variationId || "") === variant && String(item.badgeName || "") === badgeName
         ? { ...item, quantity: qty }
         : item
     )
@@ -84,12 +90,12 @@ export const updateCartItemQuantity = (productId: string, quantity: number, vari
   saveCart(next);
 };
 
-export const removeFromCart = (productId: string, variationId = "") => {
+export const removeFromCart = (productId: string, variationId = "", badgeName = "") => {
   const id = String(productId || "").trim();
   const variant = String(variationId || "").trim();
   if (!id) return;
   const next = loadCart().filter(
-    (item) => !(item.productId === id && String(item.variationId || "") === variant)
+    (item) => !(item.productId === id && String(item.variationId || "") === variant && String(item.badgeName || "") === badgeName)
   );
   saveCart(next);
 };

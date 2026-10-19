@@ -440,7 +440,7 @@ const closeModal = () => {
   });
 };
 
-const saveModalProduct = async () => {
+const saveModalProduct = async (keepOpen = false) => {
   const { draftProduct, modalMode, modalIndex, isSaving, pendingImageFile, pendingImageUrl } = getProductsUi();
   if (isSaving) return;
   if (!draftProduct) return;
@@ -546,13 +546,13 @@ const saveModalProduct = async () => {
             )
           );
         }
-        closeModal();
+        if (!keepOpen) closeModal();
       }
     } else {
       const nextItems = [...products$.value, normalized];
       const didSave = await persistProducts(nextItems, "Product added.");
       if (didSave) {
-        closeModal();
+        if (!keepOpen) closeModal();
       }
     }
   } catch (error) {
@@ -1084,8 +1084,10 @@ export const ProductsApp = tag(() => [
               button
                 .type`button`
                 .class`add-button`
+                .attr("data-pin-save", "true")
+                .attr("title", "Hold Shift while clicking to save and keep this modal open")
                 .disabled(_=> ui?.isSaving ?? false)
-                .onClick(saveModalProduct)(
+                .onClick((event) => saveModalProduct(Boolean(event.shiftKey)))(
                 _=> (ui?.isSaving ? "⏳ Saving..." : "☁️ Save Product")
               )
             )

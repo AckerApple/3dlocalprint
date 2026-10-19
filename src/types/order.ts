@@ -7,6 +7,7 @@ export type OrderStatus =
   | "unknown";
 
 export type OrderLineItem = {
+  badgeName?: string;
   priceId: string;
   quantity: number;
   title: string;
@@ -17,6 +18,8 @@ export type OrderLineItem = {
 };
 
 export type OrderRecord = {
+  customerDetailsPending?: boolean;
+  orderImage?: {path: string; mime: string; uploadedAt: string};
   id: string;
   orderType?: string;
   agreementId?: string;
@@ -45,6 +48,9 @@ export type OrderRecord = {
   createdAt: string;
   updatedAt: string;
   paidAt: string;
+  paymentMethod: string;
+  cashLedgerEntryId: string;
+  ledgerEntryId: string;
   stripeDashboardUrl: string;
   adminOrderUrl: string;
   publicOrderUrl: string;

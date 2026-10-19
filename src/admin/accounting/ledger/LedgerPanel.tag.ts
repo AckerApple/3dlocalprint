@@ -115,6 +115,7 @@ export const LedgerPanel = tag(({
             return {
               key: account?.id || title,
               title,
+              displayTitle: [String(account?.emoji || "").trim(), title].filter(Boolean).join(" "),
               rewardsBillingCategory: String(account?.rewardsBillingCategory || "").trim(),
               entries: filteredEntries.filter(
                 (entry) => entry.moneyAccountTitle === title
@@ -131,7 +132,7 @@ export const LedgerPanel = tag(({
           accountSections.map((section) =>
             div.class`ledger-account-section`(
               div.class`ledger-account-header`(
-                h3.class`ledger-account-title`(section.title),
+                h3.class`ledger-account-title`(section.displayTitle),
                 div.class`ledger-account-actions`(
                   button
                     .type`button`

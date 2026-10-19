@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf lib",
     "deploy": "firebase deploy --only functions",
-    "serve": "firebase emulators:start --only functions"
+    "serve": "firebase emulators:start --only functions",
+    "test:custom-orders": "node test/custom-orders.test.mjs"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0",

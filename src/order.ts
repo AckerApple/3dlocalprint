@@ -36,6 +36,7 @@ type PublicOrderRecord = {
   createdAt: string;
   updatedAt: string;
   paidAt: string;
+  checkoutUrl: string;
 };
 
 type PublicOrderState = {
@@ -115,8 +116,9 @@ const OrderTotals = (order: PublicOrderRecord) =>
 
 const OrderDetails = (order: PublicOrderRecord) =>
   section.class`home-card receipt-card public-order-card`(
-    div.class`receipt-status-pill`(formatStatus(order.status)),
-    h2("Order details"),
+    order.status === "checkout_created"
+      ? null
+      : div.class`receipt-status-pill`(formatStatus(order.status)),
     div.class`receipt-order-number`(
       span("Order number"),
       strong(order.id)
@@ -148,8 +150,11 @@ const OrderDetails = (order: PublicOrderRecord) =>
     ),
     OrderTotals(order),
     div.class`receipt-actions`(
+      order.status === "checkout_created" && order.checkoutUrl
+        ? a.class`add-button`.href(order.checkoutUrl)("Pay securely")
+        : null,
       a.class`ghost-button`.href("./products.html")("Continue shopping"),
-      a.class`add-button`.href(`mailto:service@3dlocalprint.com?subject=${encodeURIComponent(`Order ${order.id}`)}`)("Contact service")
+      a.class`ghost-button`.href(`mailto:service@3dlocalprint.com?subject=${encodeURIComponent(`Order ${order.id}`)}`)("Contact service")
     )
   );
 

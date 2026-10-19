@@ -17,7 +17,7 @@ export const LedgerHeader = tag(({
 
   return div.class`ledger-header`(
     div.class`ledger-heading`(
-      h1("Ledger"),
+      h1("📒 Ledger"),
       p("Track incoming and outgoing monies in one place.")
     ),
     div.class`ledger-header-actions`(
