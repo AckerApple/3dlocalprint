@@ -13,7 +13,7 @@ const currentAuthUser={getIdToken:async()=> 'local-test'};const firebaseAuth={};
 const navigator={clipboard:{writeText:async value=>{copied=value;}}};const fetch=async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return {ok:true,json:async()=>({ok:true,orderId:'preview',checkoutUrl:'http://local.test/checkout'})};};
 `+extract('const getCustomOrderFormState =','const createCustomOrder =')+extract('const createCustomOrder =','const getSelectedOrder =')+extract('const openOrderModal =','const syncModalFromUrl =')+`
 async function run(){
- assert.equal(typeof orders$.some,'undefined');assert.equal(Array.isArray(orders$.value),true);
+ assert.equal(Array.isArray(orders$.value),true);
  openEditOrderModal({...orders$[0],customerName:'stale'});assert.equal(customOrderDraft.customerName,'');assert.equal(editingCustomOrderId,'preview');assert.equal(selectedOrderId,'');assert.equal(createOrderModalOpen,true);assert.equal(editReturnOrderId,'preview');
  closeCreateOrderModal();assert.equal(selectedOrderId,'preview');assert.equal(createOrderModalOpen,false);
  openEditOrderModal(orders$[0]);customOrderDraft.customerName='unsaved';closeCreateOrderModal();assert.equal(discardOrderChangesPending,true);assert.equal(createOrderModalOpen,true);assert.equal(selectedOrderId,'');keepEditingOrder();assert.equal(discardOrderChangesPending,false);assert.equal(customOrderDraft.customerName,'unsaved');

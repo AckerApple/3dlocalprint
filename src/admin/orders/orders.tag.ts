@@ -653,7 +653,7 @@ const createCustomOrder = async (keepOpen = false) => {
       ? payload?.closedOrderUpdated
         ? "Closed order updated. Its status and payment history were preserved."
         : "Custom order updated. Replacement payment link copied."
-      : checkoutUrl ? "Custom order created. Checkout link copied." : "Custom order created.");
+      : checkoutUrl ? "Custom order created. 🛒 Checkout 🔗 link copied." : "Custom order created.");
     const savedOrderId = String(payload?.orderId || editedOrderId || "");
     if (!keepOpen && savedOrderId) openOrderModal(savedOrderId);
   } catch (error) {
@@ -1246,12 +1246,12 @@ const OrderDetailModal = () =>
                 div(_=> privateOrderImage ? img.src(privateOrderImage).alt("Private order reference").style("max-width:100%;max-height:320px;object-fit:contain")() : null)
               ),
               div.class`orders-detail-section orders-detail-section-wide`(
-                h2.class`orders-detail-section-title`("Checkout link"),
-                p.class`orders-meta`("Share only the Stripe checkout link. It collects customer details and payment. Private order images are not included."),
-                p.class`orders-meta`.style("overflow-wrap:anywhere;user-select:all")(order.checkoutUrl || "Checkout link unavailable. Use Edit Order to create one."),
+                h2.class`orders-detail-section-title`("🛒 Checkout 🔗 link"),
+                p.class`orders-meta`("Share only the Stripe 🛒 Checkout 🔗 link. It collects customer details and payment. Private order images are not included."),
+                p.class`orders-meta`.style("overflow-wrap:anywhere;user-select:all")(order.checkoutUrl || "🛒 Checkout 🔗 link unavailable. Use Edit Order to create one."),
                 button.type`button`.class`ghost-button`.disabled(() => !order.checkoutUrl || order.status !== "checkout_created")
-                  .onClick(async () => { try { await navigator.clipboard.writeText(order.checkoutUrl); toast.success("Checkout link copied."); } catch { toast.info("Select and copy the checkout link above."); } })("Copy checkout link"),
-                p.class`orders-meta`("To replace an expired checkout link, use Edit Order and save. Previously shared checkout links will expire.")
+                  .onClick(async () => { try { await navigator.clipboard.writeText(order.checkoutUrl); toast.success("🛒 Checkout 🔗 link copied."); } catch { toast.info("Select and copy the 🛒 Checkout 🔗 link above."); } })("Copy 🛒 Checkout 🔗 link"),
+                p.class`orders-meta`("To replace an expired 🛒 Checkout 🔗 link, use Edit Order and save. Previously shared 🛒 Checkout 🔗 links will expire.")
               ),
               div.class`orders-detail-section orders-detail-section-wide`(
                 h2.class`orders-detail-section-title`("🐠 Stripe"),
@@ -1462,6 +1462,18 @@ const updateCustomOrderItemQuantity = (index: number, value: unknown) => {
   const item = customOrderDraft.items[index];
   if (!item) return;
   item.quantity = Math.max(1, Math.min(99999, Math.round(Number(value) || 1)));
+  refreshOrderModal();
+};
+
+const isCustomOrderBadgeItem = (item: CustomOrderDraftItem) =>
+  Boolean(item.badgeName) || customOrderCatalog.some((product) =>
+    product.id === item.productId && isNameBadgeProduct(product));
+
+const addCustomOrderBadgeName = () => {
+  const item = [...customOrderDraft.items].reverse().find(isCustomOrderBadgeItem);
+  if (!item) return;
+  customOrderDraft.items.push({ ...item, badgeName: "", quantity: 1 });
+  refreshOrderModal();
 };
 
 const removeCustomOrderItem = (index: number) => {
@@ -1490,7 +1502,7 @@ const CreateOrderModal = () =>
         ? editingCustomOrderStatus === "closed"
           ? "Update this closed order without reopening it or changing its payment history."
           : "Update this unpaid order. Its previous Stripe checkout will be replaced."
-        : "Create a private order. Customer details may be left pending; the recipient must provide their name and email at Stripe checkout. Copy the checkout link to share it."),
+        : "Create a private order. Customer details may be left pending; the recipient must provide their name and email at Stripe checkout. Copy the 🛒 Checkout 🔗 link to share it."),
       button.type`button`.class`ghost-button`.onClick(() => {
         customOrderCustomerLookupOpen = !customOrderCustomerLookupOpen;
         refreshOrderModal();
@@ -1536,6 +1548,7 @@ const CreateOrderModal = () =>
       ),
       div.class`orders-detail-section orders-detail-section-wide`(
         h2.class`orders-detail-section-title`("Order items"),
+        p.class`orders-meta`("For different badge names, use one row per name with qty = 1. Enter one name per field, not a comma-separated list. qty makes identical badges with that row’s name."),
         button.type`button`.class`ghost-button`.onClick(() => {
           customOrderProductLookupOpen = !customOrderProductLookupOpen;
           refreshOrderModal();
@@ -1584,7 +1597,7 @@ const CreateOrderModal = () =>
         _=> customOrderDraft.items.length
           ? div.class`orders-detail-lines`(
               customOrderDraft.items.map((item, index) =>
-                div.class`orders-detail-line custom-order-item-row`(
+                div.class(() => `orders-detail-line custom-order-item-row${isCustomOrderBadgeItem(item) ? " custom-order-badge-row" : ""}`)(
                   div.class`order-product-line-main`(
                     item.imageUrl
                       ? img.class`order-product-thumbnail`.src(item.imageUrl).alt("")()
@@ -1595,24 +1608,30 @@ const CreateOrderModal = () =>
                     )
                   ),
                   div.class`custom-order-item-controls`(
-                    _=> customOrderCatalog.some((product) => product.id === item.productId && isNameBadgeProduct(product)) || item.badgeName
-                      ? label(
-                          span("Badge name (1–15 characters); quantity copies this name"),
-                          input.class`manufacturer-input`.type`text`.attr("maxlength", "15").attr("required", "")
+                    _=> isCustomOrderBadgeItem(item)
+                      ? label.class`custom-order-badge-name-field`(
+                          span(`Printed name · row ${index + 1} (1–15 characters)`),
+                          input.class`manufacturer-input`.type`text`.attr("maxlength", "15").attr("required", "").placeholder`One name only`
                             .value(() => item.badgeName || "")
                             .onInput((event) => { item.badgeName = event.target.value; })()
                         ) : null,
                     label.class`custom-order-quantity-field`(
-                      span("Qty"),
+                      span("qty"),
                       input.class`manufacturer-input custom-order-quantity-input`.type`number`.attr("min", "1").attr("max", "99999")
                         .value(_=> String(item.quantity)).onInput((event) => updateCustomOrderItemQuantity(index, event.target.value))()
                     ),
-                    button.type`button`.class`ghost-button delete-button`.onClick(() => removeCustomOrderItem(index))("Remove")
+                    button.type`button`.class`ghost-button delete-button`
+                      .attr("aria-label", `Remove item ${index + 1}: ${item.title}`)
+                      .attr("title", `Remove item ${index + 1}`)
+                      .onClick(() => removeCustomOrderItem(index))("🗑️")
                   )
                 ).key(`${item.productId}-${item.variationId}-${index}`)
               )
             )
-          : p.class`orders-meta`("Search the catalog and add at least one product.")
+          : p.class`orders-meta`("Search the catalog and add at least one product."),
+        _=> customOrderDraft.items.some(isCustomOrderBadgeItem)
+          ? button.type`button`.class`ghost-button`.onClick(addCustomOrderBadgeName)("+ Add another name")
+          : null
       ),
       div.class`orders-detail-section orders-detail-section-wide`(
         h2.class`orders-detail-section-title`("Order mode"),
