@@ -203,6 +203,7 @@ const publicSiteInputs = {
   printModelLink: resolve(__dirname, "src/print-model-link.html"),
   printModelLinkOrder: resolve(__dirname, "src/print-model-link-order.html"),
   cartHome: resolve(__dirname, "src/cart.html"),
+  pay: resolve(__dirname,"src/pay/index.html"),
   receiptHome: resolve(__dirname, "src/receipt.html"),
   agreementHome: resolve(__dirname, "src/agreement.html"),
   privacyHome: resolve(__dirname, "src/privacy.html"),

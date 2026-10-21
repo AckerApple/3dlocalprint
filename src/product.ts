@@ -1,3 +1,4 @@
+import { delayedProductLoading, productNavigationDelay, ProductLoadingStatus } from "./product-loading.js";
 import { isNameBadgeProduct, validateBadgeName } from "./name-badges.js";
 import { loadProducts } from "./admin/shared/firebase.js";
 import type { ProductItem } from "./types/product.js";
@@ -5,6 +6,7 @@ import { normalizeProductCategories } from "./product-categories.js";
 import { HomeCartActions } from "./home-cart-actions.js";
 import {
   tag,
+  button,
   tagElement,
   div,
   p,
@@ -25,7 +27,11 @@ const detailRoot = document.getElementById("homeProductDetail");
 const pageTitleRoot = document.getElementById("homeProductPageTitle");
 let loadedProduct: ProductItem | null = null;
 let selectedVariationId = "";
-let messageState: { title: string; message: string } | null = null;
+let messageState: { title: string; message: string; retry: boolean } | null = null;
+let loadingVisible = false;
+let loadGeneration = 0;
+let detailMounted = false;
+let initialNavigation = true;
 let selectedQuantity = 1;
 let badgeName = "";
 const productDetailRender$ = array([{ version: 0 }]);
@@ -123,8 +129,8 @@ const mountProductDetail = () => {
   tagElement(ProductDetailApp, detailRoot);
 };
 
-const renderMessage = (title: string, message: string) => {
-  messageState = { title, message };
+const renderMessage = (title: string, message: string, retry = false) => {
+  messageState = { title, message, retry };
   loadedProduct = null;
   if (pageTitleRoot) {
     pageTitleRoot.textContent = "Products";
@@ -132,26 +138,20 @@ const renderMessage = (title: string, message: string) => {
   notifyProductDetail();
 };
 
-const ProductMessage = (title: string, message: string) =>
+const ProductMessage = (title: string, message: string, retry: boolean) =>
   div.class`home-card home-card-muted`(
     h2(title),
-    p(message)
+    p(message),
+    retry ? button.type`button`.class`ghost-button`.onClick(()=>void load())("Try again") : null
   );
 
 const ProductDetailContent = () => {
   if (messageState) {
-    return [ProductMessage(messageState.title, messageState.message)];
+    return [ProductMessage(messageState.title, messageState.message, messageState.retry)];
   }
 
   const product = loadedProduct;
-  if (!product) {
-    return [
-      div.class`home-products-loading`(
-        div.class`home-products-spinner`().attr("aria-hidden", "true"),
-        p.class`home-products-loading-text`("Loading product...")
-      ),
-    ];
-  }
+  if (!product) return loadingVisible ? [ProductLoadingStatus()] : [];
 
   const primaryImageUrl = getPrimaryImageUrl(product);
   const descriptionText = String(product.description || "").trim();
@@ -229,18 +229,43 @@ const ProductDetailContent = () => {
 
 const ProductDetailApp = tag(() => subscribe(productDetailRender$, ProductDetailContent));
 
+const loadingDelay = delayedProductLoading(() => {
+  if (!detailRoot?.isConnected) return;
+  loadingVisible = true;
+  notifyProductDetail();
+});
+
+const stopLoading = () => {
+  loadGeneration++;
+  loadingDelay.cancel();
+  loadingVisible = false;
+  detailRoot?.setAttribute("aria-busy", "false");
+};
+
 const load = async () => {
-  if (!detailRoot) return;
-  mountProductDetail();
+  if (!detailRoot?.isConnected) return;
+  const generation = ++loadGeneration;
+  loadingDelay.cancel();
+  loadingVisible = false;
+  loadedProduct = null;
+  messageState = null;
+  detailRoot.setAttribute("aria-busy", "true");
+  pageTitleRoot?.closest(".cart-page-title")?.setAttribute("hidden", "");
+  if (!detailMounted) { mountProductDetail(); detailMounted = true; }
+  else notifyProductDetail();
   const slug = getSlug();
   if (!slug) {
+    detailRoot.setAttribute("aria-busy", "false");
     renderMessage("Product not found", "This product link is missing its identifier.");
     return;
   }
-
+  loadingDelay.start(initialNavigation ? productNavigationDelay(slug) : undefined);
+  initialNavigation = false;
   try {
     const items = await loadProducts();
-    const activeProducts = (Array.isArray(items) ? items : []).filter((item) => Boolean(item?.active));
+    if (generation !== loadGeneration || !detailRoot.isConnected || getSlug() !== slug) return;
+    if (!Array.isArray(items)) throw new Error("Invalid product catalog response");
+    const activeProducts = items.filter((item) => Boolean(item?.active));
     const match = activeProducts.find((item) => String(item.slug || item.id || "").trim() === slug);
     if (!match) {
       renderMessage("Product not found", "This product may have been removed or is no longer active.");
@@ -250,14 +275,25 @@ const load = async () => {
     setProductIndexing(match.catalogVisible !== false);
     messageState = null;
     selectedVariationId = normalizeVariations(match)[0]?.id || "";
-    if (pageTitleRoot) {
-      pageTitleRoot.closest(".cart-page-title")?.setAttribute("hidden", "");
-    }
     notifyProductDetail();
   } catch (error) {
+    if (generation !== loadGeneration || !detailRoot.isConnected || getSlug() !== slug) return;
     console.error("Failed to load product detail", error);
-    renderMessage("Product unavailable", "Please try again shortly.");
+    renderMessage("Product unavailable", "The product could not be loaded. Please try again.", true);
+  } finally {
+    if (generation === loadGeneration) {
+      loadingDelay.cancel();
+      loadingVisible = false;
+      detailRoot.setAttribute("aria-busy", "false");
+    }
   }
 };
 
-load();
+window.addEventListener("pagehide", stopLoading);
+window.addEventListener("pageshow", (event) => { if (event.persisted) void load(); });
+window.addEventListener("popstate", () => { canonicalizeProductUrl(); void load(); });
+const removalObserver = new MutationObserver(() => {
+  if (detailRoot && !detailRoot.isConnected) { stopLoading(); removalObserver.disconnect(); }
+});
+if (detailRoot) removalObserver.observe(document.body, { childList: true, subtree: true });
+void load();

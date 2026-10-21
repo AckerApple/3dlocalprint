@@ -40,7 +40,7 @@ const homeShell = ({
   mainClass = "home-main",
   assetPrefix = "./",
   siteKey = "local" as SiteKey,
-  extraHeadItems = [],
+  extraHeadItems = [] as unknown[],
   baseHref = "",
 }) => {
   const site = getSiteConfig(siteKey);
@@ -664,15 +664,10 @@ export const homeProductDetailPage = ({ assetPrefix = "./" } = {}) =>
     mainClass: "home-main home-main-cart",
     assetPrefix,
     mainSections: [
-      section.class`cart-page-title`(
+      section.class`cart-page-title`.attr("hidden", "")(
         h1.id("homeProductPageTitle")("Products")
       ),
-      section.class`home-grid`.id("homeProductDetail")(
-        div.class`home-products-loading`(
-          div.class`home-products-spinner`().attr("aria-hidden", "true"),
-          p.class`home-products-loading-text`("Loading product...")
-        )
-      ),
+      section.class`home-grid`.id("homeProductDetail").attr("aria-busy", "true")(),
     ],
   });
 
@@ -823,16 +818,18 @@ export const homePrintModelLinkOrderPage = ({ assetPrefix = "./" } = {}) =>
     ],
   });
 
-export const homeCartPage = ({ assetPrefix = "./" } = {}) =>
+export const homeCartPage = ({ assetPrefix = "./", paymentPage = false } = {}) =>
   homeShell({
-    pageTitle: "Cart - 3D Local Print",
+    baseHref: paymentPage ? "/" : "",
+    extraHeadItems: paymentPage ? [meta.name`referrer`.content`no-referrer`()] : [],
+    pageTitle: paymentPage ? "Checkout - 3D Local Print" : "Cart - 3D Local Print",
     heroLede: "",
     bodyScripts: ["cart.ts"],
     mainClass: "home-main home-main-cart",
     assetPrefix,
     mainSections: [
       section.class`cart-page-title`(
-        h1("🛒 Your Cart")
+        h1(paymentPage ? "Checkout" : "🛒 Your Cart")
       ),
       section.class`home-grid`.id("homeCartRoot")(
         div.class`home-products-loading`(
@@ -915,20 +912,10 @@ export const homeQr1Page = ({ assetPrefix = "../" } = {}) =>
 export const homeNotFoundPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
     baseHref: "/",
-    pageTitle: "Page Not Found - 3D Local Print",
+    pageTitle: "3D Local Print",
     heroLede: "",
     assetPrefix,
-    mainSections: [
-      section.class`cart-page-title`(
-        h1("Page not found")
-      ),
-      section.class`home-grid`(
-        div.class`home-card home-card-muted`(
-          h2("This page is unavailable."),
-          p("If you followed a product link, we will try to route you automatically."),
-          a.class`ghost-button`.href(withPrefix(assetPrefix, "products.html"))("Browse Products")
-        )
-      ),
-    ],
+    // This shell is also served for valid dynamic product URLs: classify before displaying an error.
+    mainSections: [section.class`home-grid`.id("homeNotFoundDetail")()],
     bodyScripts: ["not-found-route.ts"],
   });

@@ -84,6 +84,10 @@ const homePages = [
     render: () => homePrintModelLinkOrderPage(),
   },
   {
+    path: resolve(homeDir, "pay/index.html"),
+    render: () => homeCartPage({assetPrefix:"../",paymentPage:true}),
+  },
+  {
     path: resolve(homeDir, "cart.html"),
     render: () => homeCartPage(),
   },
@@ -312,6 +316,7 @@ const locationInventoryPages = locations.map((location) => {
 });
 
 mkdirSync(homeDir, { recursive: true });
+mkdirSync(resolve(homeDir,"pay"), { recursive: true });
 mkdirSync(adminDir, { recursive: true });
 
 homePages.concat(pages, fastEditPages, locationInventoryPages).forEach((page) => {

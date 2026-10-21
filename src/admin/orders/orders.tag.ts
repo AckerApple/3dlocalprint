@@ -686,6 +686,24 @@ const getLedgerPaymentMatches = (order: OrderRecord) => {
   }).slice(0, 12);
 };
 
+const shortCheckoutLinks = new Map<string,{checkoutUrl:string;customerReference:string;expiresAt:string}>();
+const shortLinkBusy = new Set<string>();
+const manageShortCheckoutLink = async (order: OrderRecord, action: "get_checkout_link" | "issue_checkout_link" | "revoke_checkout_link") => {
+  if(shortLinkBusy.has(order.id))return;
+  shortLinkBusy.add(order.id);refreshOrderModal();
+  try {
+    const user=currentAuthUser||firebaseAuth.currentUser;
+    const token=await user?.getIdToken?.();
+    if(!token)throw Error("Sign in required.");
+    const response=await fetch(getUpdateOrderUrl(),{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({action,orderId:order.id})});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||"Checkout link unavailable.");
+    if(action==="revoke_checkout_link"){shortCheckoutLinks.delete(order.id);toast.success("Short link revoked. Existing long links and open payment forms are unchanged.");}
+    else {shortCheckoutLinks.set(order.id,result);if(action==="issue_checkout_link"){await navigator.clipboard?.writeText(result.checkoutUrl);toast.success("Short checkout link copied; valid for seven days.");}}
+  }catch(error){toast.error(error instanceof Error?error.message:"Checkout link unavailable.");}
+  finally{shortLinkBusy.delete(order.id);refreshOrderModal();}
+};
+
 const refreshOrderModal = () =>
   orderModal$.next((Number(orderModal$.value) || 0) + 1);
 
@@ -1248,6 +1266,11 @@ const OrderDetailModal = () =>
               ),
               div.class`orders-detail-section orders-detail-section-wide`(
                 h2.class`orders-detail-section-title`("🛒 Checkout 🔗 link"),
+                p.class`orders-meta`(_=>shortCheckoutLinks.get(order.id)?`Reference: ${shortCheckoutLinks.get(order.id)!.customerReference} · Expires: ${shortCheckoutLinks.get(order.id)!.expiresAt}`:"Create a short, seven-day guest checkout link. The existing long link remains valid."),
+                p.class`orders-meta`.style("overflow-wrap:anywhere;user-select:all")(_=>shortCheckoutLinks.get(order.id)?.checkoutUrl||""),
+                button.type`button`.class`ghost-button`.disabled(()=>shortLinkBusy.has(order.id)).onClick(()=>manageShortCheckoutLink(order,"get_checkout_link"))("Show existing short link"),
+                button.type`button`.class`ghost-button`.disabled(()=>shortLinkBusy.has(order.id)||["closed","canceled"].includes(order.status)).onClick(()=>manageShortCheckoutLink(order,"issue_checkout_link"))("Create/copy short checkout link"),
+                button.type`button`.class`ghost-button`.disabled(()=>shortLinkBusy.has(order.id)).onClick(()=>manageShortCheckoutLink(order,"revoke_checkout_link"))("Revoke short link"),
                 p.class`orders-meta`("Share the website checkout link. It displays current public product images; private order images remain admin-only. Starting payment retires the previous unpaid Stripe link."),
                 p.class`orders-meta`.style("overflow-wrap:anywhere;user-select:all")(orderCheckoutLink(order) || "Checkout link unavailable."),
                 button.type`button`.class`ghost-button`.disabled(() => !orderCheckoutLink(order) || order.status !== "checkout_created")

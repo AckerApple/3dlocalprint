@@ -1,0 +1,21 @@
+# Fixed $1 test checkout and short guest links
+
+Internal order IDs remain unchanged. The explicit fixed-price product ID `checkout-test-1usd` is 100 USD cents; public creation requires this product alone, quantity one, and a stable request key. Shared order validation creates an idempotent embedded custom order. Inclusive tax, no shipping, and no promotions preserve exactly $1 gross. Other products' pricing/tax behavior is unchanged. The product is intended to be active but excluded from ordinary catalog browsing and clearly labeled as a checkout test without physical fulfillment.
+
+Customer references are `LP-` plus eight random Crockford Base32 characters, with atomic collision checks. A reference never authorizes access. `/pay/` is a real static page, with a random 128-bit/22-character Base64URL bearer token in its fragment and no-referrer policy. It posts that token to existing buyer endpoints; the server resolves the authoritative order, mode and current Stripe session.
+
+Explicit authenticated-admin actions on `updateCustomOrder` issue/copy or revoke a link. Viewing an order does not issue a token. Re-copy preserves the original seven-day expiry. Issuance never creates/retires a payment session. Revoking a short link does not invalidate old long links or an already-open Stripe form. The existing badge checkout must remain unchanged.
+
+Server-only collections: `checkout_links` (hashed lookup), `checkout_link_admin` (raw token retained for authenticated admin re-copy), `order_reference_index`, and `checkout_rate_limits`. Browser Firestore reads/writes, including normal admin access, are denied for them. Holders can view item names/prices/public product images and open the unpaid payment form; they cannot view private order images/customer contacts, edit orders, refund, fulfill or mark paid. Disclosure of the server-only raw token permits reuse until expiry/revocation. Never log raw tokens.
+
+Transactional throttles cover public token reads/preparation by IP and token, and issuance by admin. Counter records reuse per-identity keys with one-minute windows; expiresAt marks stale records. No automatic TTL policy/infrastructure is configured. Existing public endpoints remain public; no new service, IAM, secret, laptop credential or grant renewal is proposed.
+
+Existing payment lifecycle safeguards remain: same-session reuse, exact order/mode/totals, paid/processing guards, transactional transitions, safe expired-session renewal and stale-webhook checks. Anonymous callers cannot choose a short token's order or mode.
+
+The product-loading fix is included: blank product/fallback shells, accessible indeterminate bar after three unresolved seconds, a shared redirect/lookup deadline, cleanup on success/error/retry/navigation/unmount, and distinct missing/network-error states.
+
+Tests cover short-link admin authentication/field isolation/expiry/revocation/collision/throttling, unchanged sessions/images and legacy compatibility, paid/reuse guards, exact-$1 idempotency and unsafe cart rejection, real TaggedJS legacy/short-token DOM flows, and loading/static-route regressions. Firestore rules receive static review plus deployment compiler validation. Java-dependent emulator tests are NOT run. Existing unrelated frontend typecheck failures are reported separately.
+
+Authorized deployment: getOrderCheckout, createCheckoutSession, updateCustomOrder, createCustomOrder, orderIntegrationApi, tightened Firestore rules, and reviewed frontend source/tests/required generated Pages files. No Hosting rewrite, Storage/IAM/secret changes. Create the dedicated product and exactly one unpaid live $1 test order through the public API after duplicate checks; verify embedded payment without paying.
+
+Pending separate action-time approval: exactly two seven-day guest bearer links, for the existing $20 four-badge order and the new $1 test order. Only add references/link metadata, preserving items/images/totals/current sessions. Normal admin web authentication supports issuance. Do not extract browser tokens, reinterpret CLI OAuth audiences or renew expired grants. Any approved one-time owner provisioning must verify owner/admin identity and invoke this same transactional link service, not hand-write bypass records. No customer messages, card entry, charge, paid marking, refund or fulfillment.

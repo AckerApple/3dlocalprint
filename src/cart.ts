@@ -38,10 +38,14 @@ let cartMounted = false;
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const localStripeSandboxEngaged = LOCAL_HOSTNAMES.has(window.location.hostname);
 let stripePublishableKey = String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "").trim();
-const orderId=new URLSearchParams(window.location.search).get("orderId")||"";
+let orderId=new URLSearchParams(window.location.search).get("orderId")||"";
 const orderSessionProof=new URLSearchParams(window.location.hash.slice(1)).get("checkout")||"";
-const orderMode=Boolean(orderId);
-type OrderCheckoutView={id:string;canPay:boolean;canStartCheckout:boolean;stripeMode:string;status:string;paymentStatus:string;currency:string;amountTotal:number;lineItems:Array<{productId:string;variationId:string;badgeName:string;title:string;quantity:number;unitAmount:number;currency:string;imageUrl:string}>};
+const shortPayPage=/^\/pay(?:\/index\.html)?\/?$/.test(window.location.pathname);
+const checkoutToken=shortPayPage?window.location.hash.slice(1):"";
+const buyerCredentials=()=>shortPayPage?{token:checkoutToken}:{orderId,sessionId:orderSessionProof};
+const orderMode=Boolean(orderId)||shortPayPage;
+let cartRequestKey=crypto.randomUUID();
+type OrderCheckoutView={id:string;customerReference?:string;canPay:boolean;canStartCheckout:boolean;stripeMode:string;status:string;paymentStatus:string;currency:string;amountTotal:number;lineItems:Array<{productId:string;variationId:string;badgeName:string;title:string;quantity:number;unitAmount:number;currency:string;imageUrl:string}>};
 let existingOrder:OrderCheckoutView|null=null;
 let previewGeneration=0;
 const expectedSandbox=()=>orderMode?existingOrder?.stripeMode==="sandbox":localStripeSandboxEngaged;
@@ -225,9 +229,9 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Idempotency-Key": `cart_${Date.now().toString(36)}`,
+      "X-Idempotency-Key": lineItems.some(entry=>entry.productId==="checkout-test-1usd") ? cartRequestKey : `cart_${Date.now().toString(36)}`,
     },
-    body: JSON.stringify(orderMode?{orderId,sessionId:orderSessionProof,termsAccepted:cartState.termsAccepted}:{
+    body: JSON.stringify(orderMode?{...buyerCredentials(),termsAccepted:cartState.termsAccepted}:{
       cartItems: lineItems.map((entry) => ({
         productId: entry.productId,
         variationId: entry.variationId,
@@ -448,7 +452,7 @@ const CartContent = () => {
     ...shellItems,
     section.class`home-card home-cart-panel`(
       h2(orderMode?"Order Items":"Cart Items"),
-      orderMode? p(_=>`Order Id: ${orderId}`):null,
+      orderMode? p(_=>`Order Id: ${existingOrder?.customerReference || orderId}`):null,
       div.class`home-cart-rows`(
         cart.map((item) => {
           const product = productsById.get(item.productId);
@@ -586,17 +590,17 @@ async function loadOrderCheckout(){
       cartState.products=products;
       if(!cartState.checkoutLoading&&!cartState.embeddedCheckoutOpen)renderCartView();
     });
-    const response=await fetchApiWithFallback("/api/order-checkout","getOrderCheckout",{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderId,sessionId:orderSessionProof})});
+    const response=await fetchApiWithFallback("/api/order-checkout","getOrderCheckout",{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify(buyerCredentials())});
     const payload=await response.json();if(generation!==previewGeneration)return;
     if(!response.ok||!payload.order)throw Error(payload.error||"Order checkout unavailable.");
-    existingOrder=payload.order;selectOrderKey();cartState.statusText="";
+    existingOrder=payload.order;orderId=payload.order.id;selectOrderKey();cartState.statusText="";
   }catch(error){if(generation!==previewGeneration)return;existingOrder=null;cartState.statusText=error instanceof Error?error.message:"Unable to load order.";}
   finally{if(generation===previewGeneration){cartState.loading=false;renderCartView();}}
 }
 window.addEventListener("focus",()=>{if(orderMode)void loadOrderCheckout();});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&orderMode)void loadOrderCheckout();});
 window.addEventListener("pagehide",()=>{previewGeneration++;resetCheckout();renderCartView();});
-window.addEventListener("cart:updated", ()=>{if(!orderMode){resetCheckout();renderCartView();}});
+window.addEventListener("cart:updated", ()=>{if(!orderMode){cartRequestKey=crypto.randomUUID();resetCheckout();renderCartView();}});
 loadCartView();
 
 const stripePayArea = tag(() => {

@@ -27,7 +27,7 @@ service cloud.firestore {
 
     match /{collection}/{document=**} {
       // Integration credentials and budgets are managed only through authenticated functions.
-      allow read, write: if collection != "order_integrations" && isAdmin();
+      allow read, write: if !(collection in ["order_integrations", "checkout_links", "checkout_link_admin", "order_reference_index", "checkout_rate_limits"]) && isAdmin();
     }
   }
 }

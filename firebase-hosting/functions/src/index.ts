@@ -1,3 +1,5 @@
+import { FIXED_TEST_PRODUCT_ID, fixedCheckoutLine } from "./fixedCheckout";
+import { CheckoutLinkError, checkoutRateLimit, manageCheckoutLink, resolveCheckoutToken } from "./checkoutLinks";
 import {CheckoutStateError,prepareExistingOrderCheckout,retireExistingOrderCheckout,beginCheckoutTransition,releaseCheckoutTransition,expireUnpaidCheckout,checkoutFingerprint} from "./orderCheckoutService";
 import { ownsCheckout, publicOrderCheckout } from "./orderCheckoutSupport";
 import { IntegrationError, parseIntegrationToken, verifyIntegrationGrant, buildIntegrationGrant, assertIntegrationOrder, reserveIntegrationOrder, integrationSummary, type IntegrationGrant } from "./orderIntegrationSupport";
@@ -2910,7 +2912,7 @@ function existingOrderCheckoutDependencies() {
   return {db:getAdminDb(),stripe:getStripeClientForMode,parameters:(id:string,order:any):Stripe.Checkout.SessionCreateParams=>{
     // Frozen agreed amounts; only public preview images come from the current catalog.
     const lines=order.lineItems as any[];
-    if(!Array.isArray(lines)||!lines.length||!lines.every(x=>typeof x.badgeName==="string"&&x.badgeName.trim()))throw new CheckoutStateError(409,"Only fixed-total name-badge orders currently support website checkout; use the existing order payment link for other products.");
+    if(!Array.isArray(lines)||!lines.length||!lines.every(fixedCheckoutLine))throw new CheckoutStateError(409,"Only fixed-total badges and the dedicated $1 checkout-test product support this checkout.");
     const subtotal=lines.reduce((sum:number,x:any)=>sum+x.quantity*x.unitAmount,0);
     if(!lines.length||lines.some(x=>!Number.isSafeInteger(x.quantity)||x.quantity<1||!Number.isSafeInteger(x.unitAmount)||x.unitAmount<1||x.currency!==order.currency||(x.badgeName&&Array.from(x.badgeName).length>15))||subtotal!==order.amountSubtotal||subtotal+Number(order.amountShipping||0)!==order.amountTotal)throw new CheckoutStateError(409,"order_agreed_amount_invalid");
     return {mode:"payment",ui_mode:"embedded",return_url:`${PUBLIC_SITE_ORIGIN}/receipt.html?order_id=${id}&session_id={CHECKOUT_SESSION_ID}`,client_reference_id:id,
@@ -2936,12 +2938,22 @@ export const createCheckoutSession = onRequest(
       return;
     }
 
-    if(request.body?.orderId) {
+    if(request.body?.orderId || request.body?.token) {
       response.set("Cache-Control","private, no-store");
       try {
-        if(Object.keys(request.body).some(key=>!["orderId","sessionId","termsAccepted"].includes(key)))throw new CheckoutStateError(400,"invalid_order_checkout_fields");
-        response.json(await prepareExistingOrderCheckout(existingOrderCheckoutDependencies(),request.body));
-      } catch(error) {response.status(error instanceof CheckoutStateError?error.status:409).json({error:error instanceof CheckoutStateError?error.code:"Order checkout unavailable. Retry or contact the store."});}
+        if(Object.keys(request.body).some(key=>!["orderId","sessionId","termsAccepted","token"].includes(key)))throw new CheckoutStateError(400,"invalid_order_checkout_fields");
+        let input = request.body;
+        if (request.body.token) {
+          if (request.body.orderId || request.body.sessionId) throw new CheckoutLinkError(400, "Use one checkout credential.");
+          await checkoutRateLimit(getAdminDb(), String(request.ip || "unknown"), "token-prepare-ip", 30);
+          const buyer = await resolveCheckoutToken(getAdminDb(), request.body.token);
+          await checkoutRateLimit(getAdminDb(), buyer.tokenHash, "token-prepare", 10);
+          input = { orderId: buyer.orderId, sessionId: buyer.sessionId, termsAccepted: request.body.termsAccepted };
+        }
+        const prepared = await prepareExistingOrderCheckout(existingOrderCheckoutDependencies(),input);
+        if (request.body.token) await resolveCheckoutToken(getAdminDb(), request.body.token);
+        response.json(prepared);
+      } catch(error) {response.status(error instanceof CheckoutStateError || error instanceof CheckoutLinkError?error.status:409).json({error:error instanceof CheckoutStateError?error.code:error instanceof CheckoutLinkError?error.message:"Order checkout unavailable. Retry or contact the store."});}
       return;
     }
 
@@ -2965,6 +2977,14 @@ export const createCheckoutSession = onRequest(
       const orderId = createOrderId();
       const cartItems = normalizeCheckoutCartItems(request.body.cartItems);
       const lineItems = resolveCheckoutLineItems(cartItems, await loadProductCatalog());
+      if (lineItems.some(item=>item.productId===FIXED_TEST_PRODUCT_ID)) {
+        if(lineItems.length!==1||lineItems[0].quantity!==1||!fixedCheckoutLine(lineItems[0]))throw new CheckoutStateError(400,"The fixed $1 test product must be ordered alone, quantity one.");
+        if(!/^[A-Za-z0-9_-]{32,100}$/.test(idempotencyKey||""))throw new CheckoutStateError(400,"A stable checkout request key is required.");
+        await checkoutRateLimit(getAdminDb(),String(request.ip||"unknown"),"fixed-test-create",10);
+        const created=await createUnpaidCustomOrder({body:{cartItems,amountShipping:0,stripeMode,sourceUrl:PUBLIC_SITE_ORIGIN},header:request.header.bind(request)},"guest-fixed-checkout",undefined,true);
+        const prepared=await prepareExistingOrderCheckout(existingOrderCheckoutDependencies(),{orderId:created.orderId,sessionId:created.checkoutLinkSessionId||created.checkoutSessionId,termsAccepted:true});
+        response.json({...prepared,amountTotal:100,currency:"usd"});return;
+      }
       const organizationEmail = normalizeEmail(String(request.body.organizationEmail || ""));
       const exemptionCertificateNumber = normalizeCertificateNumber(String(request.body.exemptionCertificateNumber || ""));
       const organization = organizationEmail || exemptionCertificateNumber
@@ -3076,6 +3096,7 @@ export const createCheckoutSession = onRequest(
       });
     } catch (error) {
       logger.error("createCheckoutSession failed", error);
+      if(error instanceof CheckoutStateError||error instanceof CheckoutLinkError){response.status(error.status).json({error:error.message});return;}
       const errorResponse = getCheckoutErrorResponse(error);
       response.status(errorResponse.status).json({ error: errorResponse.message });
     }
@@ -3083,7 +3104,7 @@ export const createCheckoutSession = onRequest(
 );
 
 // Both web-admin and scoped laptop requests use the same validated creation service.
-async function createUnpaidCustomOrder(request: {body: any; header: (name: string) => string | undefined}, requestedByAdminEmail: string, integration?: IntegrationGrant & {id: string}) {
+async function createUnpaidCustomOrder(request: {body: any; header: (name: string) => string | undefined}, requestedByAdminEmail: string, integration?: IntegrationGrant & {id: string}, embedded = false) {
       const customerName = normalizeString(request.body?.customerName, 160);
       const customerEmail = normalizeEmail(normalizeString(request.body?.customerEmail, 254));
       const amountShipping = Math.max(0, Math.round(Number(request.body?.amountShipping) || 0));
@@ -3124,7 +3145,8 @@ async function createUnpaidCustomOrder(request: {body: any; header: (name: strin
           amountSubtotal: lineItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0), amountShipping,
           amountTotal: lineItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0) + amountShipping, amountTax: 0,
           customerName, customerEmail, customerDetailsPending: !customerEmail || !customerName,
-          createdAt: nowIso(), updatedAt: nowIso(), stripeMode, creationHash, createdByAdminEmail: requestedByAdminEmail,
+          createdAt: nowIso(), updatedAt: nowIso(), stripeMode, creationHash, createdByAdminEmail: embedded ? "" : requestedByAdminEmail,
+          ...(embedded?{createdByGuest:true,orderPurpose:"checkout-test"}:{}),
           adminOrderUrl: getAdminOrderUrl(PUBLIC_SITE_ORIGIN, orderId), notificationEmailStatus: "pending_payment" };
         if (integration && integrationRef) {
           const amount = lineItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0) + amountShipping;
@@ -3148,15 +3170,14 @@ async function createUnpaidCustomOrder(request: {body: any; header: (name: strin
       const stripe = getStripeClientForMode(stripeMode);
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
-        success_url: successUrl,
-        cancel_url: `${PUBLIC_SITE_ORIGIN}/products.html`,
+        ...(embedded ? {ui_mode:"embedded" as const,return_url:successUrl} : {success_url:successUrl,cancel_url:`${PUBLIC_SITE_ORIGIN}/products.html`}),
         client_reference_id: orderId,
         ...customerCollection(customerEmail),
         line_items: lineItems.map((item) => ({
           price_data: {
             currency,
             unit_amount: item.unitAmount,
-            ...(item.badgeName || integration ? { tax_behavior: "inclusive" as const } : {}),
+            ...(fixedCheckoutLine(item) || integration ? { tax_behavior: "inclusive" as const } : {}),
             product_data: {
               name: item.title,
               metadata: { productId: item.productId, badgeName: item.badgeName || "", variationId: item.variationId, orderId },
@@ -3199,6 +3220,8 @@ async function createUnpaidCustomOrder(request: {body: any; header: (name: strin
         customerEmail,
         customerName,
         checkoutSessionId: session.id,
+        checkoutChannel:embedded?"embedded":"hosted",
+        checkoutLinkSessionId:session.id,
         checkoutUrl: session.url || "",
         paymentIntentId: "",
         latestStripeEventId: "",
@@ -3211,8 +3234,9 @@ async function createUnpaidCustomOrder(request: {body: any; header: (name: strin
         paidAt: "",
         stripeDashboardUrl: getStripePaymentSearchUrl(session.id, stripeMode),
         adminOrderUrl,
-        createdByAdminEmail: requestedByAdminEmail,
-        ...(current.status === "paid" ? current : {}),
+        createdByAdminEmail: embedded ? "" : requestedByAdminEmail,
+          ...(embedded?{createdByGuest:true,orderPurpose:"checkout-test"}:{}),
+        ...(current.paidAt || ["paid","closed","canceled"].includes(current.status) ? current : {}),
       }, {merge:true});
       });
 
@@ -3278,6 +3302,12 @@ export const updateCustomOrder = onRequest(
     let editLock:any;let replacementStarted=false;
     try {
       const requestedByAdminEmail = await requireAdmin(request);
+      if(["get_checkout_link","issue_checkout_link","revoke_checkout_link"].includes(String(request.body?.action||""))){
+        if(Object.keys(request.body).some(key=>!["action","orderId"].includes(key)))throw new CheckoutLinkError(400,"Unexpected checkout-link fields.");
+        await checkoutRateLimit(getAdminDb(),requestedByAdminEmail,"admin-links",30);
+        const action=request.body.action==="get_checkout_link"?"get":request.body.action==="issue_checkout_link"?"issue":"revoke";
+        response.json(await manageCheckoutLink(getAdminDb(),String(request.body.orderId||""),action,requestedByAdminEmail));return;
+      }
       const updateRequestId = customOrderRequestId(requestedByAdminEmail, request.header("x-idempotency-key"));
       const orderId = normalizeString(request.body?.orderId, 200);
       const customerName = normalizeString(request.body?.customerName, 160);
@@ -3377,7 +3407,7 @@ export const updateCustomOrder = onRequest(
           price_data: {
             currency,
             unit_amount: item.unitAmount,
-            ...(item.badgeName ? { tax_behavior: "inclusive" as const } : {}),
+            ...(fixedCheckoutLine(item) ? { tax_behavior: "inclusive" as const } : {}),
             product_data: {
               name: item.title,
               metadata: { productId: item.productId, badgeName: item.badgeName || "", variationId: item.variationId, orderId: targetOrderId },
@@ -3445,6 +3475,7 @@ export const updateCustomOrder = onRequest(
       if(editLock&&!replacementStarted)await releaseCheckoutTransition(getAdminDb(),editLock.ref,editLock.lease);
       const message = error instanceof Error ? error.message : "";
       logger.error("updateCustomOrder failed", error);
+      if(error instanceof CheckoutLinkError){response.status(error.status).json({error:error.message});return;}
       if(error instanceof CheckoutStateError){response.status(error.status).json({error:error.code});return;}
       if (["order_request_key_required", "order_request_conflict", "invalid_customer_email"].includes(message)) {
         response.status(message === "order_request_conflict" ? 409 : 400).json({error: message});
@@ -4828,7 +4859,14 @@ export const getOrderCheckout = onRequest({region:"us-central1",secrets:[STRIPE_
   if(request.method === "OPTIONS"){response.status(204).send("");return;}
   if(request.method !== "POST"){response.status(405).json({error:"Method not allowed"});return;}
   try{
-    const orderId=String(request.body?.orderId||"");const sessionId=String(request.body?.sessionId||"");
+    let orderId=String(request.body?.orderId||"");let sessionId=String(request.body?.sessionId||"");
+    if(request.body?.token){
+      if(Object.keys(request.body).some(key=>key!=="token"))throw new CheckoutLinkError(400,"Use one checkout credential.");
+      await checkoutRateLimit(getAdminDb(),String(request.ip||"unknown"),"token-read-ip",120);
+      const buyer=await resolveCheckoutToken(getAdminDb(),request.body.token);
+      await checkoutRateLimit(getAdminDb(),buyer.tokenHash,"token-read",120);
+      orderId=buyer.orderId;sessionId=buyer.sessionId;
+    }
     if(!/^custom_[a-f0-9]{32}$/.test(orderId)||!/^cs_(live|test)_[A-Za-z0-9]{16,200}$/.test(sessionId)){response.status(404).json({error:"Order checkout not found."});return;}
     const snapshot=await getAdminDb().collection("orders").doc(orderId).get();const order=snapshot.data();
     if(!snapshot.exists||!ownsCheckout(order,orderId,sessionId)){response.status(404).json({error:"Order checkout not found."});return;}
@@ -4837,5 +4875,5 @@ export const getOrderCheckout = onRequest({region:"us-central1",secrets:[STRIPE_
     const catalog=(await getAdminDb().collection("products").doc("list").get()).data();
     const products=new Map((Array.isArray(catalog?.items)?catalog.items:[]).map((product:any)=>[String(product.id),product]));
     response.json({order:publicOrderCheckout(orderId,order,session,products)});
-  }catch{response.status(409).json({error:"This checkout cannot be verified. Request a current checkout link."});}
+  }catch(error){if(error instanceof CheckoutLinkError){response.status(error.status).json({error:error.message});return;}response.status(409).json({error:"This checkout cannot be verified. Request a current checkout link."});}
 });

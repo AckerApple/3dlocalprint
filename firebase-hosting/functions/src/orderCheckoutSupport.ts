@@ -1,3 +1,4 @@
+import { fixedCheckoutLine } from "./fixedCheckout";
 import { createHash, timingSafeEqual } from "node:crypto";
 export function ownsCheckout(order: any, orderId: string, sessionId: string) {
     if (!/^custom_[a-f0-9]{32}$/.test(orderId) || !/^cs_(live|test)_[A-Za-z0-9]{16,200}$/.test(sessionId) || order?.orderType !== "custom_order")
@@ -30,7 +31,7 @@ export function publicOrderCheckout(orderId: string, order: any, session: any, p
         throw Error("order_checkout_invalid");
     const subtotal = lines.reduce((sum: number, x: any) => sum + x.quantity * x.unitAmount, 0);
     const total = Number(order.amountTotal);
-    if (!Number.isSafeInteger(total) || total !== subtotal + shipping + (lines.every((x: any) => Boolean(x.badgeName)) ? 0 : Number(order.amountTax || 0)))
+    if (!Number.isSafeInteger(total) || total !== subtotal + shipping + (lines.every(fixedCheckoutLine) ? 0 : Number(order.amountTax || 0)))
         throw Error("order_checkout_invalid");
     const mode = order.stripeMode;
     if (!["live", "sandbox"].includes(mode) || session.id !== order.checkoutSessionId || session.livemode !== (mode === "live") || session.client_reference_id !== orderId || session.metadata?.orderId !== orderId)
@@ -40,7 +41,7 @@ export function publicOrderCheckout(orderId: string, order: any, session: any, p
     const canPay = storedStatus === "checkout_created" && paymentStatus === "unpaid" && session.status === "open";
     if (canPay && (session.amount_total !== total || session.currency !== currency))
         throw Error("order_checkout_mismatch");
-    const canStartCheckout = lines.every((x: any) => Boolean(x.badgeName)) && storedStatus === "checkout_created" && !order.checkoutTransition && ["unpaid", "expired"].includes(paymentStatus);
+    const canStartCheckout = lines.every(fixedCheckoutLine) && storedStatus === "checkout_created" && !order.checkoutTransition && ["unpaid", "expired"].includes(paymentStatus);
     let checkoutUrl = "";
     if (canPay && session.ui_mode !== "embedded") {
         const url = new URL(String(session.url || ""));
@@ -48,6 +49,6 @@ export function publicOrderCheckout(orderId: string, order: any, session: any, p
             throw Error("order_checkout_mismatch");
         checkoutUrl = url.toString();
     }
-    return { id: orderId, status: storedStatus, paymentStatus, canPay, canStartCheckout, checkoutUrl, stripeMode: mode, livemode: mode === "live", currency, amountSubtotal: subtotal, amountShipping: shipping, amountTax: Number(order.amountTax || 0), amountTotal: total,
+    return { id: orderId, customerReference: String(order.customerReference || ""), status: storedStatus, paymentStatus, canPay, canStartCheckout, checkoutUrl, stripeMode: mode, livemode: mode === "live", currency, amountSubtotal: subtotal, amountShipping: shipping, amountTax: Number(order.amountTax || 0), amountTotal: total,
         lineItems: lines.map((x: any) => ({ productId: String(x.productId || ""), variationId: String(x.variationId || ""), title: String(x.title || ""), badgeName: String(x.badgeName || ""), quantity: x.quantity, unitAmount: x.unitAmount, currency, imageUrl: publicProductImage(products.get(x.productId)) })) };
 }
