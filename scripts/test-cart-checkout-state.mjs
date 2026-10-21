@@ -6,12 +6,23 @@ globalThis.requestAnimationFrame=w.requestAnimationFrame.bind(w);globalThis.canc
 const tagged=await import('taggedjs');const subjects=await import('taggedjs/js/subject/Subject.class.js');const subscription=await import('taggedjs/js/TagJsTags/subscribe.function.js');
 const compile=s=>ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const helper={exports:{}};vm.runInNewContext(compile(fs.readFileSync(new URL('../src/order-checkout-link.ts',import.meta.url),'utf8')),{module:helper,exports:helper.exports,URL});
+const titles={exports:{}};vm.runInNewContext(compile(fs.readFileSync(new URL('../src/checkout-item-title.ts',import.meta.url),'utf8')),{module:titles,exports:titles.exports});
 const {checkoutBlockReason:reason}=helper.exports;const ready={loading:false,opening:false,embeddedOpen:false,terms:true,organization:false,verifiedOrganization:'',key:'pk_live_fake',local:false,orderMode:false};
 assert.equal(reason(ready),'');assert.match(reason({...ready,key:'pk_test_fake'}),/live Stripe publishable/);assert.match(reason({...ready,loading:true}),/Loading/);assert.match(reason({...ready,terms:false}),/accept/);assert.match(reason({...ready,organization:true}),/Verify/);assert.equal(reason({...ready,organization:true,verifiedOrganization:'Approved'}),'');
+for(const [title,name,variation,expected] of [
+ ['Custom Name Badges','Julia','','Custom Name Badges — Name: Julia'],
+ ['Custom Name Badges — Name: Julia','Julia','','Custom Name Badges — Name: Julia'],
+ ['Custom Name Badges — Name: Julia — Name: Julia','Julia','','Custom Name Badges — Name: Julia'],
+ ['Badge','A+B','','Badge — Name: A+B'],
+ ['Badge — Name: A+B','A+B','','Badge — Name: A+B'],
+ ['Badge','Julia','Blue','Badge (Blue) — Name: Julia'],
+ ['Badge (Blue) — Name: Julia','Julia','Blue','Badge (Blue) — Name: Julia'],
+ ['Ordinary item','','Large','Ordinary item (Large)'],
+])assert.equal(titles.exports.checkoutItemTitle(title,name,variation),expected);
 let cart=[{productId:'badge',variationId:'',badgeName:'Julia',quantity:1}];let calls=0,mounts=0,destroys=0;let respond;let initRespond;let deferInit=false;
 const makeStripe=()=>({initEmbeddedCheckout:()=>{const candidate={mount:element=>{assert.ok(element.isConnected);mounts++;},destroy:()=>destroys++};if(deferInit)return new Promise(resolve=>{initRespond=()=>resolve(candidate);});return Promise.resolve(candidate);}});w.Stripe=makeStripe;
 const modules={
- './order-checkout-link.js':helper.exports,'./name-badges.js':{isNameBadgeProduct:p=>p.slug==='custom-name-badges',validateBadgeName:x=>x},
+ './order-checkout-link.js':helper.exports,'./checkout-item-title.js':titles.exports,'./name-badges.js':{isNameBadgeProduct:p=>p.slug==='custom-name-badges',validateBadgeName:x=>x},
  './admin/shared/firebase.js':{loadProducts:async()=>[{id:'badge',title:'Custom Name Badges',slug:'custom-name-badges',unitAmount:500,currency:'usd',active:true,imageUrl:'https://example.test/product.png',images:[],variations:[]}]},
  './api-url.js':{fetchApiWithFallback:async()=>{calls++;return new Promise(resolve=>{respond=payload=>resolve({ok:true,json:async()=>payload});});}},
  './cart-store.js':{loadCart:()=>cart,clearCart:()=>{cart=[];w.dispatchEvent(new w.Event('cart:updated'));},removeFromCart:()=>{},updateCartItemQuantity:()=>{}},
@@ -24,7 +35,7 @@ const button=()=>w.document.querySelector('#checkoutAction');assert.ok(button())
 const terms=w.document.querySelector('input[type="checkbox"]');terms.checked=true;terms.dispatchEvent(new w.Event('change',{bubbles:true}));await flush();assert.equal(button().disabled,false,'live hostname is not unconditionally disabled');
 button().click();await flush();assert.equal(button().disabled,true);assert.match(button().textContent,/Opening/);button().click();assert.equal(calls,1);
 respond({clientSecret:'synthetic_secret',stripeMode:expectedMode});await flush();assert.equal(mounts,1);assert.equal(vm.runInContext('stripePublishableKey',ctx),testLocal?'pk_test_fake':'pk_live_fake');assert.ok(w.document.querySelector('#stripeEmbeddedCheckout'));assert.equal(button().disabled,true);
-[...w.document.querySelectorAll('button')].find(x=>x.textContent==='Close payment form').click();await flush();assert.equal(destroys,1);assert.equal(button().disabled,false);
+assert.ok(![...w.document.querySelectorAll('button')].some(x=>/Close payment form|Refresh order/.test(x.textContent)));w.dispatchEvent(new w.Event('pagehide'));await flush();assert.equal(destroys,1);assert.equal(button().disabled,false);
 button().click();await flush();respond({stripeMode:expectedMode});await flush();assert.equal(button().disabled,false);assert.match(w.document.querySelector('[role="status"]').textContent,/missing/);
 button().click();await flush();const staleRespond=respond;w.dispatchEvent(new w.Event('cart:updated'));await flush();staleRespond({clientSecret:'stale_secret',stripeMode:expectedMode});await flush();assert.equal(mounts,1);assert.equal(button().disabled,false);
 deferInit=true;button().click();await flush();respond({clientSecret:'deferred_secret',stripeMode:expectedMode});await flush();assert.ok(initRespond);w.dispatchEvent(new w.Event('cart:updated'));await flush();initRespond();await flush();assert.equal(mounts,1);assert.equal(destroys,2);assert.equal(button().disabled,false);deferInit=false;
@@ -33,5 +44,5 @@ const org=w.document.querySelectorAll('input[type="checkbox"]')[1];org.checked=t
 const fields=w.document.querySelectorAll('.organization-checkout-fields input');fields[0].value='organization@example.test';fields[0].dispatchEvent(new w.Event('input',{bubbles:true}));fields[1].value='CERT';fields[1].dispatchEvent(new w.Event('input',{bubbles:true}));await flush();assert.equal(verify().disabled,false);
 // Failed Stripe script load is retryable, with no real network or browser takeover.
 w.Stripe=undefined;const failed=vm.runInContext('loadStripeJs()',ctx);const script=w.document.querySelector('script[src]');script.dispatchEvent(new w.Event('error'));await assert.rejects(failed,/Try again/);const retried=vm.runInContext('loadStripeJs()',ctx);const replacement=w.document.querySelector('script[src]');assert.notEqual(replacement,script);w.Stripe=makeStripe;replacement.dispatchEvent(new w.Event('load'));await retried;
-console.log('PASS: real TaggedJS production button binding, clear key/terms/organization gates, immediate loading, double-click guard, mount failure retry, close/reset, stale response/init cancellation, reactive organization typing, and Stripe script retry. All payment/network adapters mocked.');
+console.log('PASS: real TaggedJS production button binding, clear key/terms/organization gates, immediate loading, double-click guard, mount failure retry, navigation cleanup, stale response/init cancellation, reactive organization typing, and Stripe script retry. All payment/network adapters mocked.');
 w.close();

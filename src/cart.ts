@@ -1,3 +1,4 @@
+import { checkoutItemTitle } from "./checkout-item-title.js";
 import { checkoutBlockReason } from "./order-checkout-link.js";
 import { isNameBadgeProduct, validateBadgeName } from "./name-badges.js";
 import { loadProducts } from "./admin/shared/firebase.js";
@@ -354,7 +355,7 @@ const StripeSandboxBadge = () =>
 
 const CartLineRow = (item: CartItem, product: ProductItem) => {
   const variation = getVariationForCart(product, item.variationId);
-  const title = (variation ? `${product.title} (${variation.label})` : product.title) + (item.badgeName ? ` — Name: ${item.badgeName}` : "");
+  const title = checkoutItemTitle(product.title, item.badgeName, variation?.label);
   const unitAmount = variation?.unitAmount ?? product.unitAmount;
   const primaryImageUrl = getPrimaryImageUrl(product);
 
@@ -425,7 +426,6 @@ const CartContent = () => {
   if (!cart.length) {
     return [
       ...shellItems,
-      orderMode?button.type`button`.class`ghost-button`.onClick(()=>refreshOrderCheckout())("Refresh order"):null,
       CartMessage(orderMode?"Order checkout unavailable":"Your cart is empty", orderMode?(cartState.statusText||"Request a current order checkout link."):"Add products to start checkout."),
     ];
   }
@@ -471,7 +471,7 @@ const CartContent = () => {
           )
         ),
         div.class`home-cart-actions`(
-          orderMode ? button.type`button`.class`ghost-button`.onClick(()=>refreshOrderCheckout())("Refresh order") : button
+          orderMode ? null : button
             .type`button`
             .class`ghost-button`
             .onClick(() => {
@@ -493,7 +493,6 @@ const CartContent = () => {
           )
         ),
         span.class`home-cart-note`.attr("role","status")(_=> cartState.statusText || checkoutDisabledReason()),
-        _=> cartState.embeddedCheckoutOpen ? button.type`button`.class`ghost-button`.onClick(()=>{resetCheckout();renderCartView();})("Close payment form") : null,
         _=> {
           return cartState.embeddedCheckoutOpen
           ? stripePayArea()
@@ -560,7 +559,7 @@ const loadCartView = async () => {
   renderCartView();
 
   try {
-    if(orderMode)await refreshOrderCheckout();else cartState.products = await loadProducts();
+    if(orderMode)await loadOrderCheckout();else cartState.products = await loadProducts();
   } catch (error) {
     console.error("Failed loading products for cart", error);
     cartState.products = [];
@@ -570,7 +569,7 @@ const loadCartView = async () => {
   }
 };
 
-async function refreshOrderCheckout(){
+async function loadOrderCheckout(){
   if(!orderMode||cartState.checkoutLoading||cartState.embeddedCheckoutOpen)return;
   const generation=++previewGeneration;
   try{
@@ -578,11 +577,12 @@ async function refreshOrderCheckout(){
     const payload=await response.json();if(generation!==previewGeneration)return;
     if(!response.ok||!payload.order)throw Error(payload.error||"Order checkout unavailable.");
     existingOrder=payload.order;selectOrderKey();cartState.statusText="";
-  }catch(error){if(generation!==previewGeneration)return;existingOrder=null;cartState.statusText=error instanceof Error?error.message:"Unable to refresh order.";}
+  }catch(error){if(generation!==previewGeneration)return;existingOrder=null;cartState.statusText=error instanceof Error?error.message:"Unable to load order.";}
   finally{if(generation===previewGeneration){cartState.loading=false;renderCartView();}}
 }
-window.addEventListener("focus",()=>{if(orderMode)void refreshOrderCheckout();});
-document.addEventListener("visibilitychange",()=>{if(!document.hidden&&orderMode)void refreshOrderCheckout();});
+window.addEventListener("focus",()=>{if(orderMode)void loadOrderCheckout();});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&orderMode)void loadOrderCheckout();});
+window.addEventListener("pagehide",()=>{previewGeneration++;resetCheckout();renderCartView();});
 window.addEventListener("cart:updated", ()=>{if(!orderMode){resetCheckout();renderCartView();}});
 loadCartView();
 

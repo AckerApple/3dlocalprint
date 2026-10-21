@@ -23,6 +23,7 @@
     "deploy": "npm run bump && npm run build && git add . && git commit -m \"deploy\" && git push",
     "test:order-integrations": "npm run test:custom-orders --prefix firebase-hosting/functions && node scripts/test-order-cli.mjs && node scripts/test-order-integration-page.mjs && node scripts/test-order-modal.mjs && node scripts/test-badge-item-editor.mjs",
     "test:order-integration-rules": "node scripts/test-order-integration-rules.mjs",
+    "test:product-routing": "node scripts/test-product-static-routing.mjs",
     "test:checkout-state": "node scripts/test-cart-checkout-state.mjs && node scripts/test-order-checkout-page.mjs && npm run test:custom-orders --prefix firebase-hosting/functions"
   },
   "repository": {

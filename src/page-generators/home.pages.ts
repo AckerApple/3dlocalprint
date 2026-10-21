@@ -1,5 +1,6 @@
 import {
   link,
+  htmlTag,
   header,
   img,
   h1,
@@ -40,6 +41,7 @@ const homeShell = ({
   assetPrefix = "./",
   siteKey = "local" as SiteKey,
   extraHeadItems = [],
+  baseHref = "",
 }) => {
   const site = getSiteConfig(siteKey);
   const scriptItems = bodyScripts.map((scriptPath) =>
@@ -49,6 +51,7 @@ const homeShell = ({
   return htmlPage({
     pageTitle,
     headItems: [
+      baseHref ? htmlTag("base").href(baseHref)() : null,
       description ? meta.name`description`.content(description) : null,
       link.rel`icon`.href(
         site.key === "pet"
@@ -654,6 +657,7 @@ export const homeProductsPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homeProductDetailPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    baseHref: "/",
     pageTitle: "Products - 3D Local Print",
     heroLede: "",
     bodyScripts: ["product.ts"],
@@ -910,6 +914,7 @@ export const homeQr1Page = ({ assetPrefix = "../" } = {}) =>
 
 export const homeNotFoundPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    baseHref: "/",
     pageTitle: "Page Not Found - 3D Local Print",
     heroLede: "",
     assetPrefix,

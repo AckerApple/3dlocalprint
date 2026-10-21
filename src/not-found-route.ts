@@ -8,15 +8,17 @@ const decodeSlug = (value = "") => {
 
 const routeProductDeepLink = () => {
   const path = String(window.location.pathname || "");
-  const match = path.match(/^(.*)\/product\/([^/?#]+)\/?$/i);
-  if (!match?.[2]) return;
+  const match = path.match(/^\/product\/([^/?#]+)\/?$/i);
+  if (!match?.[1]) return;
 
-  const basePath = String(match[1] || "");
-  const slug = decodeSlug(match[2]);
+  const slug = decodeSlug(match[1]);
   if (!slug) return;
 
-  const target = `${basePath}/product.html?slug=${encodeURIComponent(slug)}`;
-  window.location.replace(target);
+  const target = new URL("/product.html", window.location.origin);
+  target.search = window.location.search;
+  target.searchParams.set("slug", slug);
+  target.hash = window.location.hash;
+  window.location.replace(`${target.pathname}${target.search}${target.hash}`);
 };
 
 routeProductDeepLink();
