@@ -31,7 +31,7 @@ export function checkoutBlockReason(input: {
     if (input.opening)
         return "Opening secure checkout…";
     if (input.embeddedOpen)
-        return "Checkout is already open below.";
+        return "⬇️ Checkout is open below.";
     if (input.orderMode && !(input.order?.canStartCheckout ?? input.order?.canPay))
         return "This order is not currently payable. Refresh its status or request a current link.";
     if (!input.key.startsWith(input.local ? "pk_test_" : "pk_live_"))

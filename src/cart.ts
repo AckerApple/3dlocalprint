@@ -1,3 +1,4 @@
+import { productDetailLink } from "./product-detail-link.js";
 import { checkoutItemTitle } from "./checkout-item-title.js";
 import { checkoutBlockReason } from "./order-checkout-link.js";
 import { isNameBadgeProduct, validateBadgeName } from "./name-badges.js";
@@ -187,10 +188,13 @@ const getPrimaryImageUrl = (product: ProductItem) => {
   return String(product?.imageUrl || "").trim();
 };
 
+type CartProductView = ProductItem & { detailUrl?: string };
+
 const getCartViewItems = () => {
   if(orderMode){
     const lines=existingOrder?.lineItems||[];
-    const productsById=new Map(lines.map((x,i)=>[String(i),{id:String(i),title:x.title,unitAmount:x.unitAmount,currency:x.currency,imageUrl:x.imageUrl,images:[],variations:[]} as unknown as ProductItem]));
+    const catalog=mapProducts(cartState.products);
+    const productsById=new Map(lines.map((x,i)=>[String(i),{id:String(i),title:x.title,unitAmount:x.unitAmount,currency:x.currency,imageUrl:x.imageUrl,images:[],variations:[],detailUrl:productDetailLink(catalog.get(x.productId))} as unknown as CartProductView]));
     return {productsById,cart:lines.map((x,i)=>({productId:String(i),variationId:"",badgeName:x.badgeName,quantity:x.quantity}))};
   }
   const productsById = mapProducts(cartState.products);
@@ -353,23 +357,26 @@ const StripeSandboxBadge = () =>
     ? div.class`stripe-sandbox-badge`("stripe sandbox")
     : null;
 
-const CartLineRow = (item: CartItem, product: ProductItem) => {
+const CartLineRow = (item: CartItem, product: CartProductView) => {
   const variation = getVariationForCart(product, item.variationId);
   const title = checkoutItemTitle(product.title, item.badgeName, variation?.label);
   const unitAmount = variation?.unitAmount ?? product.unitAmount;
   const primaryImageUrl = getPrimaryImageUrl(product);
+  const detailUrl = orderMode ? product.detailUrl || "" : productDetailLink(product);
+  const image = primaryImageUrl
+    ? img.class("home-cart-row-image").src(_=>primaryImageUrl).alt(_=>title).loading("lazy")
+    : span.class`home-cart-row-image-fallback`("🛒");
+  const detailLink = (className: string, content: any) => a.class(className)
+    .href(_=>detailUrl).target`_blank`.rel`noopener noreferrer`
+    .ariaLabel(_=>`View ${title} product details (opens in a new tab)`)(content);
 
   return div.class`home-cart-row`(
     div.class`home-cart-row-preview`(
-      primaryImageUrl
-        ? img
-            .class("home-cart-row-image")
-            .src(_=>primaryImageUrl)
-            .alt(_=>title)
-            .loading("lazy")
-        : span.class`home-cart-row-image-fallback`("🛒")
+      detailUrl ? detailLink("home-cart-product-image-link", image) : image
     ),
-    div.class`home-cart-row-title`(_=>title),
+    div.class`home-cart-row-title`(
+      detailUrl ? detailLink("home-cart-product-title-link", ()=>title) : ()=>title
+    ),
     div.class`home-cart-field home-cart-row-unit`(
       span.class`home-cart-field-label`("Unit price"),
       span.class`home-cart-field-value`(
@@ -441,7 +448,7 @@ const CartContent = () => {
     ...shellItems,
     section.class`home-card home-cart-panel`(
       h2(orderMode?"Order Items":"Cart Items"),
-      orderMode? p(_=>`Order ${orderId} · ${existingOrder?.stripeMode} · ${existingOrder?.paymentStatus}`):null,
+      orderMode? p(_=>`Order Id: ${orderId}`):null,
       div.class`home-cart-rows`(
         cart.map((item) => {
           const product = productsById.get(item.productId);
@@ -573,6 +580,12 @@ async function loadOrderCheckout(){
   if(!orderMode||cartState.checkoutLoading||cartState.embeddedCheckoutOpen)return;
   const generation=++previewGeneration;
   try{
+    // Optional catalog metadata supplies destinations only and never delays the payable order preview.
+    void loadProducts().catch(()=>[]).then(products=>{
+      if(generation!==previewGeneration)return;
+      cartState.products=products;
+      if(!cartState.checkoutLoading&&!cartState.embeddedCheckoutOpen)renderCartView();
+    });
     const response=await fetchApiWithFallback("/api/order-checkout","getOrderCheckout",{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderId,sessionId:orderSessionProof})});
     const payload=await response.json();if(generation!==previewGeneration)return;
     if(!response.ok||!payload.order)throw Error(payload.error||"Order checkout unavailable.");

@@ -108,7 +108,7 @@ export const HomeCartActions = tag(({
             onBeforeAction?.(event);
             window.location.href = /\/product\//i.test(window.location.pathname) ? "../cart.html" : "./cart.html";
           })(
-          "View cart"
+          "🛒 view cart"
         )
   )
 })
