@@ -1,3 +1,4 @@
+import { IntegrationError, parseIntegrationToken, verifyIntegrationGrant, buildIntegrationGrant, assertIntegrationOrder, reserveIntegrationOrder, integrationSummary, type IntegrationGrant } from "./orderIntegrationSupport";
 import { customOrderRequestId, customerCollection, verifiedCustomerName, assertCurrentPaidSession, decodeOrderImage } from "./customOrderSupport";
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
@@ -3055,21 +3056,8 @@ export const createCheckoutSession = onRequest(
   },
 );
 
-export const createCustomOrder = onRequest(
-  { region: "us-central1", secrets: [STRIPE_SECRET_KEY, STRIPE_TEST_SECRET_KEY] },
-  async (request, response) => {
-    setCorsHeaders(response, request.header("origin") || "");
-    if (request.method === "OPTIONS") {
-      response.status(204).send("");
-      return;
-    }
-    if (request.method !== "POST") {
-      response.status(405).json({ error: "Method not allowed" });
-      return;
-    }
-
-    try {
-      const requestedByAdminEmail = await requireAdmin(request);
+// Both web-admin and scoped laptop requests use the same validated creation service.
+async function createUnpaidCustomOrder(request: {body: any; header: (name: string) => string | undefined}, requestedByAdminEmail: string, integration?: IntegrationGrant & {id: string}) {
       const customerName = normalizeString(request.body?.customerName, 160);
       const customerEmail = normalizeEmail(normalizeString(request.body?.customerEmail, 254));
       const amountShipping = Math.max(0, Math.round(Number(request.body?.amountShipping) || 0));
@@ -3089,11 +3077,18 @@ export const createCustomOrder = onRequest(
       const requestedStripeMode = String(request.body?.stripeMode || "live");
       const stripeMode: "sandbox" | "live" = requestedStripeMode === "sandbox" ? "sandbox" : "live";
 
-      const orderId = customOrderRequestId(requestedByAdminEmail, request.header("x-idempotency-key"));
+      if (integration) assertIntegrationOrder(integration, request.body, lineItems, amountShipping, stripeMode);
+      const orderId = customOrderRequestId(integration ? `${requestedByAdminEmail}:integration:${integration.id}` : requestedByAdminEmail, request.header("x-idempotency-key"));
       const creationHash = createHash("sha256").update(JSON.stringify({customerName, customerEmail, amountShipping, lineItems, stripeMode})).digest("hex");
       const orderRef = getAdminDb().collection("orders").doc(orderId);
       const saved: Record<string, any> = await getAdminDb().runTransaction(async (transaction) => {
         const snapshot = await transaction.get(orderRef);
+        const integrationRef = integration ? getAdminDb().collection("order_integrations").doc(integration.id) : null;
+        const currentGrant = integrationRef ? (await transaction.get(integrationRef)).data() : null;
+        if (integration) {
+          verifyIntegrationGrant(currentGrant, integration.tokenHash, "orders:create");
+          assertIntegrationOrder(currentGrant as IntegrationGrant, request.body, lineItems, amountShipping, stripeMode);
+        }
         if (snapshot.exists) {
           const data = snapshot.data() || {};
           if (data.creationHash !== creationHash) throw new Error("order_request_conflict");
@@ -3105,12 +3100,16 @@ export const createCustomOrder = onRequest(
           customerName, customerEmail, customerDetailsPending: !customerEmail || !customerName,
           createdAt: nowIso(), updatedAt: nowIso(), stripeMode, creationHash, createdByAdminEmail: requestedByAdminEmail,
           adminOrderUrl: getAdminOrderUrl(PUBLIC_SITE_ORIGIN, orderId), notificationEmailStatus: "pending_payment" };
+        if (integration && integrationRef) {
+          const amount = lineItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0) + amountShipping;
+          transaction.set(integrationRef, reserveIntegrationOrder(currentGrant as IntegrationGrant, amount), {merge:true});
+          Object.assign(draft, {createdByIntegrationId: integration.id});
+        }
         transaction.create(orderRef, draft);
         return draft;
       });
       if (saved.checkoutSessionId) {
-        response.status(200).json({ok:true, orderId, adminOrderUrl: saved.adminOrderUrl, publicOrderUrl: saved.publicOrderUrl || "", checkoutUrl: saved.checkoutUrl || "", reused:true});
-        return;
+        return {ok:true, orderId, adminOrderUrl: saved.adminOrderUrl, publicOrderUrl: saved.publicOrderUrl || "", checkoutUrl: saved.checkoutUrl || "", reused:true};
       }
       const createdAt = String(saved.createdAt);
       const amountSubtotal = lineItems.reduce((total, item) => total + (item.unitAmount * item.quantity), 0);
@@ -3131,6 +3130,7 @@ export const createCustomOrder = onRequest(
           price_data: {
             currency,
             unit_amount: item.unitAmount,
+            ...(item.badgeName || integration ? { tax_behavior: "inclusive" as const } : {}),
             product_data: {
               name: item.title,
               metadata: { productId: item.productId, badgeName: item.badgeName || "", variationId: item.variationId, orderId },
@@ -3142,6 +3142,7 @@ export const createCustomOrder = onRequest(
           shipping_options: [{
             shipping_rate_data: {
               type: "fixed_amount" as const,
+              ...(integration ? {tax_behavior: "inclusive" as const} : {}),
               fixed_amount: { amount: amountShipping, currency },
               display_name: "Shipping",
             },
@@ -3154,6 +3155,9 @@ export const createCustomOrder = onRequest(
         payment_intent_data: { metadata: { orderId, orderType: CUSTOM_ORDER_TYPE } },
       }, {idempotencyKey: orderId});
 
+      if (integration && (session.livemode !== (stripeMode === "live") || (session.amount_total !== null && session.amount_total !== undefined && session.amount_total !== amountTotal))) {
+        throw new IntegrationError(502,"integration_checkout_mismatch");
+      }
       await getAdminDb().runTransaction(async (transaction) => {
         const current = (await transaction.get(orderRef)).data() || {};
         transaction.set(orderRef, {
@@ -3186,7 +3190,26 @@ export const createCustomOrder = onRequest(
       }, {merge:true});
       });
 
-      response.status(200).json({ ok: true, orderId, adminOrderUrl, publicOrderUrl, checkoutUrl: session.url || "" });
+      return { ok: true, orderId, adminOrderUrl, publicOrderUrl, checkoutUrl: session.url || "" };
+}
+
+export const createCustomOrder = onRequest(
+  { region: "us-central1", secrets: [STRIPE_SECRET_KEY, STRIPE_TEST_SECRET_KEY] },
+  async (request, response) => {
+    setCorsHeaders(response, request.header("origin") || "");
+    if (request.method === "OPTIONS") {
+      response.status(204).send("");
+      return;
+    }
+    if (request.method !== "POST") {
+      response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const requestedByAdminEmail = await requireAdmin(request);
+      const result = await createUnpaidCustomOrder(request, requestedByAdminEmail);
+      response.status(200).json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       logger.error("createCustomOrder failed", error);
@@ -3319,6 +3342,7 @@ export const updateCustomOrder = onRequest(
           price_data: {
             currency,
             unit_amount: item.unitAmount,
+            ...(item.badgeName ? { tax_behavior: "inclusive" as const } : {}),
             product_data: {
               name: item.title,
               metadata: { productId: item.productId, badgeName: item.badgeName || "", variationId: item.variationId, orderId: targetOrderId },
@@ -4649,5 +4673,99 @@ export const manageOrderImage = onRequest({region:"us-central1"}, async (request
     const code = error instanceof Error ? error.message : "";
     response.status(code === "missing_auth_token" ? 401 : code === "admin_denied" ? 403 : 400)
       .json({error:code === "invalid_order_image" ? "Choose a PNG, JPEG, or WebP image up to 2MB." : "Order image request failed."});
+  }
+});
+
+async function requireOrderIntegration(request: {header:(name:string)=>string|undefined}, scope: "catalog:read"|"orders:create"|"orders:read-own") {
+  const parsed = parseIntegrationToken(request.header("authorization") || "");
+  const raw = (await getAdminDb().collection("order_integrations").doc(parsed.id).get()).data();
+  verifyIntegrationGrant(raw, parsed.tokenHash, scope);
+  if (!(await isAdminEmail(raw.ownerEmail))) throw new IntegrationError(403,"integration_owner_denied");
+  return {...raw,id:parsed.id};
+}
+function integrationOrderView(id:string, data:Record<string,any>) {
+  const mode = data.stripeMode === "live" ? "live" : "sandbox";
+  const url = new URL(getAdminOrderUrl(PUBLIC_SITE_ORIGIN,id));
+  url.searchParams.set("orderMode",mode === "live" ? "live" : "test");
+  return {orderId:id,adminOrderUrl:url.toString(),checkoutUrl:String(data.checkoutUrl || ""),stripeMode:mode,livemode:mode === "live",
+    status:String(data.status || "unknown"),paymentStatus:data.paidAt || data.status === "paid" ? "paid" : data.status === "checkout_created" ? "unpaid" : "unknown",
+    amountTotal:Number(data.amountTotal || 0),currency:String(data.currency || "usd"),
+    lineItems:(Array.isArray(data.lineItems)?data.lineItems:[]).map((x:any)=>({productId:x.productId,variationId:x.variationId,badgeName:x.badgeName||"",title:x.title,quantity:x.quantity,unitAmount:x.unitAmount}))};
+}
+function sendIntegrationFailure(response:any, error:unknown) {
+  if (error instanceof IntegrationError) {response.status(error.status).json({error:error.code});return;}
+  const message = error instanceof Error ? error.message : "";
+  if (message === "Enter a badge name of 1–15 characters on one line." || /^(Product|Product option|Product price) is unavailable:/.test(message)) {
+    response.status(400).json({error:"integration_order_invalid"});return;
+  }
+  const conflict = ["order_request_conflict","order_request_key_required","invalid_customer_email","custom_order_items_required","custom_order_currency_mismatch"].includes(message);
+  const unavailable = ["stripe_test_mode_unavailable","stripe_live_mode_unavailable"].includes(message);
+  logger.warn("order integration request failed", {kind:conflict?"validation":unavailable?"mode_unavailable":"internal"});
+  response.status(message === "order_request_conflict" ? 409 : conflict ? 400 : unavailable ? 409 : 500)
+    .json({error:conflict || unavailable ? message : "integration_request_failed"});
+}
+export const orderIntegrationApi = onRequest(
+  {region:"us-central1",secrets:[STRIPE_SECRET_KEY,STRIPE_TEST_SECRET_KEY]},
+  async(request,response)=>{
+    response.set("Cache-Control","private, no-store");
+    const resource = String(request.query.resource || request.path.split("/").filter(Boolean).at(-1) || "");
+    try {
+      if (request.method === "GET" && resource === "catalog") {
+        const grant=await requireOrderIntegration(request,"catalog:read");
+        const products=Array.from((await loadProductCatalog()).values()).filter(p=>p.active&&grant.allowedProductIds.includes(p.id));
+        response.json({products:products.map(p=>({id:p.id,title:p.title,slug:p.slug,unitAmount:p.unitAmount,currency:p.currency,variations:p.variations||[],requiresBadgeName:p.slug === "custom-name-badges"})),
+          limits:{allowedModes:grant.allowedModes,currency:grant.currency,maxOrderAmount:grant.maxOrderAmount,maxQuantity:grant.maxQuantity,expiresAt:grant.expiresAt}});return;
+      }
+      if (request.method === "POST" && resource === "orders") {
+        const grant=await requireOrderIntegration(request,"orders:create");
+        const result=await createUnpaidCustomOrder(request,grant.ownerEmail,grant);
+        const data=(await getAdminDb().collection("orders").doc(result.orderId).get()).data() || {};
+        response.json({ok:true,...integrationOrderView(result.orderId,data),reused:Boolean(result.reused)});return;
+      }
+      if (request.method === "GET" && resource === "orders") {
+        const grant=await requireOrderIntegration(request,"orders:read-own");
+        const id=String(request.query.orderId || "");
+        if (!/^custom_[a-f0-9]{32}$/.test(id)) throw new IntegrationError(404,"integration_order_not_found");
+        const snapshot=await getAdminDb().collection("orders").doc(id).get();const data=snapshot.data();
+        if (!snapshot.exists || !data || data.createdByIntegrationId !== grant.id || data.createdByAdminEmail !== grant.ownerEmail)
+          throw new IntegrationError(404,"integration_order_not_found");
+        response.json({ok:true,...integrationOrderView(id,data)});return;
+      }
+      response.status(405).json({error:"integration_operation_not_allowed"});
+    } catch(error){sendIntegrationFailure(response,error);}
+  }
+);
+export const manageOrderIntegrations = onRequest({region:"us-central1"},async(request,response)=>{
+  setCorsHeaders(response,request.header("origin") || "");response.set("Cache-Control","private, no-store");
+  if(request.method === "OPTIONS"){response.status(204).send("");return;}
+  try {
+    let ownerEmail:string;
+    try{ownerEmail=await requireAdmin(request);}catch(error){response.status(error instanceof Error && error.message === "admin_denied"?403:401).json({error:"Admin sign-in required."});return;}
+    const collection=getAdminDb().collection("order_integrations");
+    if(request.method === "GET"){
+      const rows=await collection.where("ownerEmail","==",ownerEmail).limit(50).get();
+      response.json({integrations:rows.docs.map(doc=>integrationSummary(doc.id,doc.data() as IntegrationGrant))});return;
+    }
+    if(request.method !== "POST"){response.status(405).json({error:"Method not allowed"});return;}
+    if(request.body?.action === "issue"){
+      const id=customOrderRequestId(ownerEmail,request.header("x-idempotency-key")).slice(7);
+      const built=buildIntegrationGrant(request.body,ownerEmail,id);
+      const catalog=await loadProductCatalog();
+      if(built.grant.allowedProductIds.some(id=>!catalog.get(id)?.active))throw new IntegrationError(400,"integration_product_unavailable");
+      const ref=collection.doc(id);
+      await getAdminDb().runTransaction(async tx=>{if((await tx.get(ref)).exists)throw new IntegrationError(409,"integration_issue_already_used");tx.create(ref,built.grant);});
+      response.json({token:built.token,integration:integrationSummary(id,built.grant),notice:"Shown once. Store only in your approved local credential store."});return;
+    }
+    if(request.body?.action === "revoke"){
+      const id=String(request.body.id || "");if(!/^[a-f0-9]{32}$/.test(id))throw new IntegrationError(404,"integration_not_found");
+      const ref=collection.doc(id);
+      await getAdminDb().runTransaction(async tx=>{const data=(await tx.get(ref)).data();if(!data || data.ownerEmail !== ownerEmail)throw new IntegrationError(404,"integration_not_found");tx.set(ref,{revokedAt:nowIso()},{merge:true});});
+      response.json({ok:true,id});return;
+    }
+    response.status(405).json({error:"integration_operation_not_allowed"});
+  }catch(error){
+    const message=error instanceof Error?error.message:"";
+    if(message === "missing_auth_token" || message === "admin_denied"){response.status(message === "missing_auth_token"?401:403).json({error:"Admin sign-in required."});return;}
+    sendIntegrationFailure(response,error);
   }
 });

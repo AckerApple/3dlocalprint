@@ -17,6 +17,27 @@
     ],
     "rewrites": [
       {
+        "source": "/api/integrations/catalog",
+        "function": {
+          "functionId": "orderIntegrationApi",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/integrations/orders",
+        "function": {
+          "functionId": "orderIntegrationApi",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/admin/order-integrations",
+        "function": {
+          "functionId": "manageOrderIntegrations",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/admin/orders/image",
         "function": {
           "functionId": "manageOrderImage",

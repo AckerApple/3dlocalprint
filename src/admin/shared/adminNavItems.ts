@@ -51,6 +51,7 @@ export const adminNavGroups = [
     key: "operations",
     title: "Operations",
     items: [
+      {label:"Laptop order access",details:"Grant and revoke scoped order CLI access.",href:"integrations/index.html",emoji:"🔑"},
       {
         label: "Attention",
         details: "Review open orders and agreements that need attention soon.",

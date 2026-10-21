@@ -5886,11 +5886,12 @@ label:has(> input[type="checkbox"]) > input[type="checkbox"] {
 /* Badge names need their own readable field, separate from copy counts/actions. */
 .custom-order-badge-row .custom-order-item-controls {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) auto;
+  grid-template-columns: minmax(150px, 1fr) auto auto;
   gap: 12px;
   width: 100%;
 }
 .custom-order-badge-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.custom-order-badge-row .delete-button { width: 38px; min-width: 38px; padding: 8px; justify-self: end; align-self: end; }
 .custom-order-badge-name-field { display: grid; gap: 6px; min-width: 0; }
 .custom-order-badge-name-field input { width: 100%; box-sizing: border-box; }
 @media (max-width: 560px) {

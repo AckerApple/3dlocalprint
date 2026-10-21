@@ -20,7 +20,9 @@
     "preview": "npm run preview:local",
     "preview:local": "vite preview --port 4173 --outDir docs",
     "preview:pet": "vite preview --port 4174 --outDir docs/pet",
-    "deploy": "npm run bump && npm run build && git add . && git commit -m \"deploy\" && git push"
+    "deploy": "npm run bump && npm run build && git add . && git commit -m \"deploy\" && git push",
+    "test:order-integrations": "npm run test:custom-orders --prefix firebase-hosting/functions && node scripts/test-order-cli.mjs && node scripts/test-order-integration-page.mjs && node scripts/test-order-modal.mjs && node scripts/test-badge-item-editor.mjs",
+    "test:order-integration-rules": "node scripts/test-order-integration-rules.mjs"
   },
   "repository": {
     "type": "git",
@@ -34,7 +36,9 @@
   },
   "homepage": "https://github.com/AckerApple/3dlocalprint#readme",
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/node": "^24.3.1",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.2",
     "vite": "^6.4.1"
   },

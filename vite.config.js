@@ -221,6 +221,7 @@ const publicSiteInputs = {
   adminAttention: resolve(__dirname, "src/admin/attention/index.html"),
   adminProducts: resolve(__dirname, "src/admin/products/index.html"),
   adminOrders: resolve(__dirname, "src/admin/orders/index.html"),
+  adminOrderIntegrations: resolve(__dirname, "src/admin/integrations/index.html"),
   adminCustomers: resolve(__dirname, "src/admin/customers/index.html"),
   adminAgreements: resolve(__dirname, "src/admin/agreements/index.html"),
   adminLinkOrders: resolve(__dirname, "src/admin/link-orders/index.html"),

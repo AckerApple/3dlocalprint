@@ -205,6 +205,10 @@ const pages = [
       }),
   },
   {
+    path: resolve(adminDir, "integrations", "index.html"),
+    render: () => filamentStandalonePage({pageTitle:"Laptop order access",appId:"integrationsApp",appScript:"./integrations.ts",stylePath:"../shared/styles.css",versionScriptPath:"../shared/version.ts"}),
+  },
+  {
     path: resolve(adminOrdersDir, "index.html"),
     render: () =>
       filamentStandalonePage({
