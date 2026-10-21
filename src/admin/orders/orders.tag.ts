@@ -1,3 +1,4 @@
+import {orderCheckoutLink} from "../../order-checkout-link.js";
 import { isNameBadgeProduct, validateBadgeName } from "../../name-badges.js";
 import { auth as firebaseAuth, loadProducts, subscribeCustomers, subscribeLedgerEntries, subscribeOrders } from "../shared/firebase.js";
 import {
@@ -629,7 +630,7 @@ const createCustomOrder = async (keepOpen = false) => {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(String(payload?.error || "Failed to create custom order."));
-    const checkoutUrl = String(payload?.checkoutUrl || "");
+    const checkoutUrl = orderCheckoutLink({id:String(payload?.orderId||""),checkoutSessionId:String(payload?.checkoutSessionId||""),checkoutLinkSessionId:String(payload?.checkoutLinkSessionId||"")});
     if (checkoutUrl && navigator.clipboard) {
       await navigator.clipboard.writeText(checkoutUrl).catch(() => {});
     }
@@ -876,7 +877,7 @@ const cancelOrder = async (order: OrderRecord) => {
   }
 
   const confirmed = window.confirm(
-    `Cancel order ${order.id}? This only marks the order canceled in admin. It does not refund or void anything in Stripe.`
+    `Cancel order ${order.id}? For an unpaid custom order, its payment session is retired first. Paid or processing payments cannot be canceled here. No refund is issued.`
   );
   if (!confirmed) return;
 
@@ -922,7 +923,7 @@ const closeOrder = async (order: OrderRecord) => {
   }
 
   const confirmed = window.confirm(
-    `Complete order ${order.id}? Completing the order marks it closed in admin. It does not refund, void, or cancel anything in Stripe.`
+    `Complete order ${order.id}? An unpaid custom order’s payment session is retired first. A paid order keeps its payment history; no refund is issued.`
   );
   if (!confirmed) return;
 
@@ -1247,11 +1248,11 @@ const OrderDetailModal = () =>
               ),
               div.class`orders-detail-section orders-detail-section-wide`(
                 h2.class`orders-detail-section-title`("🛒 Checkout 🔗 link"),
-                p.class`orders-meta`("Share only the Stripe 🛒 Checkout 🔗 link. It collects customer details and payment. Private order images are not included."),
-                p.class`orders-meta`.style("overflow-wrap:anywhere;user-select:all")(order.checkoutUrl || "🛒 Checkout 🔗 link unavailable. Use Edit Order to create one."),
-                button.type`button`.class`ghost-button`.disabled(() => !order.checkoutUrl || order.status !== "checkout_created")
-                  .onClick(async () => { try { await navigator.clipboard.writeText(order.checkoutUrl); toast.success("🛒 Checkout 🔗 link copied."); } catch { toast.info("Select and copy the 🛒 Checkout 🔗 link above."); } })("Copy 🛒 Checkout 🔗 link"),
-                p.class`orders-meta`("To replace an expired 🛒 Checkout 🔗 link, use Edit Order and save. Previously shared 🛒 Checkout 🔗 links will expire.")
+                p.class`orders-meta`("Share the website checkout link. It displays current public product images; private order images remain admin-only. Starting payment retires the previous unpaid Stripe link."),
+                p.class`orders-meta`.style("overflow-wrap:anywhere;user-select:all")(orderCheckoutLink(order) || "Checkout link unavailable."),
+                button.type`button`.class`ghost-button`.disabled(() => !orderCheckoutLink(order) || order.status !== "checkout_created")
+                  .onClick(async () => { try { await navigator.clipboard.writeText(orderCheckoutLink(order)); toast.success("🛒 Checkout 🔗 link copied."); } catch { toast.info("Select and copy the 🛒 Checkout 🔗 link above."); } })("Copy 🛒 Checkout 🔗 link"),
+                a.class`ghost-button`.href(orderCheckoutLink(order)).target`_blank`.rel`noreferrer`("🛒 Checkout 🔗 link")
               ),
               div.class`orders-detail-section orders-detail-section-wide`(
                 h2.class`orders-detail-section-title`("🐠 Stripe"),
@@ -1337,7 +1338,7 @@ const OrderDetailModal = () =>
               _=> !['canceled', 'closed'].includes(order.status) && 
                 div.class`orders-detail-section orders-detail-section-wide orders-info-section`(
                   h2.class`orders-detail-section-title`("Complete Order"),
-                  p.class`orders-meta`("Completing this order marks it closed in admin. It does not refund, void, or cancel anything in Stripe."),
+                  p.class`orders-meta`("For unpaid custom orders, closing retires the payment session first. Paid orders retain their payment history. No refund is issued."),
                   div.class`orders-detail-actions`(
                     button
                       .type`button`
@@ -1355,7 +1356,7 @@ const OrderDetailModal = () =>
               _=> !['canceled', 'closed'].includes(order.status) && 
                 div.class`orders-detail-section orders-detail-section-wide orders-danger-section`(
                   h2.class`orders-detail-section-title`("Cancel Order"),
-                  p.class`orders-meta`("Mark this order canceled in admin. This does not refund, void, or cancel anything in Stripe."),
+                  p.class`orders-meta`("Canceling an unpaid custom order retires its payment session. Paid or processing payments cannot be canceled here. No refund is issued."),
                   div.class`orders-detail-actions`(
                     button
                       .type`button`

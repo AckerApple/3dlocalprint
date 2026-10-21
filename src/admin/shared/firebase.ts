@@ -639,6 +639,8 @@ const normalizeOrderRecord = (id: string, data: Record<string, unknown>): OrderR
     orderImage: data.orderImage && typeof data.orderImage === "object" ? data.orderImage as OrderRecord["orderImage"] : undefined,
     checkoutSessionId: String(data.checkoutSessionId || "").trim(),
     checkoutUrl: String(data.checkoutUrl || "").trim(),
+    checkoutLinkSessionId: String(data.checkoutLinkSessionId || "").trim(),
+    checkoutChannel: String(data.checkoutChannel || "").trim(),
     paymentIntentId,
     stripeCustomerId: String(data.stripeCustomerId || "").trim(),
     organizationCheckoutRequestId: String(data.organizationCheckoutRequestId || "").trim(),

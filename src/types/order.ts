@@ -35,6 +35,8 @@ export type OrderRecord = {
   customerName: string;
   checkoutSessionId: string;
   checkoutUrl: string;
+  checkoutLinkSessionId?: string;
+  checkoutChannel?: string;
   paymentIntentId: string;
   stripeCustomerId: string;
   organizationCheckoutRequestId: string;

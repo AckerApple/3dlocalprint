@@ -1,3 +1,5 @@
+import {CheckoutStateError,prepareExistingOrderCheckout,retireExistingOrderCheckout,beginCheckoutTransition,releaseCheckoutTransition,expireUnpaidCheckout,checkoutFingerprint} from "./orderCheckoutService";
+import { ownsCheckout, publicOrderCheckout } from "./orderCheckoutSupport";
 import { IntegrationError, parseIntegrationToken, verifyIntegrationGrant, buildIntegrationGrant, assertIntegrationOrder, reserveIntegrationOrder, integrationSummary, type IntegrationGrant } from "./orderIntegrationSupport";
 import { customOrderRequestId, customerCollection, verifiedCustomerName, assertCurrentPaidSession, decodeOrderImage } from "./customOrderSupport";
 import { onRequest } from "firebase-functions/v2/https";
@@ -2904,8 +2906,23 @@ export const downloadOrganizationCertificate = onRequest(
   },
 );
 
+function existingOrderCheckoutDependencies() {
+  return {db:getAdminDb(),stripe:getStripeClientForMode,parameters:(id:string,order:any):Stripe.Checkout.SessionCreateParams=>{
+    // Frozen agreed amounts; only public preview images come from the current catalog.
+    const lines=order.lineItems as any[];
+    if(!Array.isArray(lines)||!lines.length||!lines.every(x=>typeof x.badgeName==="string"&&x.badgeName.trim()))throw new CheckoutStateError(409,"Only fixed-total name-badge orders currently support website checkout; use the existing order payment link for other products.");
+    const subtotal=lines.reduce((sum:number,x:any)=>sum+x.quantity*x.unitAmount,0);
+    if(!lines.length||lines.some(x=>!Number.isSafeInteger(x.quantity)||x.quantity<1||!Number.isSafeInteger(x.unitAmount)||x.unitAmount<1||x.currency!==order.currency||(x.badgeName&&Array.from(x.badgeName).length>15))||subtotal!==order.amountSubtotal||subtotal+Number(order.amountShipping||0)!==order.amountTotal)throw new CheckoutStateError(409,"order_agreed_amount_invalid");
+    return {mode:"payment",ui_mode:"embedded",return_url:`${PUBLIC_SITE_ORIGIN}/receipt.html?order_id=${id}&session_id={CHECKOUT_SESSION_ID}`,client_reference_id:id,
+      ...customerCollection(String(order.customerEmail||"")),
+      line_items:lines.map(x=>({quantity:x.quantity,price_data:{currency:order.currency,unit_amount:x.unitAmount,tax_behavior:"inclusive",product_data:{name:x.title,metadata:{productId:x.productId||"",variationId:x.variationId||"",badgeName:x.badgeName||"",orderId:id}}}})),
+      ...(order.amountShipping?{shipping_options:[{shipping_rate_data:{type:"fixed_amount",fixed_amount:{amount:order.amountShipping,currency:order.currency},display_name:"Shipping",tax_behavior:"inclusive"}}]}:{}),
+      automatic_tax:{enabled:true},allow_promotion_codes:false,billing_address_collection:"required",metadata:{orderId:id,orderType:CUSTOM_ORDER_TYPE},payment_intent_data:{metadata:{orderId:id,orderType:CUSTOM_ORDER_TYPE}}};
+  }};
+}
+
 export const createCheckoutSession = onRequest(
-  { region: "us-central1", secrets: [STRIPE_SECRET_KEY] },
+  { region: "us-central1", secrets: [STRIPE_SECRET_KEY, STRIPE_TEST_SECRET_KEY] },
   async (request, response) => {
     setCorsHeaders(response, request.header("origin") || "");
 
@@ -2916,6 +2933,15 @@ export const createCheckoutSession = onRequest(
 
     if (request.method !== "POST") {
       response.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    if(request.body?.orderId) {
+      response.set("Cache-Control","private, no-store");
+      try {
+        if(Object.keys(request.body).some(key=>!["orderId","sessionId","termsAccepted"].includes(key)))throw new CheckoutStateError(400,"invalid_order_checkout_fields");
+        response.json(await prepareExistingOrderCheckout(existingOrderCheckoutDependencies(),request.body));
+      } catch(error) {response.status(error instanceof CheckoutStateError?error.status:409).json({error:error instanceof CheckoutStateError?error.code:"Order checkout unavailable. Retry or contact the store."});}
       return;
     }
 
@@ -3109,7 +3135,7 @@ async function createUnpaidCustomOrder(request: {body: any; header: (name: strin
         return draft;
       });
       if (saved.checkoutSessionId) {
-        return {ok:true, orderId, adminOrderUrl: saved.adminOrderUrl, publicOrderUrl: saved.publicOrderUrl || "", checkoutUrl: saved.checkoutUrl || "", reused:true};
+        return {ok:true, orderId, checkoutSessionId:saved.checkoutSessionId,checkoutLinkSessionId:saved.checkoutLinkSessionId||saved.checkoutSessionId, adminOrderUrl: saved.adminOrderUrl, publicOrderUrl: saved.publicOrderUrl || "", checkoutUrl: saved.checkoutUrl || "", reused:true};
       }
       const createdAt = String(saved.createdAt);
       const amountSubtotal = lineItems.reduce((total, item) => total + (item.unitAmount * item.quantity), 0);
@@ -3190,7 +3216,7 @@ async function createUnpaidCustomOrder(request: {body: any; header: (name: strin
       }, {merge:true});
       });
 
-      return { ok: true, orderId, adminOrderUrl, publicOrderUrl, checkoutUrl: session.url || "" };
+      return { ok: true, orderId, checkoutSessionId:session.id,adminOrderUrl, publicOrderUrl, checkoutUrl: session.url || "" };
 }
 
 export const createCustomOrder = onRequest(
@@ -3249,6 +3275,7 @@ export const updateCustomOrder = onRequest(
       return;
     }
 
+    let editLock:any;let replacementStarted=false;
     try {
       const requestedByAdminEmail = await requireAdmin(request);
       const updateRequestId = customOrderRequestId(requestedByAdminEmail, request.header("x-idempotency-key"));
@@ -3266,6 +3293,9 @@ export const updateCustomOrder = onRequest(
       const existing = snapshot.data() || {};
       if (String(existing.orderType || "") !== CUSTOM_ORDER_TYPE) throw new Error("custom_order_not_editable");
       const existingStatus = String(existing.status || "");
+      const editDigest=createHash("sha256").update(JSON.stringify(request.body)).digest("hex");
+      if(existing.lastCheckoutEditRequest===updateRequestId){if(existing.lastCheckoutEditDigest!==editDigest)throw new CheckoutStateError(409,"order_request_conflict");const saved=existing.replacedByOrderId?(await getAdminDb().collection("orders").doc(existing.replacedByOrderId).get()).data()||existing:existing;response.json({ok:true,orderId:saved.id||orderId,checkoutSessionId:saved.checkoutSessionId,checkoutLinkSessionId:saved.checkoutLinkSessionId,checkoutUrl:saved.checkoutUrl||"",stripeMode:saved.stripeMode});return;}
+
       if (!["checkout_created", "closed"].includes(existingStatus)) throw new Error("custom_order_not_editable");
 
       const cartItems = normalizeCheckoutCartItems(
@@ -3288,6 +3318,7 @@ export const updateCustomOrder = onRequest(
         ? "sandbox"
         : "live";
       const modeChanged = existingStripeMode !== stripeMode;
+
       if (existingStatus === "closed") {
         const amountSubtotal = lineItems.reduce((total, item) => total + (item.unitAmount * item.quantity), 0);
         const amountTotal = amountSubtotal + amountShipping;
@@ -3332,7 +3363,11 @@ export const updateCustomOrder = onRequest(
       const publicOrderUrl = customerEmail ? getPublicOrderUrl(PUBLIC_SITE_ORIGIN, targetOrderId, customerEmail) : "";
       const successUrl = appendUrlParams(getPublicOrderUrl(PUBLIC_SITE_ORIGIN, targetOrderId, customerEmail).replace("/order.html", "/receipt.html"), { session_id: "{CHECKOUT_SESSION_ID}" });
       const stripe = getStripeClientForMode(stripeMode);
-      const session = await stripe.checkout.sessions.create({
+      if(existing.checkoutChannel==="embedded")existingOrderCheckoutDependencies().parameters(targetOrderId,{...existing,lineItems,currency,amountSubtotal,amountShipping,amountTotal,customerEmail});
+      editLock=await beginCheckoutTransition(getAdminDb(),orderId,"edit",updateRequestId+":"+editDigest,existing.checkoutSessionId);
+      await expireUnpaidCheckout(getStripeClientForMode(existingStripeMode),orderId,editLock.order,editLock.lease.id);
+      replacementStarted=true;
+      const session = await stripe.checkout.sessions.create(existing.checkoutChannel==="embedded" ? existingOrderCheckoutDependencies().parameters(targetOrderId,{...existing,lineItems,currency,amountSubtotal,amountShipping,amountTotal,customerEmail}) : {
         mode: "payment",
         success_url: successUrl,
         cancel_url: `${PUBLIC_SITE_ORIGIN}/products.html`,
@@ -3364,16 +3399,7 @@ export const updateCustomOrder = onRequest(
         billing_address_collection: "required",
         metadata: { orderId: targetOrderId, orderType: CUSTOM_ORDER_TYPE },
         payment_intent_data: { metadata: { orderId: targetOrderId, orderType: CUSTOM_ORDER_TYPE } },
-      }, { idempotencyKey: `${orderId}_${updateRequestId}` });
-
-      const previousSessionId = String(existing.checkoutSessionId || "").trim();
-      if (previousSessionId && previousSessionId !== session.id) {
-        try {
-          await getStripeClientForMode(existingStripeMode).checkout.sessions.expire(previousSessionId);
-        } catch (error) {
-          logger.warn("Previous custom order checkout could not be expired", { orderId, previousSessionId, error });
-        }
-      }
+      }, { idempotencyKey: editLock.lease.id });
 
       const updatedAt = nowIso();
       const updatedOrder = {
@@ -3392,6 +3418,8 @@ export const updateCustomOrder = onRequest(
         customerDetailsPending: !customerName || !customerEmail,
         stripeMode,
         checkoutSessionId: session.id,
+        checkoutLinkSessionId: modeChanged?session.id:(existing.checkoutLinkSessionId||existing.checkoutSessionId),
+        checkoutChannel:existing.checkoutChannel||"hosted",checkoutTransition:null,lastCheckoutEditRequest:updateRequestId,lastCheckoutEditDigest:editDigest,
         checkoutUrl: session.url || "",
         paymentIntentId: "",
         latestStripeEventId: "",
@@ -3405,20 +3433,19 @@ export const updateCustomOrder = onRequest(
         updatedByAdminEmail: requestedByAdminEmail,
         ...(modeChanged ? { convertedFromOrderId: orderId } : {}),
       };
-      await targetOrderRef.set(updatedOrder, { merge: !modeChanged });
-      if (modeChanged) {
-        await orderRef.set({
-          status: "canceled",
-          replacedByOrderId: targetOrderId,
-          updatedAt,
-          updatedByAdminEmail: requestedByAdminEmail,
-        }, { merge: true });
-      }
+      await getAdminDb().runTransaction(async(tx:any)=>{const current=(await tx.get(orderRef)).data();
+        if(current?.checkoutTransition?.id!==editLock.lease.id||current.status!=="checkout_created"||current.paidAt||current.checkoutSessionId!==editLock.lease.sourceSessionId||checkoutFingerprint(current)!==editLock.lease.fingerprint)throw new CheckoutStateError(409,"checkout_changed");
+        tx.set(targetOrderRef,updatedOrder,{merge:!modeChanged});
+        if(modeChanged)tx.set(orderRef,{status:"canceled",checkoutTransition:null,replacedByOrderId:targetOrderId,lastCheckoutEditRequest:updateRequestId,lastCheckoutEditDigest:editDigest,updatedAt},{merge:true});
+      });
 
-      response.status(200).json({ ok: true, orderId: targetOrderId, publicOrderUrl, checkoutUrl: session.url || "", modeChanged, stripeMode });
+
+      response.status(200).json({ ok: true, orderId: targetOrderId, checkoutSessionId:session.id,checkoutLinkSessionId:updatedOrder.checkoutLinkSessionId, publicOrderUrl, checkoutUrl: session.url || "", modeChanged, stripeMode });
     } catch (error) {
+      if(editLock&&!replacementStarted)await releaseCheckoutTransition(getAdminDb(),editLock.ref,editLock.lease);
       const message = error instanceof Error ? error.message : "";
       logger.error("updateCustomOrder failed", error);
+      if(error instanceof CheckoutStateError){response.status(error.status).json({error:error.code});return;}
       if (["order_request_key_required", "order_request_conflict", "invalid_customer_email"].includes(message)) {
         response.status(message === "order_request_conflict" ? 409 : 400).json({error: message});
       } else if (message === "missing_auth_token") {
@@ -4019,7 +4046,7 @@ export const deleteTestOrder = onRequest(
 );
 
 export const cancelOrder = onRequest(
-  { region: "us-central1" },
+  { region: "us-central1", secrets:[STRIPE_SECRET_KEY,STRIPE_TEST_SECRET_KEY] },
   async (request, response) => {
     setCorsHeaders(response, request.header("origin") || "");
 
@@ -4054,6 +4081,7 @@ export const cancelOrder = onRequest(
       }
 
       const data = orderSnapshot.data() || {};
+      if(data.orderType===CUSTOM_ORDER_TYPE&&data.checkoutSessionId){response.json({ok:true,...await retireExistingOrderCheckout(existingOrderCheckoutDependencies(),orderId,"cancel",requestedByAdminEmail)});return;}
       if (String(data.status || "") === "canceled") {
         response.status(200).json({ ok: true, status: "canceled" });
         return;
@@ -4070,6 +4098,7 @@ export const cancelOrder = onRequest(
       logger.info("cancel order completed", { orderId, requestedByAdminEmail });
       response.status(200).json({ ok: true, status: "canceled", canceledAt: updatedAt });
     } catch (error) {
+      if(error instanceof CheckoutStateError){response.status(error.status).json({error:error.code});return;}
       logger.error("cancel order failed", error);
       const message = error instanceof Error ? error.message : "";
       if (message === "missing_auth_token") {
@@ -4086,7 +4115,7 @@ export const cancelOrder = onRequest(
 );
 
 export const closeOrder = onRequest(
-  { region: "us-central1" },
+  { region: "us-central1", secrets:[STRIPE_SECRET_KEY,STRIPE_TEST_SECRET_KEY] },
   async (request, response) => {
     setCorsHeaders(response, request.header("origin") || "");
 
@@ -4121,6 +4150,7 @@ export const closeOrder = onRequest(
       }
 
       const data = orderSnapshot.data() || {};
+      if(data.orderType===CUSTOM_ORDER_TYPE&&data.checkoutSessionId){response.json({ok:true,...await retireExistingOrderCheckout(existingOrderCheckoutDependencies(),orderId,"close",requestedByAdminEmail)});return;}
       if (String(data.status || "") === "closed") {
         response.status(200).json({ ok: true, status: "closed" });
         return;
@@ -4137,6 +4167,7 @@ export const closeOrder = onRequest(
       logger.info("close order completed", { orderId, requestedByAdminEmail });
       response.status(200).json({ ok: true, status: "closed", closedAt: updatedAt });
     } catch (error) {
+      if(error instanceof CheckoutStateError){response.status(error.status).json({error:error.code});return;}
       logger.error("close order failed", error);
       const message = error instanceof Error ? error.message : "";
       if (message === "missing_auth_token") {
@@ -4188,6 +4219,7 @@ export const markOrderPaidByCash = onRequest(
 
         const order = orderSnapshot.data() || {};
         const status = String(order.status || "");
+        if(order.checkoutTransition||(order.checkoutChannel==="embedded"&&order.checkoutSessionId&&status!=="paid"))throw new Error("order_not_payable");
         const existingPaymentMethod = String(order.paymentMethod || "");
         if (status === "paid" && existingPaymentMethod !== "cash") {
           throw new Error("order_already_paid");
@@ -4459,13 +4491,14 @@ async function savePaidCheckoutSession(
   const existingOrder = await orderRef.get();
   const existingOrderData = existingOrder.data() || {};
   assertCurrentPaidSession(existingOrderData, session);
+  if(existingOrderData.checkoutChannel==="embedded"&&(session.amount_total!==existingOrderData.amountTotal||session.currency!==existingOrderData.currency||session.livemode!==(existingOrderData.stripeMode==="live")))throw new Error("order_checkout_payment_mismatch");
   if (existingOrderData.customerDetailsPending && (!verifiedCustomerName(session) || !String(session.customer_details?.email || session.customer_email || "").trim())) throw new Error("checkout_customer_details_required");
   const previousNotificationStatus = String(existingOrderData.notificationEmailStatus || "");
   const previousCustomerEmailStatus = String(existingOrderData.customerOrderEmailStatus || "");
   const paidOrder: OrderNotificationInput = {
     orderId,
     status: "paid",
-    lineItems: session.line_items?.data.map((item) => {
+    lineItems: existingOrderData.orderType===CUSTOM_ORDER_TYPE ? existingOrderData.lineItems : session.line_items?.data.map((item) => {
       const priceMetadata = typeof item.price === "string" ? {} : item.price?.metadata || {};
       return {
         productId: String(priceMetadata.productId || ""),
@@ -4527,7 +4560,12 @@ async function savePaidCheckoutSession(
     paymentIntent,
   })
 
-  await orderRef.set(saveOrder, { merge: true });
+  await getAdminDb().runTransaction(async(tx:any)=>{
+    const current=(await tx.get(orderRef)).data()||{};assertCurrentPaidSession(current,session);
+    if(current.checkoutChannel==="embedded"&&(current.amountTotal!==session.amount_total||current.currency!==session.currency))throw Error("order_checkout_payment_mismatch");
+    if(["canceled","closed"].includes(current.status)&&!current.paidAt)throw Error("order_not_payable");
+    tx.set(orderRef,{...saveOrder,...(current.orderType===CUSTOM_ORDER_TYPE?{lineItems:current.lineItems}:{}),status:current.status==="closed"?"closed":"paid",paidAt:current.paidAt||updatedAt},{merge:true});
+  });
 
   await markLinkedAgreementPaid(
     orderId,
@@ -4604,6 +4642,7 @@ async function handlePaymentIntentSucceeded(
 
   if (!orderId) return;
   const pending = await getAdminDb().collection("orders").doc(orderId).get();
+  if(pending.data()?.orderType===CUSTOM_ORDER_TYPE)throw new Error("checkout_session_verification_required");
   if (pending.data()?.customerDetailsPending) throw new Error("checkout_customer_details_required");
   await getAdminDb().collection("orders").doc(orderId).set({
     id: orderId,
@@ -4627,6 +4666,19 @@ async function handlePaymentIntentFailed(event: Stripe.Event): Promise<void> {
   const orderId = String(paymentIntent.metadata?.orderId || "");
   if (!orderId) return;
   const stripeMode = paymentIntent.livemode ? "live" : "sandbox";
+  const orderRef=getAdminDb().collection("orders").doc(orderId);
+  const initial=(await orderRef.get()).data();
+  if(initial?.orderType===CUSTOM_ORDER_TYPE){
+    const matches=await getStripeClientForMode(stripeMode).checkout.sessions.list({payment_intent:paymentIntent.id,limit:1});
+    const session=matches.data[0];
+    if(!session||session.id!==initial.checkoutSessionId||session.metadata?.orderId!==orderId||session.livemode!==(initial.stripeMode==="live"))return;
+    await getAdminDb().runTransaction(async(tx:any)=>{const current=(await tx.get(orderRef)).data();
+      if(current?.checkoutSessionId!==session.id||current.checkoutTransition||current.status!=="checkout_created"||current.paidAt)return;
+      // A failed attempt does not close an open Checkout Session; the customer can retry in the same form.
+      tx.set(orderRef,{lastPaymentFailureAt:nowIso(),latestStripeEventId:event.id,paymentIntentId:paymentIntent.id,updatedAt:nowIso()},{merge:true});
+    });return;
+  }
+
   await getAdminDb().collection("orders").doc(orderId).set({
     id: orderId,
     status: "payment_failed",
@@ -4768,4 +4820,22 @@ export const manageOrderIntegrations = onRequest({region:"us-central1"},async(re
     if(message === "missing_auth_token" || message === "admin_denied"){response.status(message === "missing_auth_token"?401:403).json({error:"Admin sign-in required."});return;}
     sendIntegrationFailure(response,error);
   }
+});
+
+// Read-only buyer capability: never creates/replaces a session or reads private order images.
+export const getOrderCheckout = onRequest({region:"us-central1",secrets:[STRIPE_SECRET_KEY,STRIPE_TEST_SECRET_KEY]},async(request,response)=>{
+  setCorsHeaders(response,request.header("origin")||"");response.set("Cache-Control","private, no-store");response.set("Referrer-Policy","no-referrer");
+  if(request.method === "OPTIONS"){response.status(204).send("");return;}
+  if(request.method !== "POST"){response.status(405).json({error:"Method not allowed"});return;}
+  try{
+    const orderId=String(request.body?.orderId||"");const sessionId=String(request.body?.sessionId||"");
+    if(!/^custom_[a-f0-9]{32}$/.test(orderId)||!/^cs_(live|test)_[A-Za-z0-9]{16,200}$/.test(sessionId)){response.status(404).json({error:"Order checkout not found."});return;}
+    const snapshot=await getAdminDb().collection("orders").doc(orderId).get();const order=snapshot.data();
+    if(!snapshot.exists||!ownsCheckout(order,orderId,sessionId)){response.status(404).json({error:"Order checkout not found."});return;}
+    const mode=order!.stripeMode === "live"?"live":"sandbox";
+    const stripe=getStripeClientForMode(mode);const session=await stripe.checkout.sessions.retrieve(order!.checkoutSessionId);
+    const catalog=(await getAdminDb().collection("products").doc("list").get()).data();
+    const products=new Map((Array.isArray(catalog?.items)?catalog.items:[]).map((product:any)=>[String(product.id),product]));
+    response.json({order:publicOrderCheckout(orderId,order,session,products)});
+  }catch{response.status(409).json({error:"This checkout cannot be verified. Request a current checkout link."});}
 });

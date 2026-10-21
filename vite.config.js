@@ -252,6 +252,11 @@ export default defineConfig(({ mode }) => {
   server: {
     allowedHosts: ["ackers-macbook.local"],
     proxy: {
+      "/api/order-checkout": {
+        target: localFunctionsOrigin, changeOrigin: true,
+        rewrite: () => "/threedlocalprint/us-central1/getOrderCheckout",
+        configure: functionProxyErrorHandler,
+      },
       "/api/create-checkout-session": {
         target: localFunctionsOrigin,
         changeOrigin: true,

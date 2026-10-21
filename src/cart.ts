@@ -1,3 +1,4 @@
+import { checkoutBlockReason } from "./order-checkout-link.js";
 import { isNameBadgeProduct, validateBadgeName } from "./name-badges.js";
 import { loadProducts } from "./admin/shared/firebase.js";
 import { fetchApiWithFallback } from "./api-url.js";
@@ -34,7 +35,16 @@ const cartRender$ = new Subject<number>(0, (subscription) => {
 let cartMounted = false;
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const localStripeSandboxEngaged = LOCAL_HOSTNAMES.has(window.location.hostname);
-const stripePublishableKey = String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "").trim();
+let stripePublishableKey = String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "").trim();
+const orderId=new URLSearchParams(window.location.search).get("orderId")||"";
+const orderSessionProof=new URLSearchParams(window.location.hash.slice(1)).get("checkout")||"";
+const orderMode=Boolean(orderId);
+type OrderCheckoutView={id:string;canPay:boolean;canStartCheckout:boolean;stripeMode:string;status:string;paymentStatus:string;currency:string;amountTotal:number;lineItems:Array<{productId:string;variationId:string;badgeName:string;title:string;quantity:number;unitAmount:number;currency:string;imageUrl:string}>};
+let existingOrder:OrderCheckoutView|null=null;
+let previewGeneration=0;
+const expectedSandbox=()=>orderMode?existingOrder?.stripeMode==="sandbox":localStripeSandboxEngaged;
+const selectOrderKey=()=>{const fallback=String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY||"").trim();const explicit=String(expectedSandbox()?import.meta.env.VITE_STRIPE_TEST_PUBLISHABLE_KEY||"":import.meta.env.VITE_STRIPE_LIVE_PUBLISHABLE_KEY||"").trim();stripePublishableKey=explicit||fallback;};
+selectOrderKey();
 const STRIPE_JS_URL = "https://js.stripe.com/clover/stripe.js";
 
 type EmbeddedCheckout = {
@@ -54,6 +64,7 @@ declare global {
 
 let embeddedCheckout: EmbeddedCheckout | null = null;
 let stripeScriptPromise: Promise<void> | null = null;
+let checkoutGeneration = 0;
 
 type ProductVariationView = {
   id: string;
@@ -87,9 +98,7 @@ const savedOrganizationIdentity = (() => {
 const cartState: CartViewState = {
   loading: true,
   products: [],
-  statusText: localStripeSandboxEngaged
-    ? "Local checkout will use Stripe sandbox."
-    : "",
+  statusText: "",
   checkoutLoading: false,
   termsAccepted: false,
   organizationCheckout: Boolean(savedOrganizationIdentity.email),
@@ -107,7 +116,7 @@ const loadStripeJs = () => {
     const existingScript = document.querySelector<HTMLScriptElement>(`script[src="${STRIPE_JS_URL}"]`);
     const script = existingScript || document.createElement("script");
     script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener("error", () => reject(new Error("Stripe checkout could not be loaded.")), { once: true });
+    script.addEventListener("error", () => { stripeScriptPromise=null; script.remove(); reject(new Error("Stripe checkout could not be loaded. Try again.")); }, { once: true });
     if (!existingScript) {
       script.src = STRIPE_JS_URL;
       script.async = true;
@@ -117,7 +126,7 @@ const loadStripeJs = () => {
   return stripeScriptPromise;
 };
 
-const mountEmbeddedCheckout = async (clientSecret: string) => {
+const mountEmbeddedCheckout = async (clientSecret: string, generation: number) => {
   if (!stripePublishableKey) {
     throw new Error("Stripe publishable key is not configured.");
   }
@@ -127,12 +136,15 @@ const mountEmbeddedCheckout = async (clientSecret: string) => {
   if (!window.Stripe) {
     throw new Error("Stripe checkout is unavailable.");
   }
+  if (generation !== checkoutGeneration) return;
+  const candidate = await window.Stripe(stripePublishableKey).initEmbeddedCheckout({ clientSecret });
+  if (generation !== checkoutGeneration || !cartState.embeddedCheckoutOpen) { candidate.destroy(); return; }
+  if (!document.getElementById("stripeEmbeddedCheckout")) await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+  const container=document.getElementById("stripeEmbeddedCheckout");
+  if (!container || generation !== checkoutGeneration) {candidate.destroy();return;}
   embeddedCheckout?.destroy();
-  embeddedCheckout = await window.Stripe(stripePublishableKey).initEmbeddedCheckout({ clientSecret });
-  embeddedCheckout.mount("#stripeEmbeddedCheckout");
-  console.log('Stripe attached', {
-    elm: document.getElementById('stripeEmbeddedCheckout')
-  })
+  embeddedCheckout=candidate;
+  candidate.mount(container);
 };
 
 const formatPrice = (unitAmount = 0, currency = "usd") =>
@@ -175,6 +187,11 @@ const getPrimaryImageUrl = (product: ProductItem) => {
 };
 
 const getCartViewItems = () => {
+  if(orderMode){
+    const lines=existingOrder?.lineItems||[];
+    const productsById=new Map(lines.map((x,i)=>[String(i),{id:String(i),title:x.title,unitAmount:x.unitAmount,currency:x.currency,imageUrl:x.imageUrl,images:[],variations:[]} as unknown as ProductItem]));
+    return {productsById,cart:lines.map((x,i)=>({productId:String(i),variationId:"",badgeName:x.badgeName,quantity:x.quantity}))};
+  }
   const productsById = mapProducts(cartState.products);
   const cart = loadCart().filter((item) => productsById.has(item.productId));
   return {
@@ -183,7 +200,7 @@ const getCartViewItems = () => {
   };
 };
 
-const startCheckout = async (cart: CartItem[], productsById: Map<string, ProductItem>) => {
+const startCheckout = async (cart: CartItem[], productsById: Map<string, ProductItem>, generation: number) => {
   const lineItems = cart
     .map((item) => ({
       item,
@@ -205,7 +222,7 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
       "Content-Type": "application/json",
       "X-Idempotency-Key": `cart_${Date.now().toString(36)}`,
     },
-    body: JSON.stringify({
+    body: JSON.stringify(orderMode?{orderId,sessionId:orderSessionProof,termsAccepted:cartState.termsAccepted}:{
       cartItems: lineItems.map((entry) => ({
         productId: entry.productId,
         variationId: entry.variationId,
@@ -225,12 +242,15 @@ const startCheckout = async (cart: CartItem[], productsById: Map<string, Product
   }
 
   const payload = await response.json();
+  if (generation !== checkoutGeneration) return;
+  const expectedMode=expectedSandbox()?"sandbox":"live";
+  if(payload.stripeMode !== expectedMode)throw new Error("Checkout mode does not match this page. No payment form was opened.");
   const clientSecret = String(payload?.clientSecret || "").trim();
   if (clientSecret) {
     cartState.embeddedCheckoutOpen = true;
     setCheckoutStatus("", false);
     renderCartView();
-    await mountEmbeddedCheckout(clientSecret);
+    await mountEmbeddedCheckout(clientSecret,generation);
     return;
   }
 
@@ -287,23 +307,37 @@ const setCheckoutStatus = (statusText: string, checkoutLoading = false) => {
   cartState.checkoutLoading = checkoutLoading;
 };
 
+const checkoutDisabledReason = () => checkoutBlockReason({loading:cartState.loading,opening:cartState.checkoutLoading,embeddedOpen:cartState.embeddedCheckoutOpen,terms:cartState.termsAccepted,organization:!orderMode&&cartState.organizationCheckout,verifiedOrganization:cartState.verifiedOrganizationName,key:stripePublishableKey,local:expectedSandbox(),orderMode,order:existingOrder});
+
+const resetCheckout = () => {
+  checkoutGeneration++;
+  embeddedCheckout?.destroy();embeddedCheckout=null;
+  cartState.embeddedCheckoutOpen=false;cartState.checkoutLoading=false;cartState.statusText="";
+};
+
 const handleCheckout = async () => {
+  if(cartState.checkoutLoading||cartState.embeddedCheckoutOpen)return;
   const { cart, productsById } = getCartViewItems();
-  if (!cartState.termsAccepted) {
-    setCheckoutStatus("Review and accept the Terms of Service and Sales Policy before checkout.", false);
+  const reason=checkoutDisabledReason();
+  if (reason || !cart.length) {
+    setCheckoutStatus(reason || "Your cart is empty.", false);
     renderCartView();
     return;
   }
+  const generation=++checkoutGeneration;
   setCheckoutStatus("Opening secure checkout...", true);
+  renderCartView();
   try {
-    await startCheckout(cart, productsById);
+    await startCheckout(cart, productsById,generation);
   } catch (error) {
-    console.error(error);
+    if(generation !== checkoutGeneration)return;
     embeddedCheckout?.destroy();
     embeddedCheckout = null;
     cartState.embeddedCheckoutOpen = false;
     setCheckoutStatus(error instanceof Error ? error.message : "Checkout failed", false);
     renderCartView();
+  } finally {
+    if(generation === checkoutGeneration){cartState.checkoutLoading=false;renderCartView();}
   }
 };
 
@@ -314,7 +348,7 @@ const CartMessage = (title: string, text: string) =>
   );
 
 const StripeSandboxBadge = () =>
-  localStripeSandboxEngaged
+  expectedSandbox()
     ? div.class`stripe-sandbox-badge`("stripe sandbox")
     : null;
 
@@ -329,12 +363,12 @@ const CartLineRow = (item: CartItem, product: ProductItem) => {
       primaryImageUrl
         ? img
             .class("home-cart-row-image")
-            .src(primaryImageUrl)
-            .alt(title)
+            .src(_=>primaryImageUrl)
+            .alt(_=>title)
             .loading("lazy")
         : span.class`home-cart-row-image-fallback`("🛒")
     ),
-    div.class`home-cart-row-title`(title),
+    div.class`home-cart-row-title`(_=>title),
     div.class`home-cart-field home-cart-row-unit`(
       span.class`home-cart-field-label`("Unit price"),
       span.class`home-cart-field-value`(
@@ -343,7 +377,7 @@ const CartLineRow = (item: CartItem, product: ProductItem) => {
     ),
     div.class`home-cart-field home-cart-row-quantity`(
       span.class`home-cart-field-label`("Quantity"),
-      input
+      orderMode ? span(_=>String(item.quantity)) : input
         .class`home-cart-qty-input`
         .type`number`
         .min`1`
@@ -361,7 +395,7 @@ const CartLineRow = (item: CartItem, product: ProductItem) => {
         _=> formatPrice(unitAmount * item.quantity, product.currency)
       )
     ),
-    button
+    orderMode ? null : button
       .type`button`
       .class`ghost-button delete-button`
       .onClick(() => {
@@ -391,11 +425,12 @@ const CartContent = () => {
   if (!cart.length) {
     return [
       ...shellItems,
-      CartMessage("Your cart is empty", "Add products to start checkout."),
+      orderMode?button.type`button`.class`ghost-button`.onClick(()=>refreshOrderCheckout())("Refresh order"):null,
+      CartMessage(orderMode?"Order checkout unavailable":"Your cart is empty", orderMode?(cartState.statusText||"Request a current order checkout link."):"Add products to start checkout."),
     ];
   }
 
-  const total = cart.reduce((sum, item) => {
+  const total = orderMode&&existingOrder?existingOrder.amountTotal:cart.reduce((sum, item) => {
     const product = productsById.get(item.productId);
     if (!product) return sum;
     const variation = getVariationForCart(product, item.variationId || "");
@@ -405,7 +440,8 @@ const CartContent = () => {
   return [
     ...shellItems,
     section.class`home-card home-cart-panel`(
-      h2("Cart Items"),
+      h2(orderMode?"Order Items":"Cart Items"),
+      orderMode? p(_=>`Order ${orderId} · ${existingOrder?.stripeMode} · ${existingOrder?.paymentStatus}`):null,
       div.class`home-cart-rows`(
         cart.map((item) => {
           const product = productsById.get(item.productId);
@@ -423,6 +459,7 @@ const CartContent = () => {
             .checked(_=> cartState.termsAccepted)
             .onChange((event) => {
               cartState.termsAccepted = Boolean(event.target.checked);
+              cartState.statusText="";
               renderCartView();
             })(),
           span(
@@ -434,7 +471,7 @@ const CartContent = () => {
           )
         ),
         div.class`home-cart-actions`(
-          button
+          orderMode ? button.type`button`.class`ghost-button`.onClick(()=>refreshOrderCheckout())("Refresh order") : button
             .type`button`
             .class`ghost-button`
             .onClick(() => {
@@ -445,8 +482,8 @@ const CartContent = () => {
           button
             .type`button`
             .class`add-button`
-            .disabled(_=> !localStripeSandboxEngaged || cartState.checkoutLoading || cartState.embeddedCheckoutOpen || !cartState.termsAccepted
-              || (cartState.organizationCheckout && !cartState.verifiedOrganizationName))
+            .id`checkoutAction`
+            .disabled(_=> Boolean(checkoutDisabledReason()))
             .onClick(handleCheckout)(
             _=> cartState.checkoutLoading
               ? "💳 Opening..."
@@ -455,13 +492,14 @@ const CartContent = () => {
                 : "💳 Checkout"
           )
         ),
-        span.class`home-cart-note`(_=> cartState.statusText),
+        span.class`home-cart-note`.attr("role","status")(_=> cartState.statusText || checkoutDisabledReason()),
+        _=> cartState.embeddedCheckoutOpen ? button.type`button`.class`ghost-button`.onClick(()=>{resetCheckout();renderCartView();})("Close payment form") : null,
         _=> {
           return cartState.embeddedCheckoutOpen
           ? stripePayArea()
           : null
         },
-        div.class`organization-checkout-box`(
+        orderMode ? null : div.class`organization-checkout-box`(
           label.class`legal-checkbox-row`(
             input
               .type`checkbox`
@@ -469,6 +507,7 @@ const CartContent = () => {
               .onChange((event) => {
                 cartState.organizationCheckout = Boolean(event.target.checked);
                 cartState.verifiedOrganizationName = "";
+                cartState.statusText="";
                 renderCartView();
               })(),
             span("Purchasing for an approved tax-exempt organization")
@@ -483,6 +522,7 @@ const CartContent = () => {
                     .onInput((event) => {
                       cartState.organizationEmail = event.target.value;
                       cartState.verifiedOrganizationName = "";
+                      renderCartView();
                     })()
                 ),
                 label(
@@ -492,6 +532,7 @@ const CartContent = () => {
                     .onInput((event) => {
                       cartState.exemptionCertificateNumber = event.target.value;
                       cartState.verifiedOrganizationName = "";
+                      renderCartView();
                     })()
                 ),
                 button
@@ -501,7 +542,7 @@ const CartContent = () => {
                   .onClick(verifyOrganization)(
                     _=> cartState.organizationVerifyLoading ? "Verifying…" : "Verify organization"
                   ),
-                cartState.verifiedOrganizationName
+                _=> cartState.verifiedOrganizationName
                   ? strong.class`organization-verified`(_=> `✓ ${cartState.verifiedOrganizationName}`)
                   : a.class`legal-inline-link`.href("./organization-checkout.html")("Not approved yet? Request organizational checkout")
               )
@@ -519,7 +560,7 @@ const loadCartView = async () => {
   renderCartView();
 
   try {
-    cartState.products = await loadProducts();
+    if(orderMode)await refreshOrderCheckout();else cartState.products = await loadProducts();
   } catch (error) {
     console.error("Failed loading products for cart", error);
     cartState.products = [];
@@ -529,16 +570,23 @@ const loadCartView = async () => {
   }
 };
 
-window.addEventListener("cart:updated", renderCartView);
+async function refreshOrderCheckout(){
+  if(!orderMode||cartState.checkoutLoading||cartState.embeddedCheckoutOpen)return;
+  const generation=++previewGeneration;
+  try{
+    const response=await fetchApiWithFallback("/api/order-checkout","getOrderCheckout",{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderId,sessionId:orderSessionProof})});
+    const payload=await response.json();if(generation!==previewGeneration)return;
+    if(!response.ok||!payload.order)throw Error(payload.error||"Order checkout unavailable.");
+    existingOrder=payload.order;selectOrderKey();cartState.statusText="";
+  }catch(error){if(generation!==previewGeneration)return;existingOrder=null;cartState.statusText=error instanceof Error?error.message:"Unable to refresh order.";}
+  finally{if(generation===previewGeneration){cartState.loading=false;renderCartView();}}
+}
+window.addEventListener("focus",()=>{if(orderMode)void refreshOrderCheckout();});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&orderMode)void refreshOrderCheckout();});
+window.addEventListener("cart:updated", ()=>{if(!orderMode){resetCheckout();renderCartView();}});
 loadCartView();
 
 const stripePayArea = tag(() => {
-  console.log('stripePayArea run')
-  
-  tag.onDestroy(() => {
-    console.log('destroy?')
-  })
-  
   return div.class`embedded-checkout-shell`(
     h2("Secure checkout"),
     p.class`home-cart-note`("Payment is securely processed by Stripe without leaving this website."),
