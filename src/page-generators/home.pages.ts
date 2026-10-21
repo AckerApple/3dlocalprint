@@ -42,8 +42,17 @@ const homeShell = ({
   siteKey = "local" as SiteKey,
   extraHeadItems = [] as unknown[],
   baseHref = "",
+  canonicalPath = "/",
 }) => {
   const site = getSiteConfig(siteKey);
+  const previewDescription = description || (canonicalPath === "/pay/" || canonicalPath === "/cart.html"
+    ? "Review your order and pay securely with 3D Local Print."
+    : canonicalPath === "/receipt.html" ? "View your 3D Local Print payment receipt."
+    : "Custom local 3D prints, kits, and keepsakes from 3D Local Print.");
+  const previewUrl = `https://3dlocalprint.com${canonicalPath}`;
+  const previewImage = "https://3dlocalprint.com/assets/logo/transparent.png";
+  const og = (property: string, content: string) => meta.content(content)().attr("property", property);
+
   const scriptItems = bodyScripts.map((scriptPath) =>
     script.type`module`.src(withPrefix(assetPrefix, scriptPath))
   );
@@ -52,7 +61,18 @@ const homeShell = ({
     pageTitle,
     headItems: [
       baseHref ? htmlTag("base").href(baseHref)() : null,
-      description ? meta.name`description`.content(description) : null,
+      siteKey === "local" || description ? meta.name`description`.content(siteKey === "local" ? previewDescription : description) : null,
+      siteKey === "local" ? [
+        link.rel`canonical`.href(previewUrl),
+        og("og:type", "website"), og("og:site_name", "3D Local Print"),
+        og("og:title", pageTitle), og("og:description", previewDescription), og("og:url", previewUrl),
+        og("og:image", previewImage), og("og:image:secure_url", previewImage),
+        og("og:image:type", "image/png"), og("og:image:width", "1254"), og("og:image:height", "1254"),
+        og("og:image:alt", "3D Local Print logo"),
+        meta.name`twitter:card`.content`summary_large_image`,
+        meta.name`twitter:title`.content(pageTitle), meta.name`twitter:description`.content(previewDescription),
+        meta.name`twitter:image`.content(previewImage), meta.name`twitter:image:alt`.content`3D Local Print logo`,
+      ] : null,
       link.rel`icon`.href(
         site.key === "pet"
           ? withPrefix(assetPrefix, site.logoPath)
@@ -146,6 +166,7 @@ export const homeLandingPage = ({ assetPrefix = "./", siteKey = "local" as SiteK
 
 export const homeOrganizationCheckoutPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/organization-checkout.html",
     pageTitle: "Request Organizational Checkout - 3D Local Print",
     description: "Apply for verified tax-exempt organizational checkout.",
     heroLede: "Checkout for PTAs, PTOs, schools, and nonprofit organizations.",
@@ -242,6 +263,7 @@ const PolicyNotice = () =>
 
 export const homePrivacyPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/privacy.html",
     pageTitle: "Privacy Policy - 3D Local Print",
     description: "Privacy policy for 3D Local Print public website orders, quotes, agreements, and support requests.",
     heroLede: "",
@@ -302,6 +324,7 @@ export const homePrivacyPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homeTermsPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/terms.html",
     pageTitle: "Terms of Service - 3D Local Print",
     description: "Terms of service for 3D Local Print website use, orders, quote requests, and agreements.",
     heroLede: "",
@@ -356,6 +379,7 @@ export const homeTermsPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homeSalesPolicyPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/sales-policy.html",
     pageTitle: "Sales, Shipping, Refunds, and Custom Work Policy - 3D Local Print",
     description: "Sales, shipping, refund, cancellation, and custom work policy for 3D Local Print.",
     heroLede: "",
@@ -636,6 +660,7 @@ export const petGetStartedPage = ({ assetPrefix = "./" } = {}) => {
 
 export const homeProductsPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/products.html",
     pageTitle: "Products - 3D Local Print",
     heroLede: "",
     bodyScripts: ["products/index.ts"],
@@ -658,6 +683,7 @@ export const homeProductsPage = ({ assetPrefix = "./" } = {}) =>
 export const homeProductDetailPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
     baseHref: "/",
+    canonicalPath: "/product.html",
     pageTitle: "Products - 3D Local Print",
     heroLede: "",
     bodyScripts: ["product.ts"],
@@ -673,6 +699,7 @@ export const homeProductDetailPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/print-model-link.html",
     pageTitle: "PRINT by LINK - 3D Local Print",
     description:
       "Send 3D Local Print a model link for a custom local printing quote.",
@@ -799,6 +826,7 @@ export const homePrintModelLinkPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homePrintModelLinkOrderPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/print-model-link-order.html",
     pageTitle: "Model Link Quote Request - 3D Local Print",
     description: "Review a submitted 3D Local Print model link quote request.",
     heroLede: "",
@@ -820,6 +848,7 @@ export const homePrintModelLinkOrderPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homeCartPage = ({ assetPrefix = "./", paymentPage = false } = {}) =>
   homeShell({
+    canonicalPath: paymentPage ? "/pay/" : "/cart.html",
     baseHref: paymentPage ? "/" : "",
     extraHeadItems: paymentPage ? [meta.name`referrer`.content`no-referrer`()] : [],
     pageTitle: paymentPage ? "Checkout - 3D Local Print" : "Cart - 3D Local Print",
@@ -842,6 +871,7 @@ export const homeCartPage = ({ assetPrefix = "./", paymentPage = false } = {}) =
 
 export const homeReceiptPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/receipt.html",
     pageTitle: "Receipt - 3D Local Print",
     heroLede: "",
     bodyScripts: ["receipt.ts"],
@@ -862,6 +892,7 @@ export const homeReceiptPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homeAgreementPage = ({ assetPrefix = "./" } = {}) =>
   homeShell({
+    canonicalPath: "/agreement.html",
     pageTitle: "Service Agreement - 3D Local Print",
     description: "Review and accept a private website technical services agreement.",
     heroLede: "",
@@ -878,6 +909,7 @@ export const homeAgreementPage = ({ assetPrefix = "./" } = {}) =>
 
 export const homeQr1Page = ({ assetPrefix = "../" } = {}) =>
   homeShell({
+    canonicalPath: "/qr1/",
     pageTitle: "Jesus Angel Keychain - 3D Local Print",
     heroLede: "",
     mainClass: "home-main home-main-cart",

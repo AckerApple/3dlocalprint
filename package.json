@@ -26,7 +26,9 @@
     "test:short-checkout": "npm run test:custom-orders --prefix firebase-hosting/functions && CHECKOUT_SHORT_LINK=1 node scripts/test-order-checkout-page.mjs && node scripts/test-checkout-link-rules-static.mjs",
     "test:product-loading": "node scripts/test-product-loading.mjs",
     "test:product-routing": "node scripts/test-product-static-routing.mjs",
-    "test:checkout-state": "node scripts/test-cart-checkout-state.mjs && node scripts/test-order-checkout-page.mjs && npm run test:custom-orders --prefix firebase-hosting/functions"
+    "test:checkout-state": "node scripts/test-cart-checkout-state.mjs && node scripts/test-order-checkout-page.mjs && npm run test:custom-orders --prefix firebase-hosting/functions",
+    "test:receipt": "node scripts/test-receipt-loading.mjs",
+    "test:preview-metadata": "node scripts/test-preview-metadata.mjs"
   },
   "repository": {
     "type": "git",

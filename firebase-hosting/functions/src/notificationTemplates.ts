@@ -1,3 +1,4 @@
+import { taxPresentation } from "./orderTax.js";
 export type CheckoutLineItem = {
   productId: string;
   variationId: string;
@@ -8,6 +9,7 @@ export type CheckoutLineItem = {
 };
 
 export type OrderNotificationInput = {
+  taxBehavior?: string;
   orderId: string;
   status: string;
   lineItems: CheckoutLineItem[];
@@ -183,6 +185,7 @@ function getStatusLabel(value = ""): string {
 }
 
 export function buildOrderNotificationEmail(order: OrderNotificationInput): AlertTemplateOutput {
+  const tax = taxPresentation(order);
   const isTest = order.stripeMode === "sandbox";
   const subject = `${isTest ? "(test) " : ""}Order ${order.orderId} created - ${formatMoney(order.amountTotal, order.currency)}`;
   const customer = [order.customerName, order.customerEmail].filter(Boolean).join(" · ") || "No customer details recorded";
@@ -196,10 +199,11 @@ export function buildOrderNotificationEmail(order: OrderNotificationInput): Aler
     `Status: ${getStatusLabel(order.status)}`,
     `Mode: ${order.stripeMode}`,
     `Customer: ${customer}`,
-    `Subtotal: ${formatMoney(order.amountSubtotal, order.currency)}`,
-    `Tax: ${formatMoney(order.amountTax, order.currency)}`,
+    `${tax.subtotalLabel}: ${formatMoney(order.amountSubtotal, order.currency)}`,
+    `${tax.taxLabel}: ${formatMoney(order.amountTax, order.currency)}`,
     `Shipping: ${formatMoney(order.amountShipping, order.currency)}`,
     `Total: ${formatMoney(order.amountTotal, order.currency)}`,
+    tax.note,
     "",
     "Items:",
     itemLines,
@@ -248,8 +252,8 @@ export function buildOrderNotificationEmail(order: OrderNotificationInput): Aler
               <tbody>${htmlItems}</tbody>
             </table>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#fffaf6;border:1px solid #f1e2d8;border-radius:10px;">
-              <tr><td style="padding:14px 16px 6px;color:#7b6255;">Subtotal</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
-              <tr><td style="padding:6px 16px;color:#7b6255;">Tax</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
+              <tr><td style="padding:14px 16px 6px;color:#7b6255;">${escapeHtml(tax.subtotalLabel)}</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
+              <tr><td style="padding:6px 16px;color:#7b6255;">${escapeHtml(tax.taxLabel)}</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
               <tr><td style="padding:6px 16px 14px;color:#7b6255;">Shipping</td><td align="right" style="padding:6px 16px 14px;color:#2c211b;">${escapeHtml(formatMoney(order.amountShipping, order.currency))}</td></tr>
               <tr><td style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:18px;font-weight:700;color:#2c211b;">Total</td><td align="right" style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:20px;font-weight:700;color:#de6a2e;">${escapeHtml(formatMoney(order.amountTotal, order.currency))}</td></tr>
             </table>
@@ -267,6 +271,7 @@ export function buildOrderNotificationEmail(order: OrderNotificationInput): Aler
 }
 
 export function buildCustomerOrderEmail(order: OrderNotificationInput): AlertTemplateOutput {
+  const tax = taxPresentation(order);
   const isTest = order.stripeMode === "sandbox";
   const subject = `${isTest ? "(test) " : ""}Your 3D Local Print order ${order.orderId}`;
   const customerGreeting = order.customerName ? `Hi ${order.customerName},` : "Hi,";
@@ -281,10 +286,11 @@ export function buildCustomerOrderEmail(order: OrderNotificationInput): AlertTem
     "Thanks for your order with 3D Local Print. We received your payment and will follow up if we need anything else.",
     "",
     `Order: ${order.orderId}`,
-    `Subtotal: ${formatMoney(order.amountSubtotal, order.currency)}`,
-    `Tax: ${formatMoney(order.amountTax, order.currency)}`,
+    `${tax.subtotalLabel}: ${formatMoney(order.amountSubtotal, order.currency)}`,
+    `${tax.taxLabel}: ${formatMoney(order.amountTax, order.currency)}`,
     `Shipping: ${formatMoney(order.amountShipping, order.currency)}`,
     `Total: ${formatMoney(order.amountTotal, order.currency)}`,
+    tax.note,
     "",
     "Items:",
     itemLines,
@@ -330,8 +336,8 @@ export function buildCustomerOrderEmail(order: OrderNotificationInput): AlertTem
               <tbody>${htmlItems}</tbody>
             </table>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#fffaf6;border:1px solid #f1e2d8;border-radius:10px;">
-              <tr><td style="padding:14px 16px 6px;color:#7b6255;">Subtotal</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
-              <tr><td style="padding:6px 16px;color:#7b6255;">Tax</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
+              <tr><td style="padding:14px 16px 6px;color:#7b6255;">${escapeHtml(tax.subtotalLabel)}</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
+              <tr><td style="padding:6px 16px;color:#7b6255;">${escapeHtml(tax.taxLabel)}</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
               <tr><td style="padding:6px 16px 14px;color:#7b6255;">Shipping</td><td align="right" style="padding:6px 16px 14px;color:#2c211b;">${escapeHtml(formatMoney(order.amountShipping, order.currency))}</td></tr>
               <tr><td style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:18px;font-weight:700;color:#2c211b;">Total</td><td align="right" style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:20px;font-weight:700;color:#de6a2e;">${escapeHtml(formatMoney(order.amountTotal, order.currency))}</td></tr>
             </table>

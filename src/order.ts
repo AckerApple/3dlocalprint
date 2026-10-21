@@ -1,3 +1,4 @@
+import { taxPresentation } from "../firebase-hosting/functions/src/orderTax.js";
 import {
   tag,
   tagElement,
@@ -22,6 +23,7 @@ type PublicOrderLineItem = {
 };
 
 type PublicOrderRecord = {
+  taxBehavior?: string;
   id: string;
   status: string;
   lineItems: PublicOrderLineItem[];
@@ -105,9 +107,10 @@ const OrderMessage = (title: string, message: string) =>
 
 const OrderTotals = (order: PublicOrderRecord) =>
   div.class`public-order-totals`(
-    div(span("Subtotal"), strong(formatMoney(order.amountSubtotal, order.currency))),
-    div(span("Tax"), strong(formatMoney(order.amountTax, order.currency))),
+    div(span(taxPresentation(order).subtotalLabel), strong(formatMoney(order.amountSubtotal, order.currency))),
+    div(span(taxPresentation(order).taxLabel), strong(formatMoney(order.amountTax, order.currency))),
     div(span("Shipping"), strong(formatMoney(order.amountShipping, order.currency))),
+    taxPresentation(order).note ? p(taxPresentation(order).note) : null,
     div.class`public-order-total`(
       span("Total"),
       strong(formatMoney(order.amountTotal, order.currency))

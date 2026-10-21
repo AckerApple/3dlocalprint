@@ -10,7 +10,8 @@
     "clean": "rm -rf lib",
     "deploy": "firebase deploy --only functions",
     "serve": "firebase emulators:start --only functions",
-    "test:custom-orders": "node test/custom-orders.test.mjs"
+    "test:custom-orders": "node test/custom-orders.test.mjs",
+    "test:payment-notifications": "npm run build && node test/payment-notifications.test.mjs && node test/smtp-outcomes.test.mjs && node test/custom-orders.test.mjs"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0",

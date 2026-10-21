@@ -1,0 +1,11 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';import {EventEmitter} from 'node:events';import ts from 'typescript';
+const source=fs.readFileSync(new URL('../src/index.ts',import.meta.url),'utf8');const code=source.slice(source.indexOf('function sendSmtpMail('),source.indexOf('\nfunction normalizeCheckoutCartItems'));
+for(const scenario of ['accepted_quit_failure','before_data_rejected','after_data_rejected','after_data_timeout','before_data_disconnect','after_data_disconnect']){
+ let step=0,timeout;class Socket extends EventEmitter{setTimeout(ms,callback){timeout=callback;}end(){}write(command){if(command==='QUIT\r\n')throw Error('disconnect after acceptance');const current=step++;queueMicrotask(()=>{if(scenario==='before_data_disconnect'&&current===4){this.emit('close');return;}if(current===7){if(scenario==='after_data_timeout'){timeout();return;}if(scenario==='after_data_disconnect'){this.emit('close');return;}}const code=scenario==='before_data_rejected'&&current===5?550:scenario==='after_data_rejected'&&current===7?550:[250,334,334,235,250,250,354,250][current];this.emit('data',Buffer.from(code+' OK\r\n'));});}}
+ const tls={connect(){const socket=new Socket();queueMicrotask(()=>socket.emit('data',Buffer.from('220 ready\r\n')));return socket;}};
+ const ctx=vm.createContext({tls,Buffer,Promise,Error});vm.runInContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,ctx);
+ const send=ctx.sendSmtpMail({host:'mock',port:465,user:'mock',pass:'mock',from:'a',to:'b',message:'mock message'});
+ if(scenario==='accepted_quit_failure')await send;else await assert.rejects(send,error=>error.deliveryOutcome===(scenario.includes('after_data')&&!scenario.includes('rejected')?'uncertain':'not_accepted'));
+}
+assert.match(source,/case "payment_intent.succeeded"/);assert.match(source,/case "checkout.session.completed"/);assert.match(source,/deliverPaymentNotifications\(getAdminDb\(\), orderRef, paymentIntentId/);
+console.log('PASS SMTP transport: final DATA250 is accepted despite QUIT failure; explicit pre/post-DATA rejection safe to retry; post-DATA timeout/disconnect uncertain; pre-DATA disconnect not accepted. Mock TLS only.');

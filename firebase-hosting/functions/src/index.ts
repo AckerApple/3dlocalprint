@@ -1,3 +1,5 @@
+import { deliverPaymentNotifications } from "./paymentNotifications";
+import { stripeTaxBehavior, taxPresentation } from "./orderTax";
 import { FIXED_TEST_PRODUCT_ID, fixedCheckoutLine } from "./fixedCheckout";
 import { CheckoutLinkError, checkoutRateLimit, manageCheckoutLink, resolveCheckoutToken } from "./checkoutLinks";
 import {CheckoutStateError,prepareExistingOrderCheckout,retireExistingOrderCheckout,beginCheckoutTransition,releaseCheckoutTransition,expireUnpaidCheckout,checkoutFingerprint} from "./orderCheckoutService";
@@ -118,6 +120,7 @@ type CheckoutLineItem = {
 };
 
 type OrderNotificationInput = {
+  taxBehavior?: string;
   orderId: string;
   status: string;
   lineItems: CheckoutLineItem[];
@@ -579,6 +582,7 @@ function isTestOrderRecord(data: Record<string, unknown> = {}): boolean {
 }
 
 function buildOrderNotificationEmail(order: OrderNotificationInput): { subject: string; text: string; html: string } {
+  const tax = taxPresentation(order);
   const isTest = order.stripeMode === "sandbox";
   const subject = `${isTest ? "(test) " : ""}Order ${order.orderId} created - ${formatMoney(order.amountTotal, order.currency)}`;
   const customer = [order.customerName, order.customerEmail].filter(Boolean).join(" · ") || "No customer details recorded";
@@ -592,10 +596,11 @@ function buildOrderNotificationEmail(order: OrderNotificationInput): { subject: 
     `Status: ${getStatusLabel(order.status)}`,
     `Mode: ${order.stripeMode}`,
     `Customer: ${customer}`,
-    `Subtotal: ${formatMoney(order.amountSubtotal, order.currency)}`,
-    `Tax: ${formatMoney(order.amountTax, order.currency)}`,
+    `${tax.subtotalLabel}: ${formatMoney(order.amountSubtotal, order.currency)}`,
+    `${tax.taxLabel}: ${formatMoney(order.amountTax, order.currency)}`,
     `Shipping: ${formatMoney(order.amountShipping, order.currency)}`,
     `Total: ${formatMoney(order.amountTotal, order.currency)}`,
+    tax.note,
     "",
     "Items:",
     itemLines,
@@ -644,8 +649,8 @@ function buildOrderNotificationEmail(order: OrderNotificationInput): { subject: 
               <tbody>${htmlItems}</tbody>
             </table>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#fffaf6;border:1px solid #f1e2d8;border-radius:10px;">
-              <tr><td style="padding:14px 16px 6px;color:#7b6255;">Subtotal</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
-              <tr><td style="padding:6px 16px;color:#7b6255;">Tax</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
+              <tr><td style="padding:14px 16px 6px;color:#7b6255;">${escapeHtml(tax.subtotalLabel)}</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
+              <tr><td style="padding:6px 16px;color:#7b6255;">${escapeHtml(tax.taxLabel)}</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
               <tr><td style="padding:6px 16px 14px;color:#7b6255;">Shipping</td><td align="right" style="padding:6px 16px 14px;color:#2c211b;">${escapeHtml(formatMoney(order.amountShipping, order.currency))}</td></tr>
               <tr><td style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:18px;font-weight:700;color:#2c211b;">Total</td><td align="right" style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:20px;font-weight:700;color:#de6a2e;">${escapeHtml(formatMoney(order.amountTotal, order.currency))}</td></tr>
             </table>
@@ -663,6 +668,7 @@ function buildOrderNotificationEmail(order: OrderNotificationInput): { subject: 
 }
 
 function buildCustomerOrderEmail(order: OrderNotificationInput): { subject: string; text: string; html: string } {
+  const tax = taxPresentation(order);
   const isTest = order.stripeMode === "sandbox";
   const subject = `${isTest ? "(test) " : ""}Your 3D Local Print order ${order.orderId}`;
   const customerGreeting = order.customerName ? `Hi ${order.customerName},` : "Hi,";
@@ -677,10 +683,11 @@ function buildCustomerOrderEmail(order: OrderNotificationInput): { subject: stri
     "Thanks for your order with 3D Local Print. We received your payment and will follow up if we need anything else.",
     "",
     `Order: ${order.orderId}`,
-    `Subtotal: ${formatMoney(order.amountSubtotal, order.currency)}`,
-    `Tax: ${formatMoney(order.amountTax, order.currency)}`,
+    `${tax.subtotalLabel}: ${formatMoney(order.amountSubtotal, order.currency)}`,
+    `${tax.taxLabel}: ${formatMoney(order.amountTax, order.currency)}`,
     `Shipping: ${formatMoney(order.amountShipping, order.currency)}`,
     `Total: ${formatMoney(order.amountTotal, order.currency)}`,
+    tax.note,
     "",
     "Items:",
     itemLines,
@@ -726,8 +733,8 @@ function buildCustomerOrderEmail(order: OrderNotificationInput): { subject: stri
               <tbody>${htmlItems}</tbody>
             </table>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#fffaf6;border:1px solid #f1e2d8;border-radius:10px;">
-              <tr><td style="padding:14px 16px 6px;color:#7b6255;">Subtotal</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
-              <tr><td style="padding:6px 16px;color:#7b6255;">Tax</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
+              <tr><td style="padding:14px 16px 6px;color:#7b6255;">${escapeHtml(tax.subtotalLabel)}</td><td align="right" style="padding:14px 16px 6px;color:#2c211b;">${escapeHtml(formatMoney(order.amountSubtotal, order.currency))}</td></tr>
+              <tr><td style="padding:6px 16px;color:#7b6255;">${escapeHtml(tax.taxLabel)}</td><td align="right" style="padding:6px 16px;color:#2c211b;">${escapeHtml(formatMoney(order.amountTax, order.currency))}</td></tr>
               <tr><td style="padding:6px 16px 14px;color:#7b6255;">Shipping</td><td align="right" style="padding:6px 16px 14px;color:#2c211b;">${escapeHtml(formatMoney(order.amountShipping, order.currency))}</td></tr>
               <tr><td style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:18px;font-weight:700;color:#2c211b;">Total</td><td align="right" style="padding:14px 16px;border-top:1px solid #f1e2d8;font-size:20px;font-weight:700;color:#de6a2e;">${escapeHtml(formatMoney(order.amountTotal, order.currency))}</td></tr>
             </table>
@@ -1269,6 +1276,7 @@ function getNotificationOrderInput(orderId: string, data: Record<string, unknown
   return {
     orderId,
     status: String(data.status || "unknown").trim() || "unknown",
+    taxBehavior: String(data.taxBehavior || "unknown"),
     lineItems: normalizeNotificationLineItems(data.lineItems, currency),
     currency,
     amountSubtotal: Math.max(0, Math.round(Number(data.amountSubtotal) || 0)),
@@ -1308,6 +1316,7 @@ function sendSmtpMail({
   return new Promise((resolve, reject) => {
     const socket = tls.connect({ host, port, servername: host });
     let buffer = "";
+    let messageSubmitted = false, settled = false;
     let pending: null | {
       expected: number[];
       resolve: (line: string) => void;
@@ -1328,13 +1337,17 @@ function sendSmtpMail({
       socket.write(`${command}\r\n`);
     };
 
-    const fail = (error: Error) => {
+    const fail = (error: Error & { deliveryOutcome?: string }) => {
+      if (settled) return;
+      settled = true;
+      error.deliveryOutcome ||= messageSubmitted ? "uncertain" : "not_accepted";
       cleanup();
       reject(error);
     };
 
     socket.setTimeout(15000, () => fail(new Error("smtp_timeout")));
     socket.on("error", fail);
+    socket.on("close", () => fail(new Error("smtp_connection_closed")));
     socket.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
       if (!pending) return;
@@ -1345,7 +1358,7 @@ function sendSmtpMail({
       const current = pending;
       if (!current.expected.includes(code)) {
         pending = null;
-        fail(new Error(`smtp_${code}: ${completeLine.slice(4, 180)}`));
+        fail(Object.assign(new Error(`smtp_${code}: ${completeLine.slice(4, 180)}`), { deliveryOutcome: code >= 400 && code < 600 ? "not_accepted" : messageSubmitted ? "uncertain" : "not_accepted" }));
         return;
       }
       buffer = "";
@@ -1369,12 +1382,13 @@ function sendSmtpMail({
       await waitFor(250, 251);
       send("DATA");
       await waitFor(354);
+      messageSubmitted = true;
       send(`${message}\r\n.`);
       await waitFor(250);
-      send("QUIT");
-      await waitFor(221);
-      cleanup();
+      settled = true;
       resolve();
+      // DATA was accepted: QUIT or a subsequent disconnect cannot undo delivery.
+      try { send("QUIT"); } finally { cleanup(); }
     })().catch(fail);
   });
 }
@@ -3546,6 +3560,7 @@ export const getPublicOrder = onRequest(
         order: {
           id: order.orderId,
           status: order.status,
+          taxBehavior: order.taxBehavior || "unknown",
           lineItems: order.lineItems,
           currency: order.currency,
           amountSubtotal: order.amountSubtotal,
@@ -3690,10 +3705,12 @@ export const getPublicOrderReceiptLink = onRequest(
           : getStripePaymentSearchUrl(session.id, stripeMode);
         receiptOrderData = {
           ...data,
+          paymentNotificationCoordination: data.paymentNotificationCoordination || (data.paidAt || data.status === "paid" ? "legacy" : "v1"),
           id: orderId,
           agreementId: String(data.agreementId || session.metadata?.agreementId || "").trim(),
           orderType: String(data.orderType || session.metadata?.orderType || "").trim(),
           status: isPaid ? "paid" : String(data.status || "checkout_created"),
+          taxBehavior: stripeTaxBehavior(session.line_items?.data || []),
           lineItems,
           currency: String(session.currency || data.currency || "").toLowerCase(),
           amountSubtotal: Number(session.amount_subtotal) || Number(data.amountSubtotal) || 0,
@@ -3734,6 +3751,7 @@ export const getPublicOrderReceiptLink = onRequest(
           customerEmail,
           paymentIntentId,
           status: isPaid ? "paid" : String(data.status || "checkout_created"),
+          taxBehavior: stripeTaxBehavior(session.line_items?.data || []),
         });
       }
 
@@ -3762,6 +3780,7 @@ export const getPublicOrderReceiptLink = onRequest(
         order: {
           id: orderId,
           status: String(receiptOrderData.status || ""),
+          taxBehavior: String(receiptOrderData.taxBehavior || "unknown"),
           lineItems: Array.isArray(receiptOrderData.lineItems) ? receiptOrderData.lineItems : [],
           currency: String(receiptOrderData.currency || ""),
           amountSubtotal: Number(receiptOrderData.amountSubtotal) || 0,
@@ -3842,8 +3861,9 @@ export const stripeWebhook = onRequest(
       }
       response.status(200).json({ received: true });
     } catch (error) {
-      logger.error("stripeWebhook signature verification failed", error);
-      response.status(400).send("Invalid webhook signature");
+      const notificationRetry = error instanceof Error && /^payment_notification_(retry_needed|processing_failed)$/.test(error.message);
+      logger.error(notificationRetry ? "stripeWebhook notification processing needs retry" : "stripeWebhook signature or payment validation failed", error);
+      response.status(notificationRetry ? 503 : 400).send(notificationRetry ? "Payment recorded; notification processing needs retry." : "Invalid webhook signature or payment event");
     }
   },
 );
@@ -4524,11 +4544,10 @@ async function savePaidCheckoutSession(
   assertCurrentPaidSession(existingOrderData, session);
   if(existingOrderData.checkoutChannel==="embedded"&&(session.amount_total!==existingOrderData.amountTotal||session.currency!==existingOrderData.currency||session.livemode!==(existingOrderData.stripeMode==="live")))throw new Error("order_checkout_payment_mismatch");
   if (existingOrderData.customerDetailsPending && (!verifiedCustomerName(session) || !String(session.customer_details?.email || session.customer_email || "").trim())) throw new Error("checkout_customer_details_required");
-  const previousNotificationStatus = String(existingOrderData.notificationEmailStatus || "");
-  const previousCustomerEmailStatus = String(existingOrderData.customerOrderEmailStatus || "");
   const paidOrder: OrderNotificationInput = {
     orderId,
     status: "paid",
+    taxBehavior: stripeTaxBehavior(session.line_items?.data || []),
     lineItems: existingOrderData.orderType===CUSTOM_ORDER_TYPE ? existingOrderData.lineItems : session.line_items?.data.map((item) => {
       const priceMetadata = typeof item.price === "string" ? {} : item.price?.metadata || {};
       return {
@@ -4558,6 +4577,7 @@ async function savePaidCheckoutSession(
     status: "paid",
     currency: paidOrder.currency,
     amountSubtotal: paidOrder.amountSubtotal,
+    taxBehavior: paidOrder.taxBehavior,
     amountTax: paidOrder.amountTax,
     amountShipping: paidOrder.amountShipping,
     amountTotal: paidOrder.amountTotal,
@@ -4570,7 +4590,6 @@ async function savePaidCheckoutSession(
     latestStripeEventId,
     stripeMode,
     notificationEmail: ORDER_NOTIFICATION_EMAIL,
-    notificationEmailStatus: previousNotificationStatus === "sent" ? "sent" : "pending",
     publicOrderUrl,
     updatedAt,
     paidAt: updatedAt,
@@ -4595,7 +4614,7 @@ async function savePaidCheckoutSession(
     const current=(await tx.get(orderRef)).data()||{};assertCurrentPaidSession(current,session);
     if(current.checkoutChannel==="embedded"&&(current.amountTotal!==session.amount_total||current.currency!==session.currency))throw Error("order_checkout_payment_mismatch");
     if(["canceled","closed"].includes(current.status)&&!current.paidAt)throw Error("order_not_payable");
-    tx.set(orderRef,{...saveOrder,...(current.orderType===CUSTOM_ORDER_TYPE?{lineItems:current.lineItems}:{}),status:current.status==="closed"?"closed":"paid",paidAt:current.paidAt||updatedAt},{merge:true});
+    tx.set(orderRef,{...saveOrder,notificationEmailStatus:current.notificationEmailStatus || "pending",paymentNotificationCoordination:current.paymentNotificationCoordination || (current.paidAt || current.status === "paid" || current.status === "closed" ? "legacy" : "v1"),...(current.orderType===CUSTOM_ORDER_TYPE?{lineItems:current.lineItems}:{}),status:current.status==="closed"?"closed":"paid",paidAt:current.paidAt||updatedAt},{merge:true});
   });
 
   await markLinkedAgreementPaid(
@@ -4610,39 +4629,18 @@ async function savePaidCheckoutSession(
     session.id,
   );
 
-  if (previousNotificationStatus !== "sent") {
-    try {
-      const notificationStatus = await sendOrderNotificationEmail(paidOrder);
-      await orderRef.set({
-        notificationEmailStatus: notificationStatus,
-        notificationEmailUpdatedAt: nowIso(),
-      }, { merge: true });
-    } catch (error) {
-      logger.error("order notification email failed", { orderId, error });
-      await orderRef.set({
-        notificationEmailStatus: error instanceof Error ? `failed: ${error.message.slice(0, 160)}` : "failed",
-        notificationEmailUpdatedAt: nowIso(),
-      }, { merge: true });
-    }
+  const delivery = await deliverPaymentNotifications(getAdminDb(), orderRef, paymentIntentId, [
+    { kind: "admin", email: ORDER_NOTIFICATION_EMAIL, send: () => sendOrderNotificationEmail(paidOrder) },
+    { kind: "customer", email: paidOrder.customerEmail, send: () => sendCustomerOrderEmail(paidOrder) },
+  ]).catch((error) => {
+    logger.error("payment notification coordination failed", { orderId, error });
+    throw new Error("payment_notification_processing_failed");
+  });
+  logger.info("payment notification delivery coordination", { orderId, ...delivery });
+  if (Object.values(delivery.outcomes).some(state => ["uncertain", "retry_exhausted", "legacy_review", "missing_recipient"].includes(state))) {
+    logger.warn("payment notification requires operator review", { orderId, outcomes: delivery.outcomes });
   }
-
-  if (previousCustomerEmailStatus !== "sent") {
-    try {
-      const customerEmailStatus = await sendCustomerOrderEmail(paidOrder);
-      await orderRef.set({
-        customerOrderEmail: paidOrder.customerEmail,
-        customerOrderEmailStatus: customerEmailStatus,
-        customerOrderEmailUpdatedAt: nowIso(),
-      }, { merge: true });
-    } catch (error) {
-      logger.error("customer order email failed", { orderId, customerEmail: paidOrder.customerEmail, error });
-      await orderRef.set({
-        customerOrderEmail: paidOrder.customerEmail,
-        customerOrderEmailStatus: error instanceof Error ? `failed: ${error.message.slice(0, 160)}` : "failed",
-        customerOrderEmailUpdatedAt: nowIso(),
-      }, { merge: true });
-    }
-  }
+  if (delivery.retryNeeded) throw new Error("payment_notification_retry_needed");
 }
 
 async function handlePaymentIntentSucceeded(
@@ -4653,16 +4651,13 @@ async function handlePaymentIntentSucceeded(
   const orderId = String(paymentIntent.metadata?.orderId || "");
   const stripeMode = paymentIntent.livemode ? "live" : "sandbox";
 
+  let checkoutSessionId = "";
   try {
     const sessions = await stripe.checkout.sessions.list({
       payment_intent: paymentIntent.id,
       limit: 1,
     });
-    const checkoutSessionId = sessions.data[0]?.id || "";
-    if (checkoutSessionId) {
-      await savePaidCheckoutSession(stripe, checkoutSessionId, event.id);
-      return;
-    }
+    checkoutSessionId = sessions.data[0]?.id || "";
   } catch (error) {
     logger.warn("payment_intent.succeeded checkout session lookup failed", {
       paymentIntentId: paymentIntent.id,
@@ -4671,6 +4666,10 @@ async function handlePaymentIntentSucceeded(
     });
   }
 
+  if (checkoutSessionId) {
+    await savePaidCheckoutSession(stripe, checkoutSessionId, event.id);
+    return;
+  }
   if (!orderId) return;
   const pending = await getAdminDb().collection("orders").doc(orderId).get();
   if(pending.data()?.orderType===CUSTOM_ORDER_TYPE)throw new Error("checkout_session_verification_required");
