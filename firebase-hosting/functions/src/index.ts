@@ -4,7 +4,7 @@ import { FIXED_TEST_PRODUCT_ID, fixedCheckoutLine } from "./fixedCheckout";
 import { CheckoutLinkError, checkoutRateLimit, manageCheckoutLink, resolveCheckoutToken } from "./checkoutLinks";
 import {CheckoutStateError,prepareExistingOrderCheckout,retireExistingOrderCheckout,beginCheckoutTransition,releaseCheckoutTransition,expireUnpaidCheckout,checkoutFingerprint} from "./orderCheckoutService";
 import { ownsCheckout, publicOrderCheckout } from "./orderCheckoutSupport";
-import { IntegrationError, parseIntegrationToken, verifyIntegrationGrant, buildIntegrationGrant, assertIntegrationOrder, reserveIntegrationOrder, integrationSummary, type IntegrationGrant } from "./orderIntegrationSupport";
+import { IntegrationError, integrationAllowsProduct, parseIntegrationToken, verifyIntegrationGrant, buildIntegrationGrant, assertIntegrationOrder, reserveIntegrationOrder, integrationSummary, type IntegrationGrant } from "./orderIntegrationSupport";
 import { customOrderRequestId, customerCollection, verifiedCustomerName, assertCurrentPaidSession, decodeOrderImage } from "./customOrderSupport";
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
@@ -4794,9 +4794,9 @@ export const orderIntegrationApi = onRequest(
     try {
       if (request.method === "GET" && resource === "catalog") {
         const grant=await requireOrderIntegration(request,"catalog:read");
-        const products=Array.from((await loadProductCatalog()).values()).filter(p=>p.active&&grant.allowedProductIds.includes(p.id));
+        const products=Array.from((await loadProductCatalog()).values()).filter(p=>p.active&&integrationAllowsProduct(grant,p.id));
         response.json({products:products.map(p=>({id:p.id,title:p.title,slug:p.slug,unitAmount:p.unitAmount,currency:p.currency,variations:p.variations||[],requiresBadgeName:p.slug === "custom-name-badges"})),
-          limits:{allowedModes:grant.allowedModes,currency:grant.currency,maxOrderAmount:grant.maxOrderAmount,maxQuantity:grant.maxQuantity,expiresAt:grant.expiresAt}});return;
+          limits:{allowedModes:grant.allowedModes,currency:grant.currency,maxOrderAmount:grant.maxOrderAmount,maxQuantity:grant.maxQuantity,quantityScope:grant.quantityScope || "per_grant",expiresAt:grant.expiresAt}});return;
       }
       if (request.method === "POST" && resource === "orders") {
         const grant=await requireOrderIntegration(request,"orders:create");

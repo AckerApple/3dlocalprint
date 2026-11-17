@@ -4,8 +4,10 @@ export type IntegrationScope = typeof INTEGRATION_SCOPES[number];
 export type IntegrationGrant = {
   ownerEmail: string; label: string; tokenHash: string; scopes: IntegrationScope[];
   expiresAt: string; createdAt: string; revokedAt: string;
+  productScope?: "selected" | "all_active";
   allowedProductIds: string[]; allowedModes: ("sandbox" | "live")[];
-  currency: "usd"; maxOrderAmount: number; maxTotalAmount: number; maxOrders: number; maxQuantity: number;
+  currency: "usd"; maxOrderAmount: number; maxTotalAmount: number; maxOrders: number;
+  quantityScope?: "request_limit"; maxQuantity?: number;
   orderCount: number; reservedAmount: number;
 };
 export class IntegrationError extends Error {
@@ -14,6 +16,21 @@ export class IntegrationError extends Error {
 const fail = (status: number, code: string): never => {throw new IntegrationError(status,code);};
 const integer = (x: unknown, min: number, max: number) => typeof x === "number" && Number.isSafeInteger(x) && x >= min && x <= max;
 const hash = (x: string) => createHash("sha256").update(x).digest("hex");
+// Missing scope means the historical selected-products policy, never all products.
+function validProductScope(grant: any): boolean {
+  if (!Array.isArray(grant?.allowedProductIds)) return false;
+  if (grant.productScope === "all_active") return grant.allowedProductIds.length === 0;
+  return (grant.productScope === undefined || grant.productScope === "selected")
+    && grant.allowedProductIds.length > 0 && grant.allowedProductIds.length <= 20
+    && grant.allowedProductIds.every((id: unknown) => typeof id === "string" && /^[a-zA-Z0-9_-]{1,200}$/.test(id));
+}
+export function integrationAllowsProduct(grant: Pick<IntegrationGrant, "productScope" | "allowedProductIds">, productId: string): boolean {
+  return validProductScope(grant) && (grant.productScope === "all_active" || grant.allowedProductIds.includes(productId));
+}
+function validQuantityScope(grant: any): boolean {
+  return grant?.quantityScope === "request_limit" ? grant.maxQuantity === undefined
+    : grant?.quantityScope === undefined && integer(grant?.maxQuantity,1,100);
+}
 export function parseIntegrationToken(header: string): {id: string; tokenHash: string} {
   const match = /^Bearer (3dlp_([a-f0-9]{32})_[A-Za-z0-9_-]{43})$/.exec(header);
   if (!match) return fail(401,"integration_token_invalid");
@@ -23,6 +40,8 @@ export function verifyIntegrationGrant(raw: any, presentedHash: string, scope: I
   if (!raw || !/^[a-f0-9]{64}$/.test(raw.tokenHash || "") || !/^[a-f0-9]{64}$/.test(presentedHash)
     || !timingSafeEqual(Buffer.from(raw.tokenHash,"hex"),Buffer.from(presentedHash,"hex"))
     || raw.revokedAt || !Number.isFinite(Date.parse(raw.expiresAt)) || Date.parse(raw.expiresAt) <= now) return fail(401,"integration_token_invalid");
+  if (!validQuantityScope(raw)) return fail(403,"integration_quantity_scope_invalid");
+  if (!validProductScope(raw)) return fail(403,"integration_product_scope_invalid");
   if (!Array.isArray(raw.scopes) || !raw.scopes.includes(scope)) return fail(403,"integration_scope_denied");
 }
 export function buildIntegrationGrant(body: any, ownerEmail: string, id: string, now = Date.now()): {token: string; grant: IntegrationGrant} {
@@ -30,16 +49,16 @@ export function buildIntegrationGrant(body: any, ownerEmail: string, id: string,
   const products = Array.isArray(body.allowedProductIds) ? [...new Set(body.allowedProductIds)] : [];
   const modes = Array.isArray(body.allowedModes) ? [...new Set(body.allowedModes)] : [];
   if (!scopes.length || !scopes.every(x=>INTEGRATION_SCOPES.includes(x as IntegrationScope))
-    || !products.length || products.length > 20 || !products.every(x=>typeof x === "string" && /^[a-zA-Z0-9_-]{1,200}$/.test(x))
+    || !Array.isArray(body.allowedProductIds) || !validProductScope({productScope:body.productScope,allowedProductIds:products})
     || !modes.length || !modes.every(x=>x === "live" || x === "sandbox")
     || !integer(body.expiresInMinutes,5,43200) || !integer(body.maxOrderAmount,1,1000000)
     || !integer(body.maxTotalAmount,body.maxOrderAmount,1000000) || !integer(body.maxOrders,1,1000)
-    || !integer(body.maxQuantity,1,100) || body.currency !== "usd"
+    || !validQuantityScope(body) || body.currency !== "usd"
     || typeof body.label !== "string" || !body.label.trim() || body.label.length > 80) return fail(400,"integration_policy_invalid");
   const token = `3dlp_${id}_${randomBytes(32).toString("base64url")}`;
   return {token,grant:{ownerEmail,label:body.label.trim(),tokenHash:hash(token),scopes:scopes as IntegrationScope[],
-    allowedProductIds:products as string[],allowedModes:modes as ("sandbox"|"live")[],currency:"usd",
-    maxOrderAmount:body.maxOrderAmount,maxTotalAmount:body.maxTotalAmount,maxOrders:body.maxOrders,maxQuantity:body.maxQuantity,
+    productScope:body.productScope || "selected", allowedProductIds:products as string[],allowedModes:modes as ("sandbox"|"live")[],currency:"usd",
+    maxOrderAmount:body.maxOrderAmount,maxTotalAmount:body.maxTotalAmount,maxOrders:body.maxOrders,...(body.quantityScope === "request_limit" ? {quantityScope:"request_limit" as const} : {maxQuantity:body.maxQuantity}),
     expiresAt:new Date(now+body.expiresInMinutes*60000).toISOString(),createdAt:new Date(now).toISOString(),revokedAt:"",orderCount:0,reservedAmount:0}};
 }
 export function assertIntegrationOrder(grant: IntegrationGrant, body: any, lines: {productId:string;quantity:number;unitAmount:number;currency:string}[], shipping: number, mode: string) {
@@ -50,8 +69,8 @@ export function assertIntegrationOrder(grant: IntegrationGrant, body: any, lines
     || (body.amountShipping !== undefined && !integer(body.amountShipping,0,1000000))) return fail(400,"integration_order_invalid");
   const total = lines.reduce((sum,x)=>sum+x.unitAmount*x.quantity,0)+shipping;
   if (body.expectedAmountTotal !== undefined && (!integer(body.expectedAmountTotal,1,1000000) || body.expectedAmountTotal !== total)) return fail(409,"integration_quote_changed");
-  if (!grant.allowedModes.includes(mode as "live"|"sandbox") || lines.some(x=>!grant.allowedProductIds.includes(x.productId) || x.currency!==grant.currency)
-    || lines.reduce((sum,x)=>sum+x.quantity,0)>grant.maxQuantity || total>grant.maxOrderAmount) return fail(403,"integration_limit_denied");
+  if (!grant.allowedModes.includes(mode as "live"|"sandbox") || lines.some(x=>!integrationAllowsProduct(grant,x.productId) || x.currency!==grant.currency)
+    || !validQuantityScope(grant) || lines.reduce((sum,x)=>sum+x.quantity,0)>(grant.quantityScope === "request_limit" ? 10000 : grant.maxQuantity!) || total>grant.maxOrderAmount) return fail(403,"integration_limit_denied");
 }
 export function reserveIntegrationOrder(grant: IntegrationGrant, amount: number) {
   if (!integer(grant.orderCount,0,1000) || !integer(grant.reservedAmount,0,1000000)

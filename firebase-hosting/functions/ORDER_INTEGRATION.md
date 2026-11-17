@@ -16,6 +16,41 @@ A Firestore transaction rechecks the grant and reserves order count and gross am
 
 Integration catalog and shipping amounts are tax-inclusive to make the agreed quote/budget an exact total. Web-admin non-badge products keep their previous tax behavior; badge prices include calculated tax. The CLI requires an exact expected total and explicit live/test mode. A retry after an order is paid reports paid; it never resets payment state.
 
+## New-grant setup (local revision)
+
+Setup is initially collapsed behind “Set up laptop access”. The one-time credential
+section appears only after successful issuance while setup remains open. Closing
+setup, pressing Escape, clearing the key, signing out, navigating away, or waiting
+two minutes clears and hides it. A response arriving after dismissal never reveals
+a key; inspect/revoke that grant before issuing another if the credential was lost.
+
+New grants default to explicit `productScope: "all_active"` with an empty
+`allowedProductIds` list: all currently active catalog products, including active
+products added later. Catalog visibility is not a security boundary; active hidden
+order-only products are included too. Inactive/unavailable products are still
+rejected by normal server pricing and eligibility validation. “Choose specific
+products (optional)” instead creates `productScope: "selected"` with explicit IDs.
+Historical records without `productScope` retain selected-product semantics;
+empty, malformed, unknown or contradictory policies are denied, never broadened.
+
+New UI grants use `quantityScope: "request_limit"` and omit `maxQuantity`: no
+per-grant item-count setting. Existing grants without that marker must retain a
+valid issued `maxQuantity`, which remains enforced. The request's general row,
+per-line quantity and payload/resource ceilings still apply, as do all mode,
+currency, pricing, per-order/lifetime amount, order-count, expiry, revocation,
+owner-membership and operation/ownership checks. No stored grant is migrated.
+
+New maximum-per-order and total-budget inputs both default to **$200.00**; exact
+integer-cent conversion sends `20000` for each. Dollar entry rejects exponents,
+more than two decimal places, zero, values over $10,000, and a total budget below
+the per-order limit. Defaults do not modify issued grants or pending order drafts.
+
+Publishing this revision requires only the Laptop order access frontend page and
+its required bundle plus `manageOrderIntegrations` and `orderIntegrationApi`.
+No other function accepts integration grants or needs a new revision for this
+change. No rules, indexes, IAM, credential issuance, live order, or grant migration
+is part of publication.
+
 ## Interfaces
 
 Direct CLI base: `https://us-central1-threedlocalprint.cloudfunctions.net/orderIntegrationApi`
